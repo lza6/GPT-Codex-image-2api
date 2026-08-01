@@ -95,10 +95,8 @@ export function VersionReleaseDialog({ className }: { className?: string }) {
               </div>
             ))}
           </div>
-          <Button variant="outline" size="sm" asChild>
-            <a href="https://github.com/basketikun/chatgpt2api" target="_blank" rel="noreferrer">
-              前往 GitHub 更新
-            </a>
+          <Button variant="outline" size="sm" onClick={() => setOpen(false)}>
+            关闭
           </Button>
         </DialogContent>
       </Dialog>

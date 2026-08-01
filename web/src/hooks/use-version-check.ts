@@ -1,75 +1,32 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
-import { toast } from "sonner";
+import { useMemo, useState } from "react";
 
 import webConfig from "@/constants/common-env";
-import { parseChangelog, type ReleaseInfo } from "@/lib/release";
+import type { ReleaseInfo } from "@/lib/release";
 
-const latestVersionUrl =
-  "https://raw.githubusercontent.com/basketikun/chatgpt2api/main/VERSION";
-const latestChangelogUrl =
-  "https://raw.githubusercontent.com/basketikun/chatgpt2api/main/CHANGELOG.md";
-
+// 内部定制化部署：仅使用构建时注入的本地版本与 changelog，不访问外部远程源。
 function readLocalReleases(): ReleaseInfo[] {
-  return JSON.parse(process.env.NEXT_PUBLIC_APP_RELEASES || "[]");
-}
-
-function toVersionParts(version: string) {
-  const match = version.trim().match(/^v?(\d+)\.(\d+)\.(\d+)/);
-  return match ? match.slice(1).map(Number) : null;
-}
-
-function isNewerVersion(latestVersion: string, currentVersion: string) {
-  const latest = toVersionParts(latestVersion);
-  const current = toVersionParts(currentVersion);
-  if (!latest || !current) return false;
-  return latest.some(
-    (value, index) =>
-      value > current[index] &&
-      latest.slice(0, index).every((part, prevIndex) => part === current[prevIndex]),
-  );
+  try {
+    return JSON.parse(process.env.NEXT_PUBLIC_APP_RELEASES || "[]");
+  } catch {
+    return [];
+  }
 }
 
 export function useVersionCheck() {
   const currentVersion = webConfig.appVersion;
   const localReleases = useMemo(readLocalReleases, []);
-  const [latestVersion, setLatestVersion] = useState(currentVersion);
   const [releases, setReleases] = useState<ReleaseInfo[]>(localReleases);
   const [checking, setChecking] = useState(false);
   const [open, setOpen] = useState(false);
-  const hasNewVersion = isNewerVersion(latestVersion, currentVersion);
-
-  const checkLatestRelease = useCallback(
-    async (showMessage = false) => {
-      setChecking(true);
-      try {
-        const [versionResponse, changelogResponse] = await Promise.all([
-          fetch(latestVersionUrl),
-          fetch(latestChangelogUrl),
-        ]);
-        if (!versionResponse.ok || !changelogResponse.ok) throw new Error();
-        const [version, changelog] = await Promise.all([
-          versionResponse.text(),
-          changelogResponse.text(),
-        ]);
-        setLatestVersion(version.trim() || currentVersion);
-        if (changelog.trim()) setReleases(parseChangelog(changelog));
-        if (showMessage) toast.success("已获取最新版本信息");
-      } catch {
-        setLatestVersion(currentVersion);
-        setReleases(localReleases);
-        if (showMessage) toast.error("获取最新版本信息失败");
-      } finally {
-        setChecking(false);
-      }
-    },
-    [currentVersion, localReleases],
-  );
+  // 内部部署无远程版本源，latestVersion 恒等于当前版本，不提示"新版本"。
+  const latestVersion = currentVersion;
+  const hasNewVersion = false;
 
   const openReleaseModal = () => {
     setOpen(true);
-    void checkLatestRelease();
+    setReleases(localReleases);
   };
 
   return {
@@ -80,6 +37,6 @@ export function useVersionCheck() {
     releases,
     checking,
     hasNewVersion,
-    checkLatestRelease,
+    checkLatestRelease: openReleaseModal,
   };
 }

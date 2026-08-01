@@ -6,7 +6,7 @@ FROM --platform=$BUILDPLATFORM node:22-alpine AS web-build
 
 WORKDIR /app/web
 
-COPY web/package.json web/bun.lock ./
+COPY web/package.json ./
 RUN npm install
 
 COPY VERSION /app/VERSION
@@ -53,4 +53,4 @@ COPY --from=web-build /app/web/out ./web_dist
 
 EXPOSE 80
 
-CMD ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "80", "--access-log"]
+CMD ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "80", "--access-log", "--limit-concurrency", "512", "--backlog", "1024"]

@@ -1,7 +1,7 @@
 <h1 align="center">ChatGPT2API</h1>
 
 
-<p align="center">ChatGPT2API 主要是对 ChatGPT 官网相关能力进行逆向整理与封装，提供面向 ChatGPT 图片生成、图片编辑、多图组图编辑场景的 OpenAI 兼容图片 API / 代理，并集成在线画图、号池管理、多种账号导入方式与 Docker 自托管部署能力。</p>
+<p align="center">ChatGPT2API 主要是对 ChatGPT 官网相关能力进行逆向整理与封装，提供面向 ChatGPT 图片生成、图片编辑、多图组图编辑场景的 OpenAI 兼容图片 API / 代理，并集成在线画图、号池管理、智能调度系统、多级限流、运维看板、多种账号导入方式与 Docker 自托管部署能力，支持 Windows 一键启动。</p>
 
 > [!WARNING]
 > 免责声明：
@@ -29,9 +29,56 @@
   </tr>
 </table>
 
+## 功能一览
+
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| OpenAI 兼容 API | ✅ | `/v1/images/generations`、`/v1/images/edits`、`/v1/chat/completions`、`/v1/responses` |
+| 在线画图工作台 | ✅ | 文生图、图生图、多图组图、编辑模式 |
+| 号池管理 | ✅ | 导入/刷新/状态机/自动移除/健康档位调度 |
+| 智能调度系统 | ✅ | 健康档位（healthy/warm/risky）+ 调度分 + 双模式 |
+| 运维看板 | ✅ | 调度健康度、资源占用、用量统计、账号排行榜 |
+| 多级限流 | ✅ | 全局 RPM + 单 IP RPM 滑动窗口限流 |
+| 代理池 | ✅ | 多代理管理、健康检查、自动隔离恢复 |
+| 多 Worker 并发 | ✅ | 支持多进程利用多核 CPU（需 SQLite/Postgres） |
+| Windows 一键启动 | ✅ | 启动/停止 bat 脚本，自动检测环境 |
+| 存储后端 | ✅ | JSON / SQLite / PostgreSQL / Git |
+
+## 架构图
+
+```
+┌──────────────────────────────────────────────────┐
+│                   客户端                          │
+│  OpenAI SDK / Cherry Studio / curl / Claude Code  │
+└────────────┬────────────────────────────┬─────────┘
+             │ Bearer Token               │
+             ▼                            ▼
+┌──────────────────────────────────────────────────┐
+│           FastAPI 网关 (api/)                     │
+│  ┌──────┬──────┬──────┬──────┬──────┬─────────┐ │
+│  │ AI   │账号  │看板  │图片  │系统  │限流中间件│ │
+│  └──────┴──────┴──────┴──────┴──────┴─────────┘ │
+└──────────────────────┬───────────────────────────┘
+                       │
+┌──────────────────────▼───────────────────────────┐
+│           业务服务层 (services/)                   │
+│  ┌──────────┬──────────┬──────────┬────────────┐ │
+│  │账号池    │代理池    │智能调度  │ 图片任务   │ │
+│  │(account) │(proxy)   │(scheduler)│ (image)   │ │
+│  ├──────────┼──────────┼──────────┼────────────┤ │
+│  │配置管理  │日志服务  │备份服务  │ 认证服务   │ │
+│  └──────────┴──────────┴──────────┴────────────┘ │
+└──────────────────────┬───────────────────────────┘
+                       │
+┌──────────────────────▼───────────────────────────┐
+│           存储层 (services/storage/)               │
+│     JSON / SQLite / PostgreSQL / Git              │
+└──────────────────────────────────────────────────┘
+```
+
 ## 快速开始
 
-### Docker 运行
+### Docker 运行（推荐）
 
 ```bash
 git clone git@github.com:basketikun/chatgpt2api.git
@@ -143,6 +190,10 @@ environment:
 - 自动刷新账号邮箱、类型、额度和恢复时间（异步进度追踪）
 - 轮询可用账号执行图片生成与图片编辑
 - 遇到 Token 失效类错误时自动剔除无效 Token
+- 智能调度系统：健康档位（healthy/warm/risky）+ 调度分 + 账号级优先级 + 双模式（round_robin / remaining_quota）
+- 多级限流：全局 RPM + 单 IP RPM 限流中间件
+- 运维看板：调度健康度、资源占用、用量统计、账号排行榜
+- 多 Worker 并发：支持配置多进程利用多核 CPU
 - 定时检查限流账号并自动刷新
 - 支持密码重新登录恢复异常账号，刷新后可自动重登
 - 支持网页端配置全局 HTTP / HTTPS / SOCKS5 / SOCKS5H 代理
@@ -150,6 +201,48 @@ environment:
 - 支持搜索、筛选、批量刷新、导出、手动编辑和清理账号
 - 支持四种导入方式：本地 CPA JSON 文件导入、远程 CPA 服务器导入、`sub2api` 服务器导入、`access_token` 导入
 - 支持在设置页配置 `sub2api` 服务器，筛选并批量导入其中的 OpenAI OAuth 账号
+
+### 生产部署建议
+
+#### 多 Worker 部署
+
+```yaml
+# docker-compose.yml 中设置环境变量
+environment:
+  - STORAGE_BACKEND=sqlite        # 多 Worker 必须使用共享存储！
+  - DATABASE_URL=sqlite:///app/data/accounts.db
+  - CHATGPT2API_WORKERS=4          # 建议设为 CPU 核心数
+```
+
+> **⚠️ 重要**：workers > 1 时**必须使用 SQLite 或 Postgres 存储后端**，否则各进程持有独立账号副本导致数据混乱。
+> JSON 存储后端会自动回退到 workers=1 并给出警告。
+
+#### 限流配置
+
+```json
+{
+  "rate_limit_rpm": 0,             // 全局 RPM，0=不限流，建议生产设为 600+
+  "rate_limit_per_ip_rpm": 0,      // 单 IP RPM，0=不限流
+  "workers": 1                     // 多 Worker 数（需配合 SQLite/Postgres）
+}
+```
+
+#### 环境变量覆盖
+
+| 环境变量 | 对应配置项 | 默认值 |
+|----------|-----------|--------|
+| `CHATGPT2API_SCHEDULER_MODE` | scheduler_mode | round_robin |
+| `CHATGPT2API_RATE_LIMIT_RPM` | rate_limit_rpm | 0 |
+| `CHATGPT2API_RATE_LIMIT_PER_IP_RPM` | rate_limit_per_ip_rpm | 0 |
+| `CHATGPT2API_WORKERS` | workers | 1 |
+| `STORAGE_BACKEND` | 存储后端 | json |
+| `DATABASE_URL` | 数据库连接 | 自动 SQLite |
+
+#### 高并发压测参考
+
+- 单 Worker + JSON 存储：约 2000 req/min
+- 4 Worker + SQLite 存储：约 8000 req/min（实测 7912 req/min，0 崩溃）
+- 多实例 + Postgres + Redis：万级 req/min（需额外部署）
 
 ### 实验性 / 规划中
 
@@ -186,7 +279,7 @@ Authorization: Bearer <auth-key>
 返回当前暴露的图片模型列表。
 
 ```bash
-curl http://localhost:8000/v1/models \
+curl http://localhost:23456/v1/models \
   -H "Authorization: Bearer <auth-key>"
 ```
 
@@ -210,7 +303,7 @@ curl http://localhost:8000/v1/models \
 OpenAI 兼容图片生成接口，用于文生图。
 
 ```bash
-curl http://localhost:8000/v1/images/generations \
+curl http://localhost:23456/v1/images/generations \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <auth-key>" \
   -d '{
@@ -243,7 +336,7 @@ curl http://localhost:8000/v1/images/generations \
 OpenAI 兼容图片编辑接口，可上传图片文件，也可按官方 JSON 格式传入图片链接并生成编辑结果。
 
 ```bash
-curl http://localhost:8000/v1/images/edits \
+curl http://localhost:23456/v1/images/edits \
   -H "Authorization: Bearer <auth-key>" \
   -F "model=gpt-image-2" \
   -F "prompt=把这张图改成赛博朋克夜景风格" \
@@ -254,7 +347,7 @@ curl http://localhost:8000/v1/images/edits \
 也可以直接传图片 URL：
 
 ```bash
-curl http://localhost:8000/v1/images/edits \
+curl http://localhost:23456/v1/images/edits \
   -H "Authorization: Bearer <auth-key>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -290,7 +383,7 @@ curl http://localhost:8000/v1/images/edits \
 面向文本、网页搜索与图片场景的 Chat Completions 兼容接口，不是完整通用聊天代理。
 
 ```bash
-curl http://localhost:8000/v1/chat/completions \
+curl http://localhost:23456/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <auth-key>" \
   -d '{
@@ -329,7 +422,7 @@ curl http://localhost:8000/v1/chat/completions \
 面向文本、网页搜索和图片生成工具调用的 Responses API 兼容接口，不是完整通用 Responses API 代理。
 
 ```bash
-curl http://localhost:8000/v1/responses \
+curl http://localhost:23456/v1/responses \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <auth-key>" \
   -d '{

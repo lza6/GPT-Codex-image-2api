@@ -9,7 +9,7 @@ Use this skill when the user asks for current web search, online lookup, recent 
 
 ## Endpoint
 
-POST http://127.0.0.1:8000/v1/search
+POST http://127.0.0.1:23456/v1/search
 
 Headers:
 

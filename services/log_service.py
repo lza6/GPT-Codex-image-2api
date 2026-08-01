@@ -27,6 +27,7 @@ class LogService:
     def __init__(self, path: Path):
         self.path = path
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._add_count = 0
 
     @staticmethod
     def _legacy_id(raw_line: str, line_number: int) -> str:
@@ -70,6 +71,28 @@ class LogService:
         }
         with self.path.open("a", encoding="utf-8") as file:
             file.write(self._serialize_item(item) + "\n")
+        # 惰性清理：每 200 条检查一次，避免高频 I/O
+        self._add_count += 1
+        if self._add_count >= 200:
+            self._add_count = 0
+            self._auto_cleanup()
+
+    # ---- 自动清理 ----
+    _AUTO_CLEAN_MAX_ENTRIES = 5000
+    _AUTO_CLEAN_KEEP = 3000
+
+    def _auto_cleanup(self) -> None:
+        """日志条数超限时自动裁剪到保留量，防止无限增长。"""
+        try:
+            if not self.path.exists():
+                return
+            lines = self.path.read_text(encoding="utf-8").splitlines()
+            if len(lines) <= self._AUTO_CLEAN_MAX_ENTRIES:
+                return
+            kept = lines[-self._AUTO_CLEAN_KEEP:]
+            self.path.write_text("\n".join(kept) + "\n", encoding="utf-8")
+        except Exception:
+            pass
 
     def list(self, type: str = "", start_date: str = "", end_date: str = "", limit: int = 200) -> list[dict[str, Any]]:
         if not self.path.exists():

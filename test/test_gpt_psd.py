@@ -8,7 +8,7 @@ import urllib.request
 from pathlib import Path
 from uuid import uuid4
 
-BASE_URL = "http://127.0.0.1:8000"
+BASE_URL = "http://127.0.0.1:23456"
 PROMPT = "按原图位置拆分海报元素并合成可编辑 PSD，同时输出每个图层素材 zip。"
 BASE64_IMAGES: list[str] = []
 TIMEOUT_SECS = 600

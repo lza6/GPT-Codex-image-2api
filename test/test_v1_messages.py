@@ -7,7 +7,7 @@ import unittest
 import requests
 
 AUTH_KEY = "chatgpt2api"
-BASE_URL = "http://localhost:8000"
+BASE_URL = "http://localhost:23456"
 MODEL = "auto"
 
 

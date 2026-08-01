@@ -1,6 +1,32 @@
-# Changelog
+## Unreleased - 2026-08-02 (生产级增强)
 
-## Unreleased
++ [新增] 生产级可观测性：/metrics Prometheus 指标端点、X-Request-ID 请求追踪、X-Response-Time-Ms 延迟头、/api/dashboard/latency 延迟统计
++ [新增] 上游熔断器：连续失败 5 次自动熔断，30s 冷却半开恢复，防止上游抖动雪崩（接入账号调度）
++ [新增] TLS 连接池复用：Session 池跨请求复用，按代理配置缓存，避免每次 TLS 握手，降低延迟尾巴
++ [新增] SSE 实时推送：/api/dashboard/stream 看板数据 3s 推送，前端 EventSource 实时更新
++ [新增] IP 池管理 UI：代理增删改查、权重调度（轮询/加权/最少连接）、健康状态、出口 IP 探测
++ [新增] 连接池并发看板：实时显示使用中账号（在途）、配额用完账号、延迟按路径分布
++ [新增] 日志自动清理：日志超 5000 条自动裁剪到 3000 条，惰性触发防高频 I/O
++ [新增] config.json schema 校验：启动时校验配置类型，错误给出清晰行号报错
++ [新增] API 契约文档：OpenAPI 3.0 规范、多语言 SDK 示例（Python/Node/Go/curl）、图片任务轮询代码、错误码表
++ [修复] 去除 GitHub 链接，品牌内部定制化
++ [变更] 端口从 8000 改为冷门端口 23456
+
+## 1.9.0 - 2026-08-01
+
++ [新增] 智能调度系统：健康档位（healthy/warm/risky）+ 调度分 + 优先级 + 双模式调度（round_robin / remaining_quota），移植自 codex2api fast_scheduler
++ [新增] 运维看板：调度健康度、资源占用、用量统计、账号排行榜（3 个 API + 前端页面）
++ [新增] 多级限流：全局 RPM + 单 IP RPM 滑动窗口限流中间件
++ [新增] 代理池：多代理管理、健康检查、自动隔离恢复（移植自 codex2api proxy_pool）
++ [新增] 代理池管理 API（/api/proxies 增删改查、权重调整、策略切换、健康检查触发）
++ [新增] 多 Worker 并发：支持多进程利用多核 CPU（需 SQLite/Postgres）
++ [新增] Windows 一键启动/停止 bat 脚本，支持 UTF-8 编码、自动依赖安装、崩溃自动重启
++ [新增] 前后端契约测试、安全审查测试、极限压测
++ [修复] 中文路径下 Turbopack 构建失败，改用 webpack
++ [修复] 多 Worker + JSON 存储数据安全问题，自动回退 workers=1 并警告
++ [修复] SQLAlchemy 2.0 告警
++ [修复] 环境变量覆盖 4 个新配置项（CHATGPT2API_SCHEDULER_MODE/RATE_LIMIT_RPM/RATE_LIMIT_PER_IP_RPM/WORKERS）
++ [变更] 端口从 8000 改为冷门端口 23456，避免冲突
 
 ## 1.8.0 - 2026-07-28
 

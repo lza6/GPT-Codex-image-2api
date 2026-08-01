@@ -168,6 +168,10 @@ export type SettingsConfig = {
   refresh_account_interval_minute?: number | string;
   image_retention_days?: number | string;
   image_poll_timeout_secs?: number | string;
+  image_poll_interval_secs?: number | string;
+  image_poll_initial_wait_secs?: number | string;
+  image_min_free_mb?: number | string;
+  chat_completion_cache?: Record<string, unknown>;
   image_account_concurrency?: number | string;
   image_parallel_generation?: boolean;
   image_settle_enabled?: boolean;
@@ -180,6 +184,11 @@ export type SettingsConfig = {
   auto_remove_rate_limited_accounts?: boolean;
   auto_relogin_after_refresh?: boolean;
   log_levels?: string[];
+  scheduler_mode?: "round_robin" | "remaining_quota";
+  scheduler_priority?: Record<string, number>;
+  rate_limit_rpm?: number;
+  rate_limit_per_ip_rpm?: number;
+  workers?: number;
   image_storage?: ImageStorageSettings;
   proxy_runtime?: ProxyRuntimeSettings;
   third_party_apps?: ThirdPartyAppsSettings;
@@ -923,4 +932,99 @@ export async function testProxyClearance(targetUrl?: string) {
     method: "POST",
     body: { target_url: targetUrl ?? "https://chatgpt.com" },
   });
+}
+
+// ---------- 调度看板 / 运维概览 / 用量统计 ----------
+
+export type SchedulerTier = "healthy" | "warm" | "risky" | "banned";
+
+export type SchedulerAccount = {
+  email?: string | null;
+  type?: string;
+  status?: string;
+  quota: number;
+  success: number;
+  fail: number;
+  image_inflight: number;
+  tier: SchedulerTier;
+  score: number;
+  priority: number;
+};
+
+export type SchedulerDashboard = {
+  health: {
+    tiers: Record<SchedulerTier, number>;
+    statuses: Record<string, number>;
+    total: number;
+    total_quota: number;
+    total_inflight: number;
+  };
+  accounts: SchedulerAccount[];
+};
+
+export type OpsOverview = {
+  platform: string;
+  python: string;
+  pid: number;
+  uptime_seconds: number;
+  cpu_percent: number;
+  memory_used_mb: number | null;
+  memory_total_mb: number | null;
+  disk_free_mb: number;
+  disk_total_mb: number;
+  storage: {
+    disk_total_mb: number;
+    disk_used_mb: number;
+    disk_free_mb: number;
+    image_count: number;
+    image_size_mb: number;
+    image_size_bytes: number;
+  };
+  scheduler_mode: string;
+  refresh_account_interval_minute: number;
+  image_account_concurrency: number;
+};
+
+export type UsageStats = {
+  success_24h: number;
+  failed_24h: number;
+  total_24h: number;
+  by_summary: Record<string, number>;
+  recent: Array<{ time: string; summary: string; status: string }>;
+};
+
+export function fetchSchedulerDashboard() {
+  return httpRequest<SchedulerDashboard>("/api/dashboard/scheduler");
+}
+
+export function fetchOpsOverview() {
+  return httpRequest<OpsOverview>("/api/dashboard/ops");
+}
+
+export function fetchUsageStats() {
+  return httpRequest<UsageStats>("/api/dashboard/usage");
+}
+
+// ---------- 延迟统计 / 连接池并发 ----------
+
+export type LatencyPathStats = {
+  count: number;
+  errors: number;
+  avg_latency_ms: number;
+  error_rate: number;
+  statuses: Record<string, number>;
+};
+
+export type LatencySummary = {
+  total_requests: number;
+  total_errors: number;
+  avg_latency_ms: number;
+  error_rate: number;
+  uptime_seconds: number;
+  by_path: Record<string, LatencyPathStats>;
+  inflight: Record<string, number>;
+};
+
+export function fetchLatencySummary() {
+  return httpRequest<LatencySummary>("/api/dashboard/latency");
 }

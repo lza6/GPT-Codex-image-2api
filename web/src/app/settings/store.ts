@@ -181,6 +181,11 @@ function normalizeConfig(config: SettingsConfig): SettingsConfig {
     auto_remove_invalid_accounts: Boolean(config.auto_remove_invalid_accounts),
     auto_remove_rate_limited_accounts: Boolean(config.auto_remove_rate_limited_accounts),
     auto_relogin_after_refresh: Boolean(config.auto_relogin_after_refresh),
+    scheduler_mode: config.scheduler_mode === "remaining_quota" ? "remaining_quota" : "round_robin",
+    scheduler_priority: config.scheduler_priority || {},
+    rate_limit_rpm: Number(config.rate_limit_rpm || 0),
+    rate_limit_per_ip_rpm: Number(config.rate_limit_per_ip_rpm || 0),
+    workers: Number(config.workers || 1),
     log_levels: Array.isArray(config.log_levels) ? config.log_levels : [],
     proxy: typeof config.proxy === "string" ? config.proxy : "",
     base_url: typeof config.base_url === "string" ? config.base_url : "",
@@ -304,6 +309,10 @@ type SettingsStore = {
   setAutoRemoveInvalidAccounts: (value: boolean) => void;
   setAutoRemoveRateLimitedAccounts: (value: boolean) => void;
   setAutoReloginAfterRefresh: (value: boolean) => void;
+  setSchedulerMode: (value: "round_robin" | "remaining_quota") => void;
+  setRateLimitRpm: (value: string) => void;
+  setRateLimitPerIpRpm: (value: string) => void;
+  setWorkers: (value: string) => void;
   setLogLevel: (level: string, enabled: boolean) => void;
   setProxy: (value: string) => void;
   setBaseUrl: (value: string) => void;
@@ -568,6 +577,22 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
 
   setAutoReloginAfterRefresh: (value) => {
     set((state) => state.config ? { config: { ...state.config, auto_relogin_after_refresh: value } } : {});
+  },
+
+  setSchedulerMode: (value) => {
+    set((state) => state.config ? { config: { ...state.config, scheduler_mode: value } } : {});
+  },
+
+  setRateLimitRpm: (value) => {
+    set((state) => state.config ? { config: { ...state.config, rate_limit_rpm: Number(value) } } : {});
+  },
+
+  setRateLimitPerIpRpm: (value) => {
+    set((state) => state.config ? { config: { ...state.config, rate_limit_per_ip_rpm: Number(value) } } : {});
+  },
+
+  setWorkers: (value) => {
+    set((state) => state.config ? { config: { ...state.config, workers: Math.max(1, Number(value)) } } : {});
   },
 
   setLogLevel: (level, enabled) => {

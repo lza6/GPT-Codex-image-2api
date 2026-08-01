@@ -33,3 +33,7 @@ git_cache/
 loginwithpassword_*/
 logwithemailverifycode_*/
 test_batch_output/
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+graft/
+$HOME/

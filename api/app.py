@@ -7,8 +7,10 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
-from api import accounts, ai, image_tasks, system
+from api import accounts, ai, dashboard, image_tasks, proxy_pool, system
 from api.errors import install_exception_handlers
+from api.metrics_middleware import MetricsMiddleware
+from api.rate_limit import RateLimitMiddleware
 from api.support import resolve_web_asset, start_limited_account_watcher
 from services.backup_service import backup_service
 from services.config import config
@@ -35,6 +37,12 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title="chatgpt2api", version=app_version, lifespan=lifespan)
     install_exception_handlers(app)
+    app.add_middleware(MetricsMiddleware)
+    app.add_middleware(
+        RateLimitMiddleware,
+        global_rpm=config.rate_limit_rpm,
+        per_ip_rpm=config.rate_limit_per_ip_rpm,
+    )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -46,6 +54,8 @@ def create_app() -> FastAPI:
     app.include_router(accounts.create_router())
     app.include_router(image_tasks.create_router())
     app.include_router(system.create_router(app_version))
+    app.include_router(dashboard.create_router())
+    app.include_router(proxy_pool.create_router())
 
     @app.api_route("/{full_path:path}", methods=["GET", "HEAD"], include_in_schema=False)
     async def serve_web(full_path: str):

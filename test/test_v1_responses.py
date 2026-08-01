@@ -9,7 +9,7 @@ import requests
 from test.utils import save_image
 
 AUTH_KEY = "chatgpt2api"
-BASE_URL = "http://localhost:8000"
+BASE_URL = "http://localhost:23456"
 TEXT_MODEL = "auto"
 IMAGE_MODEL = "gpt-image-2"
 CODEX_IMAGE_MODEL = "codex-gpt-image-2"

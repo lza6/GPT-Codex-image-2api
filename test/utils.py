@@ -8,7 +8,7 @@ from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 OUTPUT_DIR = ROOT_DIR / "data" / "output"
-BASE_URL = "http://127.0.0.1:8000"
+BASE_URL = "http://127.0.0.1:23456"
 
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))

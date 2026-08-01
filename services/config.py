@@ -321,9 +321,17 @@ def _read_json_object(path: Path, *, name: str) -> dict[str, object]:
         return {}
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    return data if isinstance(data, dict) else {}
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"❌ {name} JSON 格式错误：{path}\n"
+            f"   第 {exc.lineno} 行第 {exc.colno} 列: {exc.msg}\n"
+            f"   请检查 JSON 语法（多余逗号、缺少引号、括号不配对等）"
+        ) from exc
+    except Exception as exc:
+        raise ValueError(f"❌ {name} 读取失败：{path} - {exc}") from exc
+    if not isinstance(data, dict):
+        raise ValueError(f"❌ {name} 必须是 JSON 对象（顶层 {{}}），当前为 {type(data).__name__}")
+    return data
 
 
 def _load_settings() -> LoadedSettings:
@@ -364,7 +372,34 @@ class ConfigStore:
             )
 
     def _load(self) -> dict[str, object]:
-        return _read_json_object(self.path, name="config.json")
+        data = _read_json_object(self.path, name="config.json")
+        self._validate_schema(data)
+        return data
+
+    @staticmethod
+    def _validate_schema(data: dict[str, object]) -> None:
+        """启动时校验关键配置项类型，改配置易出错时给出清晰报错。"""
+        errors: list[str] = []
+        # scheduler_mode 枚举
+        mode = data.get("scheduler_mode")
+        if mode is not None and mode not in ("round_robin", "remaining_quota"):
+            errors.append(f"scheduler_mode 必须是 round_robin 或 remaining_quota，当前为 {mode!r}")
+        # 数值型配置
+        int_fields = ["workers", "rate_limit_rpm", "rate_limit_per_ip_rpm", "refresh_account_interval_minute", "image_retention_days", "image_account_concurrency"]
+        for field in int_fields:
+            value = data.get(field)
+            if value is None:
+                continue
+            if not isinstance(value, int) or isinstance(value, bool):
+                errors.append(f"{field} 必须是整数，当前为 {value!r} ({type(value).__name__})")
+            elif value < 0:
+                errors.append(f"{field} 不能为负数，当前为 {value}")
+        # scheduler_priority 必须为 dict[str, int]
+        sp = data.get("scheduler_priority")
+        if sp is not None and not isinstance(sp, dict):
+            errors.append(f"scheduler_priority 必须是对象 {{}}，当前为 {type(sp).__name__}")
+        if errors:
+            raise ValueError("❌ config.json 配置校验失败：\n" + "\n".join(f"   - {e}" for e in errors))
 
     def _save(self) -> None:
         self.path.write_text(json.dumps(self.data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -428,6 +463,67 @@ class ConfigStore:
         if isinstance(value, str):
             return value.strip().lower() in {"1", "true", "yes", "on"}
         return bool(value)
+
+    @property
+    def scheduler_mode(self) -> str:
+        value = str(
+            os.getenv("CHATGPT2API_SCHEDULER_MODE")
+            or self.data.get("scheduler_mode")
+            or "round_robin"
+        ).strip().lower()
+        return value if value in {"round_robin", "remaining_quota"} else "round_robin"
+
+    @property
+    def rate_limit_rpm(self) -> int:
+        """全局每分钟请求数上限（0 = 不限，默认 0）。"""
+        try:
+            return max(0, int(
+                os.getenv("CHATGPT2API_RATE_LIMIT_RPM")
+                or self.data.get("rate_limit_rpm", 0)
+            ))
+        except (TypeError, ValueError):
+            return 0
+
+    @property
+    def workers(self) -> int:
+        """uvicorn worker 进程数（高并发时调大，多核利用）。
+
+        注意：当 workers > 1 且存储后端为 JSON 时，各进程持有独立账号副本，
+        会导致账号重复分配/数据丢失。请使用 SQLite 或 Postgres 存储后端。
+        """
+        try:
+            return max(1, int(
+                os.getenv("CHATGPT2API_WORKERS")
+                or self.data.get("workers", 1)
+            ))
+        except (TypeError, ValueError):
+            return 1
+
+    @property
+    def storage_backend_type(self) -> str:
+        return str(os.getenv("STORAGE_BACKEND") or self.data.get("storage_backend") or "json").strip().lower()
+
+    @property
+    def rate_limit_per_ip_rpm(self) -> int:
+        """单 IP 每分钟请求数上限（0 = 不限，默认 0）。"""
+        try:
+            return max(0, int(
+                os.getenv("CHATGPT2API_RATE_LIMIT_PER_IP_RPM")
+                or self.data.get("rate_limit_per_ip_rpm", 0)
+            ))
+        except (TypeError, ValueError):
+            return 0
+
+    @property
+    def scheduler_priority(self) -> dict[str, int]:
+        raw = self.data.get("scheduler_priority")
+        if not isinstance(raw, dict):
+            return {}
+        return {
+            str(key): max(-100, min(100, int(value)))
+            for key, value in raw.items()
+            if str(value or "").lstrip("-").isdigit()
+        }
 
     @property
     def image_settle_enabled(self) -> bool:
@@ -569,6 +665,11 @@ class ConfigStore:
         data["image_poll_initial_wait_secs"] = self.image_poll_initial_wait_secs
         data["image_account_concurrency"] = self.image_account_concurrency
         data["image_parallel_generation"] = self.image_parallel_generation
+        data["scheduler_mode"] = self.scheduler_mode
+        data["scheduler_priority"] = self.scheduler_priority
+        data["rate_limit_rpm"] = self.rate_limit_rpm
+        data["rate_limit_per_ip_rpm"] = self.rate_limit_per_ip_rpm
+        data["workers"] = self.workers
         data["image_remove_conversation_after_result"] = self.image_remove_conversation_after_result
         data["image_remove_conversation_always"] = self.image_remove_conversation_always
         data["auto_remove_invalid_accounts"] = self.auto_remove_invalid_accounts

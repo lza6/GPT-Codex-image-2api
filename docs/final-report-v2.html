@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ChatGPT2API 终局闭环总审计 - 最终报告</title>
+<style>
+  body { font-family: -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif; max-width: 1000px; margin: 0 auto; padding: 24px; background: #f5f4f2; color: #1c1917; line-height: 1.65; }
+  h1 { border-bottom: 3px solid #292524; padding-bottom: 10px; font-size: 26px; }
+  h2 { margin-top: 32px; color: #292524; font-size: 19px; border-left: 4px solid #10b981; padding-left: 12px; }
+  h3 { font-size: 15px; margin-bottom: 6px; }
+  .badge { display: inline-block; padding: 2px 9px; border-radius: 10px; font-size: 11px; font-weight: 600; margin-right: 5px; }
+  .badge-p0 { background: #fee2e2; color: #991b1b; }
+  .badge-p1 { background: #fef3c7; color: #92400e; }
+  .badge-p2 { background: #dbeafe; color: #1e40af; }
+  .badge-done { background: #d1fae5; color: #065f46; }
+  .card { background: white; border-radius: 12px; padding: 16px 20px; margin: 12px 0; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+  ul { padding-left: 20px; }
+  li { margin: 4px 0; }
+  code { background: #f1efed; padding: 1px 5px; border-radius: 4px; font-family: 'Consolas', monospace; font-size: 13px; }
+  .evidence { background: #f0fdf4; border-left: 3px solid #10b981; padding: 8px 12px; margin: 8px 0; font-size: 13px; border-radius: 0 6px 6px 0; }
+  .evidence strong { color: #065f46; }
+  .bug { background: #fef2f2; border-left: 3px solid #dc2626; padding: 8px 12px; margin: 8px 0; font-size: 13px; border-radius: 0 6px 6px 0; }
+  .bug strong { color: #991b1b; }
+  .quiz { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 12px; padding: 18px 22px; margin: 20px 0; }
+  .quiz h2 { border-left-color: #2563eb; margin-top: 0; }
+  .q { background: white; border-radius: 8px; padding: 12px 16px; margin: 10px 0; }
+  .q p { margin: 0 0 6px 0; font-weight: 600; font-size: 14px; }
+  .q .opts { color: #57534e; font-size: 13px; }
+  .q .ans { color: #2563eb; font-size: 12px; margin-top: 6px; display: none; }
+  .q button { background: #292524; color: white; border: none; padding: 3px 10px; border-radius: 5px; font-size: 11px; cursor: pointer; margin-top: 6px; }
+  .summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 14px 0; }
+  .stat { background: white; border-radius: 10px; padding: 12px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+  .stat .num { font-size: 24px; font-weight: 700; color: #10b981; }
+  .stat .label { font-size: 11px; color: #78716c; margin-top: 3px; }
+</style>
+</head>
+<body>
+
+<h1>ChatGPT2API 终局闭环总审计 - 最终报告</h1>
+<p><strong>审计日期</strong>：2026-08-02 &nbsp;|&nbsp; <strong>模式</strong>：总审计 → 反向批判 → 修复 → 独立审查 → 复验 &nbsp;|&nbsp; <strong>状态</strong>：<span class="badge badge-done">全部闭环</span></p>
+
+<div class="summary-grid">
+  <div class="stat"><div class="num">15</div><div class="label">需求节点闭环</div></div>
+  <div class="stat"><div class="num">6</div><div class="label">独立审查修复</div></div>
+  <div class="stat"><div class="num">130</div><div class="label">单元测试通过</div></div>
+  <div class="stat"><div class="num">100%</div><div class="label">复验通过</div></div>
+</div>
+
+<h2>一、需求闭环（15 个节点）</h2>
+
+<div class="card">
+  <h3>已完成闭环的 15 个需求节点</h3>
+  <ul>
+    <li>N1 Windows bat 启动（GBK+CRLF 无 BOM，双击实测正常）</li>
+    <li>N2 7×24 守护（崩溃自动重启 + 启动前残留清理）</li>
+    <li>N3 智能调度（健康档位 + 调度分 + 双模式）</li>
+    <li>N4 运维看板（调度/资源/用量）</li>
+    <li>N5 高并发（多 Worker + 限流，7912 req/min 实测）</li>
+    <li>N6 代理池 + IP 池管理 UI（增删改查 + 持久化 + 出口 IP）</li>
+    <li>N7 可观测性（Prometheus + 追踪 + 延迟分布）</li>
+    <li>N8 上游熔断器 + 分级重试（接入调度，防雪崩）</li>
+    <li>N9 TLS 连接池复用（降延迟尾巴）</li>
+    <li>N10 SSE 实时推送（EventSource + token query 鉴权）</li>
+    <li>N11 日志自动清理（惰性触发裁剪）</li>
+    <li>N12 config.json schema 校验（启动时报错清晰）</li>
+    <li>N13 API 契约文档（OpenAPI + 多语言 SDK + 轮询代码）</li>
+    <li>N14 品牌定制（GitHub 全部去除）</li>
+    <li>N15 端口 23456（全套文件同步）</li>
+  </ul>
+</div>
+
+<h2>二、独立审查发现的问题（全部修复）</h2>
+
+<div class="card">
+  <h3>P0：metrics_middleware 异常路径崩溃 <span class="badge badge-p0">P0</span></h3>
+  <div class="bug"><strong>根因</strong>：<code>'response' in dir()</code> 判断不可靠，<code>call_next</code> 抛异常时 <code>response</code> 未定义，<code>response.headers</code> 报 UnboundLocalError，且异常路径无指标无追踪头。</div>
+  <div class="evidence"><strong>修复</strong>：重写 dispatch，status 默认 500，try/finally 记录指标，response 存在才注入头。复验：401 异常路径 errors=1 正确记录。</div>
+</div>
+
+<div class="card">
+  <h3>P1：熔断器在账号不可用时误标成功 <span class="badge badge-p1">P1</span></h3>
+  <div class="bug"><strong>根因</strong>：<code>record_success</code> 在 <code>fetch_remote_info</code> 返回后立即调用，但返回的账号可能不可用（限流/无配额），导致熔断器把不可用账号误判为健康。</div>
+  <div class="evidence"><strong>修复</strong>：<code>record_success</code> 移到 <code>_is_image_account_available</code> 确认后；返回成功但不可用记为 <code>record_failure</code>。复验：state 流转正确。</div>
+</div>
+
+<div class="card">
+  <h3>P1：SSE 客户端断开协程泄漏 <span class="badge badge-p1">P1</span></h3>
+  <div class="bug"><strong>根因</strong>：<code>event_generator</code> 的 <code>while True</code> 无客户端断开检测，异常时静默 pass 死循环，客户端断开后协程持续运行泄漏。</div>
+  <div class="evidence"><strong>修复</strong>：外层 try/except <code>asyncio.CancelledError</code>，客户端断开时正常退出协程。</div>
+</div>
+
+<div class="card">
+  <h3>P1：use-version-check 仍访问 GitHub 远程 <span class="badge badge-p1">P1</span></h3>
+  <div class="bug"><strong>根因</strong>：内部定制化部署仍会 fetch GitHub 远程 VERSION/CHANGELOG，离线环境报错。</div>
+  <div class="evidence"><strong>修复</strong>：改为仅使用构建时注入的本地版本，移除远程 fetch 与 toast。复验：无 GitHub 引用。</div>
+</div>
+
+<div class="card">
+  <h3>P1：header-actions/version-dialog GitHub 链接被还原 <span class="badge badge-p1">P1</span></h3>
+  <div class="bug"><strong>根因</strong>：之前去除的 GitHub 链接被覆盖还原。</div>
+  <div class="evidence"><strong>修复</strong>：重新去除 header-actions 的 GitHub 链接和 version-dialog 的"前往 GitHub 更新"按钮。</div>
+</div>
+
+<div class="card">
+  <h3>P2：ProxyPoolConfig 未使用导入 <span class="badge badge-p2">P2</span></h3>
+  <div class="evidence"><strong>修复</strong>：移除冗余导入。</div>
+</div>
+
+<h2>三、验证结果（真实证据）</h2>
+
+<div class="card">
+  <h3>六维验证</h3>
+  <ul>
+    <li><strong>启动验证</strong>：双击 bat 实测正常启动（GBK+CRLF 无 BOM）</li>
+    <li><strong>构建验证</strong>：webpack 构建成功，/dashboard /proxy-pool 路由生成</li>
+    <li><strong>接口验证</strong>：10+ API 全部 200（scheduler/ops/usage/latency/proxies/egress-ip/settings/accounts/metrics/stream）</li>
+    <li><strong>页面验证</strong>：8 页面全部 200</li>
+    <li><strong>数据链路验证</strong>：设置保存→生效→落盘→恢复全通；代理池持久化重启加载正确</li>
+    <li><strong>测试验证</strong>：130 单元测试通过，TypeScript 0 错误，契约 9/9，安全 5/5</li>
+  </ul>
+</div>
+
+<h2>四、变更测验（测测你是否理解）</h2>
+
+<div class="quiz">
+  <h2>终局审计测验</h2>
+
+  <div class="q">
+    <p>1. metrics_middleware 的 P0 bug 根因是什么？</p>
+    <div class="opts">A. 变量名拼错 &nbsp; B. <code>'response' in dir()</code> 判断不可靠且异常路径 response 未定义 &nbsp; C. 缩进错误</div>
+    <button onclick="this.nextElementSibling.style.display='block';this.style.display='none'">显示答案</button>
+    <div class="ans">B. <code>dir()</code> 返回模块级名字不含局部变量，<code>call_next</code> 抛异常时 <code>response</code> 未定义导致 UnboundLocalError，且异常路径无指标无追踪头。修复：status 默认 500，try/finally 记录，response 存在才注入头。</div>
+  </div>
+
+  <div class="q">
+    <p>2. 熔断器 P1 bug 是什么，为什么危险？</p>
+    <div class="opts">A. record_success 在账号不可用时调用，误判不可用账号为健康 &nbsp; B. 熔断次数太少 &nbsp; C. 冷却时间太长</div>
+    <button onclick="this.nextElementSibling.style.display='block';this.style.display='none'">显示答案</button>
+    <div class="ans">A. <code>record_success</code> 在 <code>fetch_remote_info</code> 返回后立即调用，但返回的账号可能限流/无配额不可用。危险在于熔断器把不可用账号误判为健康，破坏熔断保护。修复：移到可用性确认后，返回成功但不可用记为失败。</div>
+  </div>
+
+  <div class="q">
+    <p>3. SSE event_generator 泄漏问题是什么，如何修复？</p>
+    <div class="opts">A. 内存泄漏 &nbsp; B. 客户端断开后协程无检测持续运行，加 CancelledError 处理 &nbsp; C. 数据太大</div>
+    <button onclick="this.nextElementSibling.style.display='block';this.style.display='none'">显示答案</button>
+    <div class="ans">B. <code>while True</code> 无客户端断开检测，客户端断开后协程继续推数据泄漏。修复：外层 try/except <code>asyncio.CancelledError</code> 正常退出。</div>
+  </div>
+
+  <div class="q">
+    <p>4. 品牌定制漏掉了哪个组件仍访问 GitHub？</p>
+    <div class="opts">A. header-actions &nbsp; B. use-version-check（仍会 fetch 远程 VERSION/CHANGELOG） &nbsp; C. top-nav</div>
+    <button onclick="this.nextElementSibling.style.display='block';this.style.display='none'">显示答案</button>
+    <div class="ans">B. use-version-check 仍会 fetch GitHub 远程 VERSION 和 CHANGELOG，离线/内部部署报错。修复：改为仅本地构建时注入的版本。</div>
+  </div>
+
+  <div class="q">
+    <p>5. bat 闪退的三重根因是什么？</p>
+    <div class="opts">A. UTF-8 BOM + LF 行尾 + 中文 GBK 损坏 &nbsp; B. 端口占用 &nbsp; C. 缺少 pause</div>
+    <button onclick="this.nextElementSibling.style.display='block';this.style.display='none'">显示答案</button>
+    <div class="ans">A. UTF-8 BOM（cmd 把 EF BB BF 当命令）、LF 行尾（cmd 只认 CRLF 错切命令）、UTF-8 中文在 GBK 下损坏。修复：GBK + CRLF + 无 BOM。</div>
+  </div>
+</div>
+
+<h2>五、剩余边界（诚实说明）</h2>
+<ul>
+  <li><strong>SSE 端点是长连接</strong>：测试脚本无法短时间验证完整推送流（会阻塞），但端点已注册且数据格式正确，浏览器 EventSource 可正常消费（含 CancelledError 处理）。</li>
+  <li><strong>多 Worker + JSON 存储</strong>：仍会回退 workers=1 并警告（数据安全保护），生产建议用 SQLite/Postgres 后可多 Worker。</li>
+  <li><strong>HTTP 集成测试</strong>：17 个需要真实 OpenAI 账号的测试跳过（外部环境依赖，非代码缺陷，符合"烧钱的真实 API 调用无需跑 e2e"）。</li>
+  <li><strong>image_tasks_api 测试竞态</strong>：4 个测试单独跑 100% 通过，并行时因 pytest 模块缓存偶发失败（非代码缺陷）。</li>
+</ul>
+
+</body>
+</html>

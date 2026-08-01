@@ -71,6 +71,11 @@
   },
   "image_account_concurrency": 3,
   "image_parallel_generation": true,
+  "scheduler_mode": "round_robin",
+  "scheduler_priority": {},
+  "rate_limit_rpm": 0,
+  "rate_limit_per_ip_rpm": 0,
+  "workers": 1,
   "image_poll_interval_secs": 10,
   "image_poll_initial_wait_secs": 10,
   "image_storage": {

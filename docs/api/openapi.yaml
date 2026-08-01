@@ -1,0 +1,469 @@
+openapi: 3.0.3
+info:
+  title: ChatGPT2API
+  description: |
+    OpenAI 兼容的图片生成/编辑 API 代理。所有接口与 OpenAI 协议兼容。
+    鉴权方式：HTTP Bearer Token（Authorization: Bearer <auth-key>）。
+  version: 1.9.0
+servers:
+  - url: http://localhost:23456
+    description: 本地开发
+security:
+  - bearerAuth: []
+paths:
+  /v1/models:
+    get:
+      summary: 列出可用模型
+      tags: [OpenAI]
+      responses:
+        '200':
+          description: 模型列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  object:
+                    type: string
+                    example: list
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Model'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /v1/images/generations:
+    post:
+      summary: 图片生成
+      tags: [OpenAI]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [prompt]
+              properties:
+                model:
+                  type: string
+                  default: gpt-image-2
+                prompt:
+                  type: string
+                  description: 图片生成提示词
+                n:
+                  type: integer
+                  minimum: 1
+                  maximum: 4
+                  default: 1
+                size:
+                  type: string
+                quality:
+                  type: string
+                  default: auto
+                response_format:
+                  type: string
+                  default: b64_json
+      responses:
+        '200':
+          description: 生成结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/QuotaExceeded'
+        '502':
+          $ref: '#/components/responses/UpstreamError'
+
+  /v1/images/edits:
+    post:
+      summary: 图片编辑
+      tags: [OpenAI]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [prompt, image]
+              properties:
+                model:
+                  type: string
+                  default: gpt-image-2
+                prompt:
+                  type: string
+                image:
+                  type: string
+                  format: binary
+                n:
+                  type: integer
+                  minimum: 1
+                  maximum: 4
+          application/json:
+            schema:
+              type: object
+              required: [prompt, images]
+              properties:
+                model:
+                  type: string
+                prompt:
+                  type: string
+                images:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      image_url:
+                        type: string
+      responses:
+        '200':
+          description: 编辑结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/QuotaExceeded'
+
+  /v1/chat/completions:
+    post:
+      summary: 聊天补全
+      tags: [OpenAI]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [model, messages]
+              properties:
+                model:
+                  type: string
+                messages:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      role:
+                        type: string
+                      content:
+                        type: string
+                stream:
+                  type: boolean
+                n:
+                  type: integer
+                tools:
+                  type: array
+      responses:
+        '200':
+          description: 补全结果
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /v1/responses:
+    post:
+      summary: Responses API
+      tags: [OpenAI]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [model, input]
+              properties:
+                model:
+                  type: string
+                input:
+                  type: string
+                tools:
+                  type: array
+                stream:
+                  type: boolean
+      responses:
+        '200':
+          description: 响应结果
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/image-tasks:
+    get:
+      summary: 查询图片任务状态
+      tags: [Tasks]
+      parameters:
+        - name: ids
+          in: query
+          schema:
+            type: string
+          description: 逗号分隔的任务 ID，不传返回全部
+      responses:
+        '200':
+          description: 任务列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ImageTask'
+                  missing_ids:
+                    type: array
+                    items:
+                      type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/image-tasks/generations:
+    post:
+      summary: 提交图片生成任务
+      tags: [Tasks]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [client_task_id, prompt]
+              properties:
+                client_task_id:
+                  type: string
+                  description: 客户端幂等任务 ID
+                prompt:
+                  type: string
+                model:
+                  type: string
+                  default: gpt-image-2
+                size:
+                  type: string
+                quality:
+                  type: string
+                  default: auto
+      responses:
+        '200':
+          description: 任务已提交
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageTask'
+        '400':
+          description: 参数错误
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/image-tasks/edits:
+    post:
+      summary: 提交图片编辑任务
+      tags: [Tasks]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [client_task_id, prompt]
+              properties:
+                client_task_id:
+                  type: string
+                prompt:
+                  type: string
+                image:
+                  type: string
+                  format: binary
+                model:
+                  type: string
+      responses:
+        '200':
+          description: 任务已提交
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageTask'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/image-tasks/{task_id}/resume-poll:
+    post:
+      summary: 超时后继续轮询任务
+      tags: [Tasks]
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                extra_timeout_secs:
+                  type: number
+                  default: 30
+                  minimum: 5
+                  maximum: 120
+      responses:
+        '200':
+          description: 任务结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageTask'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /metrics:
+    get:
+      summary: Prometheus 指标
+      tags: [Observability]
+      security: []
+      responses:
+        '200':
+          description: Prometheus 文本格式指标
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /api/dashboard/latency:
+    get:
+      summary: 请求延迟统计
+      tags: [Observability]
+      responses:
+        '200':
+          description: 延迟统计摘要
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_requests:
+                    type: integer
+                  total_errors:
+                    type: integer
+                  avg_latency_ms:
+                    type: number
+                  error_rate:
+                    type: number
+                  by_path:
+                    type: object
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+
+  schemas:
+    Model:
+      type: object
+      properties:
+        id:
+          type: string
+        object:
+          type: string
+        created:
+          type: integer
+        owned_by:
+          type: string
+
+    ImageResponse:
+      type: object
+      properties:
+        created:
+          type: integer
+        data:
+          type: array
+          items:
+            type: object
+            properties:
+              b64_json:
+                type: string
+              url:
+                type: string
+              revised_prompt:
+                type: string
+
+    ImageTask:
+      type: object
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          enum: [queued, running, success, error]
+        mode:
+          type: string
+        data:
+          type: array
+        error:
+          type: string
+        created_at:
+          type: string
+        updated_at:
+          type: string
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            message:
+              type: string
+            type:
+              type: string
+            param:
+              type: string
+              nullable: true
+            code:
+              type: string
+
+  responses:
+    Unauthorized:
+      description: 鉴权失败
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              message: 密钥无效或已失效，请重新登录
+              type: authentication_error
+              code: invalid_api_key
+
+    QuotaExceeded:
+      description: 配额不足
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              message: no available image quota
+              type: insufficient_quota
+              code: insufficient_quota
+
+    UpstreamError:
+      description: 上游错误
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'

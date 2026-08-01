@@ -12,6 +12,7 @@ from threading import Condition, Lock, Thread
 from typing import Any
 from urllib.parse import urlencode
 
+from services.circuit_breaker import circuit_breaker_registry
 from services.config import config
 from services.log_service import (
     LOG_TYPE_ACCOUNT,
@@ -135,6 +136,90 @@ class AccountService:
         if account.get("status") in {"禁用", "限流", "异常"}:
             return False
         return int(account.get("quota") or 0) > 0
+
+    # ---- 健康档位 + 调度分（移植自 codex2api fast_scheduler） ----
+    # 档位：healthy > warm > risky，档位越高优先调度；
+    # 调度分：同档位内按分数竞争，分数 = 配额比例 + 成功加成 - 失败惩罚 - 冷却惩罚
+    _HEALTHY = "healthy"
+    _WARM = "warm"
+    _RISKY = "risky"
+    _TIER_ORDER = (_HEALTHY, _WARM, _RISKY)
+    _TIER_BASE_SCORE = {_HEALTHY: 100.0, _WARM: 60.0, _RISKY: 20.0}
+
+    @classmethod
+    def _recent_error_seconds(cls, account: dict, field: str) -> float | None:
+        value = account.get(field)
+        if not value:
+            return None
+        try:
+            ts = float(value)
+        except (TypeError, ValueError):
+            return None
+        return max(0.0, time.time() - ts)
+
+    @classmethod
+    def _account_health_tier(cls, account: dict) -> str:
+        """按状态 + 最近错误 + 配额比例计算健康档位。"""
+        if not isinstance(account, dict):
+            return cls._RISKY
+        status = account.get("status")
+        if status in {"禁用", "异常"}:
+            return cls._RISKY
+        if status == "限流":
+            return cls._RISKY
+        quota = max(0, int(account.get("quota") or 0))
+        # 最近刷新错误惩罚
+        refresh_err = cls._recent_error_seconds(account, "last_refresh_error_at")
+        token_err = cls._recent_error_seconds(account, "last_token_refresh_error_at")
+        if (refresh_err is not None and refresh_err < 600) or (token_err is not None and token_err < 300):
+            return cls._WARM
+        fail = max(0, int(account.get("fail") or 0))
+        success = max(0, int(account.get("success") or 0))
+        total = fail + success
+        if total >= 3 and fail / total > 0.5:
+            return cls._RISKY
+        if quota <= 0:
+            return cls._RISKY
+        if quota < 5 or (total >= 3 and fail / total > 0.2):
+            return cls._WARM
+        return cls._HEALTHY
+
+    @classmethod
+    def _account_dispatch_score(cls, account: dict, tier: str | None = None) -> float:
+        """同档位内竞争分数：配额占比 + 成功加成 - 失败惩罚 - 冷却惩罚。"""
+        if not isinstance(account, dict):
+            return -100.0
+        tier = tier or cls._account_health_tier(account)
+        score = cls._TIER_BASE_SCORE.get(tier, 20.0)
+        quota = max(0, int(account.get("quota") or 0))
+        # 配额占比（0-10 分）：quota 越高分越高
+        score += min(10.0, quota / 10.0)
+        success = max(0, int(account.get("success") or 0))
+        fail = max(0, int(account.get("fail") or 0))
+        total = success + fail
+        if total > 0:
+            # 成功加成最多 +5，失败惩罚最多 -10
+            score += 5.0 * (success / total)
+            score -= 10.0 * (fail / total)
+        # 最近错误时间惩罚：1 分钟前错误 -10，越近越重
+        for field in ("last_refresh_error_at", "last_token_refresh_error_at"):
+            err_seconds = cls._recent_error_seconds(account, field)
+            if err_seconds is not None and err_seconds < 1800:
+                score -= 10.0 * (1.0 - err_seconds / 1800)
+        return round(score, 2)
+
+    def _priority_for_token(self, token: str) -> int:
+        """账号级调度优先级（config.scheduler_priority 按 email/token 前缀配置）。"""
+        priorities = config.scheduler_priority
+        if not priorities:
+            return 0
+        if token in priorities:
+            return int(priorities[token])
+        account = self._accounts.get(token) if isinstance(self._accounts, dict) else None
+        email = str((account or {}).get("email") or "")
+        if email in priorities:
+            return int(priorities[email])
+        return 0
 
     @classmethod
     def _account_matches_plan_type(cls, account: dict, plan_type: str | None = None) -> bool:
@@ -354,9 +439,10 @@ class AccountService:
 
     def _request_access_token_refresh(self, refresh_token: str, account: dict | None = None) -> dict[str, str]:
         from curl_cffi import requests
-        from services.proxy_service import proxy_settings
+        from services.session_pool import session_pool
 
-        session = requests.Session(**proxy_settings.build_session_kwargs(account=account, impersonate="chrome110", verify=True))
+        # 复用连接池中的 Session，避免每次 TLS 握手
+        session = session_pool.get(account=account, impersonate="chrome110", verify=True)
         try:
             response = session.post(
                 self._OAUTH_TOKEN_URL,
@@ -905,6 +991,39 @@ class AccountService:
                and token not in excluded
         ]
 
+    def _ranked_candidate_tokens(
+            self,
+            excluded_tokens: set[str] | None = None,
+            plan_type: str | None = None,
+            source_type: str | None = None,
+            plan_types: set[str] | tuple[str, ...] | None = None,
+    ) -> list[str]:
+        """按 优先级 > 健康档位 > 调度分 排序的候选 token 列表。
+
+        移植自 codex2api fast_scheduler 的三级排序：
+        1. 账号级调度优先级（config.scheduler_priority）高者优先
+        2. 同优先级内按健康档位（healthy > warm > risky）
+        3. 同档位内按调度分（配额/成功率/最近错误）竞争
+        """
+        candidates = self._list_ready_candidate_tokens(excluded_tokens, plan_type, source_type, plan_types)
+        ranked = sorted(
+            candidates,
+            key=lambda token: (
+                -self._priority_for_token(token),                      # 优先级高者在前
+                self._TIER_ORDER.index(self._account_health_tier(self._accounts.get(token) or {})),
+                -self._account_dispatch_score(self._accounts.get(token) or {}),
+            ),
+        )
+        if config.scheduler_mode == "remaining_quota":
+            # remaining_quota 模式：同优先级内按剩余配额降序（quota 高者先调度）
+            ranked.sort(
+                key=lambda token: (
+                    -self._priority_for_token(token),
+                    -max(0, int((self._accounts.get(token) or {}).get("quota") or 0)),
+                ),
+            )
+        return ranked
+
     def _list_available_candidate_tokens(
             self,
             excluded_tokens: set[str] | None = None,
@@ -915,7 +1034,7 @@ class AccountService:
         max_concurrency = max(1, int(config.image_account_concurrency or 1))
         return [
             token
-            for token in self._list_ready_candidate_tokens(excluded_tokens, plan_type, source_type, plan_types)
+            for token in self._ranked_candidate_tokens(excluded_tokens, plan_type, source_type, plan_types)
             if int(self._image_inflight.get(token, 0)) < max_concurrency
         ]
 
@@ -935,8 +1054,12 @@ class AccountService:
                     )
                 tokens = self._list_available_candidate_tokens(excluded_tokens, plan_type, source_type, plan_types)
                 if tokens:
-                    access_token = tokens[self._index % len(tokens)]
-                    self._index += 1
+                    if config.scheduler_mode == "remaining_quota":
+                        # remaining_quota：直接取排序后第一个（已按 quota 降序）
+                        access_token = tokens[0]
+                    else:
+                        access_token = tokens[self._index % len(tokens)]
+                        self._index += 1
                     self._image_inflight[access_token] = int(self._image_inflight.get(access_token, 0)) + 1
                     return access_token
                 self._image_slot_condition.wait(timeout=1.0)
@@ -974,9 +1097,14 @@ class AccountService:
                 plan_types=plan_types,
             )
             attempted_tokens.add(access_token)
+            # 熔断器：熔断中的账号直接跳过，避免上游抖动雪崩
+            breaker = circuit_breaker_registry.get(access_token)
+            if not breaker.allow_request():
+                continue
             try:
                 account = self.fetch_remote_info(access_token, "get_available_access_token")
             except Exception:
+                breaker.record_failure()
                 self.release_image_slot(access_token)
                 continue
             # fetch_remote_info 内部可能因 token rotation 导致 access_token 变化，
@@ -990,7 +1118,11 @@ class AccountService:
                     and self._account_matches_any_plan_type(account or {}, plan_types)
                     and self._account_matches_source_type(account or {}, source_type)
             ):
+                # 仅当账号真正可用时才记录熔断成功
+                breaker.record_success()
                 return str((account or {}).get("access_token") or access_token)
+            # 返回成功但账号不可用（限流/无配额），记为失败
+            breaker.record_failure()
             self.release_image_slot(access_token)
         raise RuntimeError(
             f"no available {plan_type or source_type or ''} image quota (tried {len(attempted_tokens)} tokens)".replace("  ", " ").strip()

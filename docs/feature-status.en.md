@@ -32,7 +32,7 @@
 | `sub2api` 导入 | ✅  | 已支持勾选 `sub2api` 中的 OpenAI OAuth 账号，批量拉取 `access_token` 导入本地号池，并展示导入进度。 |
 | Docker 自托管部署 | ✅  | 已支持 Docker Compose 部署，并提供多架构镜像。 |
 | 兼容接口中的多参考图能力 | ✅  | 已实现，支持在兼容接口中传入多参考图。 |
-| 更高级的 Token 调度策略 | ⚠️ | 当前已有基础轮询与限流刷新机制，更复杂的调度策略仍在完善中。 |
+| 更高级的 Token 调度策略 | ✅ | 已实现健康档位（healthy/warm/risky）+ 调度分 + 优先级 + 双模式调度（round_robin / remaining_quota），移植自 codex2api fast_scheduler。 |
 | Render / Vercel 等部署表述 | ⚠️ | 当前主要以 Docker 部署为主，其他平台部署方式暂未重点说明。 |
 | `/v1/complete` 文本补全与流式输出 | ✅  | 已实现。 |
 | 流式输出支持 | ✅  | 已实现。 |

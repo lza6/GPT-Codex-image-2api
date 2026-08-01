@@ -34,6 +34,10 @@ export function ConfigCard() {
   const setAutoRemoveInvalidAccounts = useSettingsStore((state) => state.setAutoRemoveInvalidAccounts);
   const setAutoRemoveRateLimitedAccounts = useSettingsStore((state) => state.setAutoRemoveRateLimitedAccounts);
   const setAutoReloginAfterRefresh = useSettingsStore((state) => state.setAutoReloginAfterRefresh);
+  const setSchedulerMode = useSettingsStore((state) => state.setSchedulerMode);
+  const setRateLimitRpm = useSettingsStore((state) => state.setRateLimitRpm);
+  const setRateLimitPerIpRpm = useSettingsStore((state) => state.setRateLimitPerIpRpm);
+  const setWorkers = useSettingsStore((state) => state.setWorkers);
   const setLogLevel = useSettingsStore((state) => state.setLogLevel);
   const setProxy = useSettingsStore((state) => state.setProxy);
   const setBaseUrl = useSettingsStore((state) => state.setBaseUrl);
@@ -216,6 +220,49 @@ export function ConfigCard() {
               自动移除异常账号
             </label>
             <p className="text-xs text-stone-500">刷新时检测并移除</p>
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm text-stone-700">调度模式</label>
+            <Select value={config?.scheduler_mode || "round_robin"} onValueChange={(v) => setSchedulerMode(v as "round_robin" | "remaining_quota")}>
+              <SelectTrigger className="h-10 rounded-xl border-stone-200 bg-white">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="round_robin">轮询（round_robin）</SelectItem>
+                <SelectItem value="remaining_quota">按剩余配额（remaining_quota）</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-stone-500">账号调度策略：轮询或按剩余配额优先。</p>
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm text-stone-700">全局限流 (RPM)</label>
+            <Input
+              value={String(config?.rate_limit_rpm ?? "")}
+              onChange={(event) => setRateLimitRpm(event.target.value)}
+              placeholder="0"
+              className="h-10 rounded-xl border-stone-200 bg-white"
+            />
+            <p className="text-xs text-stone-500">全局限流，每分钟请求数上限。0 = 不限流。</p>
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm text-stone-700">单 IP 限流 (RPM)</label>
+            <Input
+              value={String(config?.rate_limit_per_ip_rpm ?? "")}
+              onChange={(event) => setRateLimitPerIpRpm(event.target.value)}
+              placeholder="0"
+              className="h-10 rounded-xl border-stone-200 bg-white"
+            />
+            <p className="text-xs text-stone-500">单 IP 每分钟请求数上限。0 = 不限流。</p>
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm text-stone-700">Worker 进程数</label>
+            <Input
+              value={String(config?.workers ?? "")}
+              onChange={(event) => setWorkers(event.target.value)}
+              placeholder="1"
+              className="h-10 rounded-xl border-stone-200 bg-white"
+            />
+            <p className="text-xs text-stone-500">多 Worker 并发处理请求，利用多核 CPU。建议设为 CPU 核心数，重启后生效。</p>
           </div>
           <div className="space-y-2">
             <div className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-4 py-3">
