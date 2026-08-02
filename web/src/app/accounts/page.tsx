@@ -44,7 +44,9 @@ import {
 } from "@/components/ui/select";
 import {
   deleteAccounts,
+  evictStaleAccounts,
   fetchAccounts,
+  fetchCircuitBreakers,
   fetchModels,
   fetchRefreshProgress,
   fetchReLoginProgress,
@@ -202,6 +204,9 @@ function AccountsPageContent() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [isRelogining, setIsRelogining] = useState(false);
+  const [isEvicting, setIsEvicting] = useState(false);
+  // 熔断状态：token 末 8 位 -> {state, recover_in_seconds}（仅含非 closed 账号）
+  const [circuitBreakers, setCircuitBreakers] = useState<Record<string, { state: string; recover_in_seconds: number }>>({});
   const [progress, setProgress] = useState<{
     visible: boolean;
     current: number;
@@ -257,9 +262,22 @@ function AccountsPageContent() {
     void loadAccounts();
     void loadModels();
 
+    // 熔断状态：15s 轮询（熔断是秒级变化，频率低于主列表 30s 兜底）
+    const loadBreakers = async () => {
+      try {
+        const data = await fetchCircuitBreakers();
+        setCircuitBreakers(data.breakers || {});
+      } catch {
+        // 熔断状态拉取失败静默忽略，不打断主列表
+      }
+    };
+    void loadBreakers();
+    const breakerTimer = setInterval(() => void loadBreakers(), 15000);
+
     // 清理进度条定时器
     return () => {
       if (progressRef.current) clearInterval(progressRef.current);
+      clearInterval(breakerTimer);
     };
   }, []);
 
@@ -333,6 +351,23 @@ function AccountsPageContent() {
 
     return items;
   }, [pageCount, safePage]);
+
+  const handleEvictStale = async () => {
+    setIsEvicting(true);
+    try {
+      const data = await evictStaleAccounts();
+      if (data.stale === 0) {
+        toast.info("当前没有失效（异常）账号");
+      } else {
+        toast.success(`已处理 ${data.stale} 个失效账号，驱逐 ${data.evicted} 个`);
+      }
+      await loadAccounts(true);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "驱逐失效账号失败");
+    } finally {
+      setIsEvicting(false);
+    }
+  };
 
   const handleDeleteTokens = async (tokens: string[]) => {
     if (tokens.length === 0) {
@@ -1082,6 +1117,16 @@ function AccountsPageContent() {
                 </Button>
                 <Button
                   variant="ghost"
+                  className="h-8 rounded-lg px-3 text-orange-500 hover:bg-orange-50 hover:text-orange-600"
+                  onClick={() => void handleEvictStale()}
+                  disabled={isEvicting}
+                  title="对所有状态为「异常」的账号执行驱逐（移除或降级），并强制重建连接"
+                >
+                  {isEvicting ? <LoaderCircle className="size-4 animate-spin" /> : <CircleOff className="size-4" />}
+                  驱逐失效token
+                </Button>
+                <Button
+                  variant="ghost"
                   className="h-8 rounded-lg px-3 text-rose-500 hover:bg-rose-50 hover:text-rose-600"
                   onClick={() => void handleDeleteTokens(selectedTokens)}
                   disabled={selectedTokens.length === 0 || isDeleting}
@@ -1111,6 +1156,7 @@ function AccountsPageContent() {
                     <th className="w-28 px-4 py-3">类型</th>
                     <th className="w-24 px-4 py-3">来源</th>
                     <th className="w-24 px-4 py-3">状态</th>
+                    <th className="w-24 px-4 py-3">熔断</th>
                     <th className="w-56 px-4 py-3">账号信息</th>
                     <th className="w-32 px-4 py-3">创建时间</th>
                     <th className="w-24 px-4 py-3">额度</th>
@@ -1178,6 +1224,24 @@ function AccountsPageContent() {
                             <StatusIcon className="size-3.5" />
                             {account.status}
                           </Badge>
+                        </td>
+                        <td className="px-4 py-3">
+                          {(() => {
+                            const breaker = circuitBreakers[account.access_token.slice(-8)];
+                            if (!breaker) {
+                              return <span className="text-xs text-stone-300">正常</span>;
+                            }
+                            const isOpen = breaker.state === "open";
+                            return (
+                              <Badge
+                                variant={isOpen ? "danger" : "warning"}
+                                className="rounded-md"
+                                title={isOpen ? `上游连续失败已熔断，${Math.round(breaker.recover_in_seconds)}s 后尝试恢复` : "熔断器半开试探中"}
+                              >
+                                {isOpen ? "熔断中" : "半开"}
+                              </Badge>
+                            );
+                          })()}
                         </td>
                         <td className="px-4 py-3">
                           <div className="text-xs leading-5 text-stone-500">{account.email ?? "—"}</div>

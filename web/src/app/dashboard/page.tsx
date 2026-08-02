@@ -104,47 +104,76 @@ function DashboardContent() {
     const token = typeof window !== "undefined" ? localStorage.getItem("chatgpt2api_auth_key") : null;
     if (!token) return;
 
-    const source = new EventSource(`/api/dashboard/stream?token=${encodeURIComponent(token)}`);
-    source.onmessage = (event) => {
-      try {
-        const payload = JSON.parse(event.data);
-        if (payload.type === "dashboard") {
-          if (payload.latency) {
-            setLatency(payload.latency);
-          }
-          // 完整看板数据：ops/usage/metrics_summary 经 SSE 实时更新（资源/用量/指标卡片）
-          if (payload.ops) {
-            setOps(payload.ops);
-          }
-          if (payload.usage) {
-            setUsage(payload.usage);
-          }
-          if (payload.metrics_summary) {
-            setMetrics(payload.metrics_summary);
-          }
-          // health 数据触发完整刷新以同步调度分等
-          setScheduler((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  health: payload.health,
-                }
-              : prev,
-          );
-        }
-      } catch {
-        // 忽略解析错误
+    // 页面隐藏时暂停 SSE + 轮询，避免后台标签页累计积压；重新可见时立即拉一次并重建连接
+    let source: EventSource | null = null;
+    const connect = () => {
+      if (source) return;
+      source = new EventSource(`/api/dashboard/stream?token=${encodeURIComponent(token)}`);
+      attachHandlers(source);
+    };
+    const disconnect = () => {
+      source?.close();
+      source = null;
+    };
+    const onVisibility = () => {
+      if (document.hidden) {
+        disconnect();
+      } else {
+        void load();
+        connect();
       }
     };
-    source.onerror = () => {
-      // SSE 断连自动重连由浏览器处理
+
+    const attachHandlers = (src: EventSource) => {
+      src.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          if (payload.type === "dashboard") {
+            if (payload.latency) {
+              setLatency(payload.latency);
+            }
+            // 完整看板数据：ops/usage/metrics_summary 经 SSE 实时更新（资源/用量/指标卡片）
+            if (payload.ops) {
+              setOps(payload.ops);
+            }
+            if (payload.usage) {
+              setUsage(payload.usage);
+            }
+            if (payload.metrics_summary) {
+              setMetrics(payload.metrics_summary);
+            }
+            // health 数据触发完整刷新以同步调度分等
+            setScheduler((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    health: payload.health,
+                  }
+                : prev,
+            );
+          }
+        } catch {
+          // 忽略解析错误
+        }
+      };
+      src.onerror = () => {
+        // SSE 断连自动重连由浏览器处理
+      };
     };
 
-    // 兜底轮询：SSE 不可用时 30s 轮询
-    const timer = setInterval(() => void load(), 30000);
+    connect();
+    document.addEventListener("visibilitychange", onVisibility);
+
+    // 兜底轮询：SSE 不可用时 30s 轮询（页面隐藏时跳过，避免后台积压）
+    const timer = setInterval(() => {
+      if (!document.hidden) {
+        void load();
+      }
+    }, 30000);
 
     return () => {
-      source.close();
+      disconnect();
+      document.removeEventListener("visibilitychange", onVisibility);
       clearInterval(timer);
     };
   }, [load]);

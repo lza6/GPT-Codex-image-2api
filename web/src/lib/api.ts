@@ -387,6 +387,24 @@ export async function deleteAccounts(tokens: string[]) {
   });
 }
 
+/** 批量驱逐失效 token（状态为「异常」的账号），返回处理数量。 */
+export async function evictStaleAccounts() {
+  return httpRequest<{ stale: number; evicted: number }>("/api/accounts/evict_stale", {
+    method: "POST",
+    body: {},
+  });
+}
+
+/** 熔断状态：token 末 8 位 -> 熔断器状态（仅含非 closed 账号）。 */
+export type CircuitBreakerStatus = {
+  breakers: Record<string, { state: string; recover_in_seconds: number }>;
+  total_open: number;
+};
+
+export async function fetchCircuitBreakers() {
+  return httpRequest<CircuitBreakerStatus>("/api/dashboard/circuit_breakers");
+}
+
 export async function refreshAccounts(accessTokens: string[]) {
   return httpRequest<{ progress_id: string }>("/api/accounts/refresh", {
     method: "POST",

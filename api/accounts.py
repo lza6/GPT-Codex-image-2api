@@ -37,6 +37,23 @@ from services.sub2api_service import (
 )
 
 
+def _evict_stale_tokens() -> dict[str, Any]:
+    """对所有「异常」状态账号执行 remove_invalid_token 驱逐逻辑（同步，线程池调用）。"""
+    stale = [
+        str(account.get("access_token") or "")
+        for account in account_service.list_accounts()
+        if str(account.get("status") or "") == "异常"
+    ]
+    evicted = 0
+    for token in [t for t in stale if t]:
+        try:
+            if account_service.remove_invalid_token(token, "evict_stale", quiet=True):
+                evicted += 1
+        except Exception:
+            continue
+    return {"stale": len(stale), "evicted": evicted}
+
+
 class UserKeyCreateRequest(BaseModel):
     name: str = ""
 
@@ -304,6 +321,16 @@ def create_router() -> APIRouter:
         if progress is None:
             raise HTTPException(status_code=404, detail={"error": "progress not found"})
         return progress
+
+    @router.post("/api/accounts/evict_stale")
+    async def evict_stale_accounts(authorization: str | None = Header(default=None)):
+        """批量驱逐失效 token：对所有状态为「异常」的账号执行移除/降级逻辑。
+
+        复用 remove_invalid_token（遵循 auto_remove_invalid_accounts 配置决定移除或标记异常），
+        并触发 session_pool invalidate 强制重建连接。返回处理数量。
+        """
+        require_admin(authorization)
+        return await run_in_threadpool(_evict_stale_tokens)
 
     @router.post("/api/accounts/export")
     async def export_accounts(body: AccountExportRequest, authorization: str | None = Header(default=None)):

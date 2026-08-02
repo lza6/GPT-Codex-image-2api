@@ -16,6 +16,7 @@ from fastapi.responses import PlainTextResponse, StreamingResponse
 
 from api.support import require_identity
 from services.account_service import AccountService, account_service
+from services.circuit_breaker import circuit_breaker_registry
 from services.config import DATA_DIR, config
 from services.image_service import storage_stats
 from services.log_service import log_service
@@ -159,6 +160,25 @@ def _collect_ops_overview() -> dict[str, object]:
     }
 
 
+def _collect_circuit_breaker_status() -> dict[str, object]:
+    """按 token 末 8 位聚合熔断器状态（不泄露完整 token）。
+
+    返回 {token_suffix: {state, recover_in_seconds}}，仅含非 closed 的账号
+    （closed 为正常态无需上报，减少负载）。
+    """
+    status = circuit_breaker_registry.all_status()
+    result: dict[str, dict[str, object]] = {}
+    for token, info in status.items():
+        if info.get("state") == "closed":
+            continue
+        suffix = str(token)[-8:]
+        result[suffix] = {
+            "state": info.get("state"),
+            "recover_in_seconds": info.get("recover_in_seconds", 0),
+        }
+    return {"breakers": result, "total_open": sum(1 for i in status.values() if i.get("state") == "open")}
+
+
 _PROCESS_START_TIME = time.time()
 
 
@@ -202,6 +222,12 @@ def create_router() -> APIRouter:
             )
         ranked.sort(key=lambda item: (item["tier"] != "healthy", -item["score"]))
         return {"health": health, "accounts": ranked}
+
+    @router.get("/api/dashboard/circuit_breakers")
+    async def circuit_breakers(authorization: str | None = Header(default=None)):
+        """熔断状态：token 末 8 位 -> 熔断器状态（供账号页标注当前被熔断账号）。"""
+        require_identity(authorization)
+        return await run_in_threadpool(_collect_circuit_breaker_status)
 
     @router.get("/api/dashboard/ops")
     async def ops_overview(authorization: str | None = Header(default=None)):
