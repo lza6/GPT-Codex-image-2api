@@ -186,6 +186,9 @@ function normalizeConfig(config: SettingsConfig): SettingsConfig {
     rate_limit_rpm: Number(config.rate_limit_rpm || 0),
     rate_limit_per_ip_rpm: Number(config.rate_limit_per_ip_rpm || 0),
     workers: Number(config.workers || 1),
+    sqlite_wal_mode: Boolean(config.sqlite_wal_mode !== false),
+    sqlite_busy_timeout_ms: Number(config.sqlite_busy_timeout_ms ?? 5000),
+    progress_ttl_seconds: Number(config.progress_ttl_seconds ?? 3600),
     log_levels: Array.isArray(config.log_levels) ? config.log_levels : [],
     proxy: typeof config.proxy === "string" ? config.proxy : "",
     base_url: typeof config.base_url === "string" ? config.base_url : "",
@@ -313,6 +316,9 @@ type SettingsStore = {
   setRateLimitRpm: (value: string) => void;
   setRateLimitPerIpRpm: (value: string) => void;
   setWorkers: (value: string) => void;
+  setSqliteWalMode: (value: boolean) => void;
+  setSqliteBusyTimeoutMs: (value: string) => void;
+  setProgressTtlSeconds: (value: string) => void;
   setLogLevel: (level: string, enabled: boolean) => void;
   setProxy: (value: string) => void;
   setBaseUrl: (value: string) => void;
@@ -593,6 +599,26 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
 
   setWorkers: (value) => {
     set((state) => state.config ? { config: { ...state.config, workers: Math.max(1, Number(value)) } } : {});
+  },
+
+  setSqliteWalMode: (value) => {
+    set((state) => state.config ? { config: { ...state.config, sqlite_wal_mode: value } } : {});
+  },
+
+  setSqliteBusyTimeoutMs: (value) => {
+    set((state) => {
+      if (!state.config) return {};
+      const n = Number(value);
+      return { config: { ...state.config, sqlite_busy_timeout_ms: Number.isFinite(n) ? Math.max(0, n) : 0 } };
+    });
+  },
+
+  setProgressTtlSeconds: (value) => {
+    set((state) => {
+      if (!state.config) return {};
+      const n = Number(value);
+      return { config: { ...state.config, progress_ttl_seconds: Number.isFinite(n) ? Math.max(1, n) : 3600 } };
+    });
   },
 
   setLogLevel: (level, enabled) => {

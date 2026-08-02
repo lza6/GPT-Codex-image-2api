@@ -195,6 +195,9 @@ export type SettingsConfig = {
   rate_limit_rpm?: number;
   rate_limit_per_ip_rpm?: number;
   workers?: number;
+  sqlite_wal_mode?: boolean;
+  sqlite_busy_timeout_ms?: number;
+  progress_ttl_seconds?: number;
   image_storage?: ImageStorageSettings;
   proxy_runtime?: ProxyRuntimeSettings;
   third_party_apps?: ThirdPartyAppsSettings;

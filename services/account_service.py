@@ -40,15 +40,20 @@ class AccountService:
         "Chrome/145.0.0.0 Safari/537.36"
     )
 
-    # 刷新进度追踪
-    _refresh_progress: dict[str, dict] = {}
-    _refresh_progress_lock = Lock()
-    # 重新登录进度追踪
-    _relogin_progress: dict[str, dict] = {}
-    _relogin_progress_lock = Lock()
-
-    def __init__(self, storage_backend: StorageBackend):
+    def __init__(self, storage_backend: StorageBackend, progress_ttl_seconds: float = 3600.0):
         self.storage = storage_backend
+        # 进度记录 TTL（秒）：防止进度字典随运行时间无界增长（D5 收口）。
+        # 允许亚秒级取值以支持测试与极端运维场景；非正数回退默认 3600。
+        try:
+            ttl = float(progress_ttl_seconds)
+        except (TypeError, ValueError):
+            ttl = 3600.0
+        self.progress_ttl_seconds = ttl if ttl > 0 else 3600.0
+        # 进度追踪为实例属性（曾用类属性，多实例共享 + 各自 TTL 清理会跨实例误删——独立审查 Critical 1）
+        self._refresh_progress: dict[str, dict] = {}
+        self._refresh_progress_lock = Lock()
+        self._relogin_progress: dict[str, dict] = {}
+        self._relogin_progress_lock = Lock()
         self._lock = Lock()
         self._token_refresh_lock = Lock()
         self._image_slot_condition = Condition(self._lock)
@@ -1526,9 +1531,23 @@ class AccountService:
 
     # ---- 刷新进度追踪 ----
 
+    def _prune_progress_dict(self, store: dict[str, dict]) -> None:
+        """惰性淘汰过期进度记录（调用方须已持有对应锁）。
+
+        以 created_at（monotonic）为基准，超过 progress_ttl_seconds 的记录删除。
+        仅在 init/get 路径顺带清理（update/finish 不触发，完成后由 get 轮询清理），
+        不引入后台线程，长期运行内存有界。
+        使用 monotonic 时钟避免系统时间跳变/NTP 校时影响 TTL 判定。
+        """
+        cutoff = time.monotonic() - self.progress_ttl_seconds
+        expired = [pid for pid, item in store.items() if float(item.get("created_at") or 0) < cutoff]
+        for pid in expired:
+            store.pop(pid, None)
+
     def init_refresh_progress(self, progress_id: str, total: int) -> None:
         """初始化刷新进度记录。"""
         with self._refresh_progress_lock:
+            self._prune_progress_dict(self._refresh_progress)
             self._refresh_progress[progress_id] = {
                 "total": total,
                 "processed": 0,
@@ -1536,6 +1555,7 @@ class AccountService:
                 "error": None,
                 "status_counts": {"正常": 0, "限流": 0, "异常": 0, "禁用": 0},
                 "total_quota": 0,
+                "created_at": time.monotonic(),
             }
 
     def update_refresh_progress(self, progress_id: str, token: str) -> None:
@@ -1563,11 +1583,20 @@ class AccountService:
             if error:
                 progress["error"] = error
 
+    @staticmethod
+    def _public_progress(progress: dict | None) -> dict | None:
+        """对外返回的进度视图：剥离进程内 monotonic 计时字段，避免污染 API 契约。"""
+        if not progress:
+            return None
+        public = dict(progress)
+        public.pop("created_at", None)
+        return public
+
     def get_refresh_progress(self, progress_id: str) -> dict | None:
         """查询刷新进度。"""
         with self._refresh_progress_lock:
-            progress = self._refresh_progress.get(progress_id)
-            return dict(progress) if progress else None
+            self._prune_progress_dict(self._refresh_progress)
+            return self._public_progress(self._refresh_progress.get(progress_id))
 
     def clean_refresh_progress(self, progress_id: str) -> None:
         """清理过期进度记录。"""
@@ -1579,12 +1608,14 @@ class AccountService:
     def init_relogin_progress(self, progress_id: str, total: int) -> None:
         """初始化重新登录进度记录。"""
         with self._relogin_progress_lock:
+            self._prune_progress_dict(self._relogin_progress)
             self._relogin_progress[progress_id] = {
                 "total": total,
                 "processed": 0,
                 "done": False,
                 "error": None,
                 "results": [],
+                "created_at": time.monotonic(),
             }
 
     def update_relogin_progress(self, progress_id: str, token: str, status: str, error: str | None = None) -> None:
@@ -1616,8 +1647,8 @@ class AccountService:
     def get_relogin_progress(self, progress_id: str) -> dict | None:
         """查询重新登录进度。"""
         with self._relogin_progress_lock:
-            progress = self._relogin_progress.get(progress_id)
-            return dict(progress) if progress else None
+            self._prune_progress_dict(self._relogin_progress)
+            return self._public_progress(self._relogin_progress.get(progress_id))
 
     def clean_relogin_progress(self, progress_id: str) -> None:
         """清理过期进度记录。"""
@@ -1859,4 +1890,7 @@ class AccountService:
         }
 
 
-account_service = AccountService(config.get_storage_backend())
+account_service = AccountService(
+    config.get_storage_backend(),
+    progress_ttl_seconds=config.progress_ttl_seconds,
+)

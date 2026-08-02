@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from sqlalchemy import Column, Integer, String, Text, create_engine, text
+from sqlalchemy import Column, Integer, String, Text, create_engine, event, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 from services.storage.base import StorageBackend
@@ -32,15 +32,58 @@ class AuthKeyModel(Base):
 class DatabaseStorageBackend(StorageBackend):
     """数据库存储后端（支持 SQLite、PostgreSQL、MySQL 等）"""
 
-    def __init__(self, database_url: str):
+    def __init__(
+        self,
+        database_url: str,
+        *,
+        sqlite_wal_mode: bool = True,
+        sqlite_busy_timeout_ms: int = 5000,
+    ):
         self.database_url = database_url
         self.engine = create_engine(
             database_url,
             pool_pre_ping=True,  # 自动检测连接是否有效
             pool_recycle=3600,   # 1小时回收连接
         )
+        # SQLite 可靠性加固（D8 收口）：WAL + busy_timeout 防多 worker 并发写损坏/锁失败
+        self._apply_sqlite_pragmas(self.engine, database_url, sqlite_wal_mode, sqlite_busy_timeout_ms)
         Base.metadata.create_all(self.engine)
         self.Session = sessionmaker(bind=self.engine)
+
+    @staticmethod
+    def _apply_sqlite_pragmas(
+        engine,
+        database_url: str,
+        wal_mode: bool,
+        busy_timeout_ms: int,
+    ) -> None:
+        """仅对 SQLite 引擎设置 PRAGMA；其他数据库（PostgreSQL/MySQL）直接跳过。
+
+        - journal_mode=WAL：读写不互斥，多 worker 并发写安全的标准解法；
+          该模式持久化在 DB 文件头，初始化时设置一次即可
+        - busy_timeout / synchronous=NORMAL：均为**每连接级** PRAGMA，
+          必须经 DBAPI connect 事件在连接池每条新连接上重放，
+          且参数为初始化期强转的 int（不经 SQL 文本拼接外部输入，零注入面）。
+          注意：关闭 WAL 不联动关闭 synchronous=NORMAL（busy_timeout 亦始终生效），
+          二者独立于 journal_mode 开关。
+        """
+        if not database_url.startswith("sqlite"):
+            return
+        timeout = max(0, int(busy_timeout_ms))
+
+        @event.listens_for(engine, "connect")
+        def _set_connection_pragmas(dbapi_conn, _connection_record):  # noqa: ANN001
+            cursor = dbapi_conn.cursor()
+            try:
+                cursor.execute(f"PRAGMA busy_timeout={timeout}")
+                cursor.execute("PRAGMA synchronous=NORMAL")
+            finally:
+                cursor.close()
+
+        with engine.connect() as conn:
+            if wal_mode:
+                conn.execute(text("PRAGMA journal_mode=WAL"))
+            conn.commit()
 
     def load_accounts(self) -> list[dict[str, Any]]:
         """从数据库加载账号数据"""

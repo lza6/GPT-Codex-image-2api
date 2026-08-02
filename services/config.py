@@ -409,7 +409,7 @@ class ConfigStore:
         if mode is not None and mode not in ("round_robin", "remaining_quota"):
             errors.append(f"scheduler_mode 必须是 round_robin 或 remaining_quota，当前为 {mode!r}")
         # 数值型配置
-        int_fields = ["workers", "rate_limit_rpm", "rate_limit_per_ip_rpm", "refresh_account_interval_minute", "image_retention_days", "image_account_concurrency"]
+        int_fields = ["workers", "rate_limit_rpm", "rate_limit_per_ip_rpm", "refresh_account_interval_minute", "image_retention_days", "image_account_concurrency", "sqlite_busy_timeout_ms", "progress_ttl_seconds"]
         for field in int_fields:
             value = data.get(field)
             if value is None:
@@ -418,6 +418,10 @@ class ConfigStore:
                 errors.append(f"{field} 必须是整数，当前为 {value!r} ({type(value).__name__})")
             elif value < 0:
                 errors.append(f"{field} 不能为负数，当前为 {value}")
+        # sqlite_wal_mode 布尔校验
+        wal = data.get("sqlite_wal_mode")
+        if wal is not None and not isinstance(wal, bool):
+            errors.append(f"sqlite_wal_mode 必须是布尔值，当前为 {wal!r} ({type(wal).__name__})")
         # scheduler_priority 必须为 dict[str, int]
         sp = data.get("scheduler_priority")
         if sp is not None and not isinstance(sp, dict):
@@ -566,6 +570,36 @@ class ConfigStore:
     @property
     def storage_backend_type(self) -> str:
         return str(os.getenv("STORAGE_BACKEND") or self.data.get("storage_backend") or "json").strip().lower()
+
+    @property
+    def sqlite_wal_mode(self) -> bool:
+        """SQLite WAL 日志模式（多 worker 并发写安全，默认开启）。"""
+        value = os.getenv("CHATGPT2API_SQLITE_WAL_MODE")
+        if value is not None:
+            return _normalize_bool(value, True)
+        return _normalize_bool(self.data.get("sqlite_wal_mode"), True)
+
+    @property
+    def sqlite_busy_timeout_ms(self) -> int:
+        """SQLite 写锁冲突时的等待毫秒数（默认 5000，0 = 立即报错）。"""
+        try:
+            return max(0, int(
+                os.getenv("CHATGPT2API_SQLITE_BUSY_TIMEOUT_MS")
+                or self.data.get("sqlite_busy_timeout_ms", 5000)
+            ))
+        except (TypeError, ValueError):
+            return 5000
+
+    @property
+    def progress_ttl_seconds(self) -> int:
+        """进度记录（刷新/重登）在内存中的存活秒数（默认 3600，配置层最小 1s；亚秒级仅供测试经构造参数传入）。"""
+        try:
+            return max(1, int(
+                os.getenv("CHATGPT2API_PROGRESS_TTL_SECONDS")
+                or self.data.get("progress_ttl_seconds", 3600)
+            ))
+        except (TypeError, ValueError):
+            return 3600
 
     @property
     def rate_limit_per_ip_rpm(self) -> int:
@@ -734,6 +768,9 @@ class ConfigStore:
         data["rate_limit_rpm"] = self.rate_limit_rpm
         data["rate_limit_per_ip_rpm"] = self.rate_limit_per_ip_rpm
         data["workers"] = self.workers
+        data["sqlite_wal_mode"] = self.sqlite_wal_mode
+        data["sqlite_busy_timeout_ms"] = self.sqlite_busy_timeout_ms
+        data["progress_ttl_seconds"] = self.progress_ttl_seconds
         data["image_remove_conversation_after_result"] = self.image_remove_conversation_after_result
         data["image_remove_conversation_always"] = self.image_remove_conversation_always
         data["auto_remove_invalid_accounts"] = self.auto_remove_invalid_accounts

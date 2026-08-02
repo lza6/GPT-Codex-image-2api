@@ -35,15 +35,21 @@ def create_storage_backend(data_dir: Path) -> StorageBackend:
     elif backend_type in ("sqlite", "postgres", "postgresql", "mysql", "database"):
         # 数据库存储
         database_url = os.getenv("DATABASE_URL", "").strip()
-        
+
         if not database_url:
             # 如果没有指定 DATABASE_URL，使用本地 SQLite
             database_url = f"sqlite:///{data_dir / 'accounts.db'}"
             print(f"[storage] No DATABASE_URL provided, using local SQLite: {database_url}")
         else:
             print(f"[storage] Using database storage: {_mask_password(database_url)}")
-        
-        return DatabaseStorageBackend(database_url)
+
+        # SQLite 可靠性参数（config.json / 环境变量驱动，仅对 sqlite URL 生效）
+        from services.config import config as app_config
+        return DatabaseStorageBackend(
+            database_url,
+            sqlite_wal_mode=app_config.sqlite_wal_mode,
+            sqlite_busy_timeout_ms=app_config.sqlite_busy_timeout_ms,
+        )
     
     elif backend_type == "git":
         # Git 仓库存储

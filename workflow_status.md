@@ -117,10 +117,10 @@ P8 HTML 报告（R4）+ workflow_status 收尾 + git 提交
 | D2 | P1 | SSRF（image_inputs URL 抓取无内网校验） | 需设计协议白名单+IP 段校验，涉及功能面（用户可能 legit 抓内网图床），登记 v2.1 |
 | D3 | P1 | XFF 伪造绕过按 IP 限流 | 需 trusted_proxy 配置设计（部署形态相关），登记 v2.1 |
 | D4 | P1 | 熔断器注册表孤儿化（remove 零调用） | 账号删除/轮换路径接入清理，登记 v2.1 |
-| D5 | P1 | 进度字典无界增长 | 加 TTL 惰性淘汰，登记 v2.1 |
+| D5 | P1 | ~~进度字典无界增长~~ | ✅ **已闭环（阶段 2，2026-08-02）**：`_prune_progress_dict` monotonic 惰性淘汰（refresh/relogin 双字典），TTL 默认 3600s 可配置（`progress_ttl_seconds`），配置 6 步全接入，10 个 TTL 专项测试全绿，五道防线 5/5 PASS |
 | D6 | P1 | codex 裸 urllib 绕过代理/池/熔断/指标 | 改 curl_cffi 池化，涉及逆向协议验证，登记 v2.1 |
 | D7 | P1 | 搜索路径无熔断+backend 泄漏 | 接熔断+补 close，登记 v2.1 |
-| D8 | P1 | SQLite 无 WAL/busy_timeout | engine 配置，登记 v2.1 |
+| D8 | P1 | ~~SQLite 无 WAL/busy_timeout~~ | ✅ **已闭环（阶段 1，2026-08-02）**：WAL+busy_timeout+synchronous=NORMAL 落地，配置 6 步全接入，stress_test SQLite 并发写用例 PASS，五道防线 5/5 PASS |
 | D9 | P1 | 备份失败完全静默 | 接日志/看板指示，登记 v2.1（产品策略已列告警为最高价值项） |
 | D10 | P1 | /files/{path} 下载无鉴权 | 挂 require_identity+归属校验，登记 v2.1 |
 | D11 | P1 | 备份端点 key 白名单 | 接 _is_backup_object，登记 v2.1 |
@@ -151,3 +151,13 @@ P8 HTML 报告（R4）+ workflow_status 收尾 + git 提交
 - remote：无（纯本地，不发 GitHub）
 - 测试：194 passed / 0 failed（182→194，+12 新测试；30 live 排除）
 - 独立审查：Approve（review-round7）
+
+## 第八轮增量（D8 SQLite WAL + D5 进度 TTL，2026-08-02）
+
+| 阶段 | 结果 |
+|------|------|
+| 阶段 1 D8 SQLite 可靠性 | ✅ WAL+busy_timeout+synchronous 落地；PRAGMA 经 connect 事件在每连接重放（synchronous 曾被反向批判揪出只在单连接生效，改为监听器）；配置 6 步接入（sqlite_wal_mode/sqlite_busy_timeout_ms） |
+| 阶段 2 D5 进度字典 TTL | ✅ `_prune_progress_dict` monotonic 惰性淘汰（init/get 路径）；配置 6 步接入（progress_ttl_seconds）；11 个专项测试 |
+| review-round8 六维审查 | **Verdict: Request Changes**——Critical①类属性进度字典×实例TTL跨实例误删（本次放大既有包袱）②monotonic created_at 直出 API 污染契约；Required③prune docstring 不符④postgres no-op 伪测试⑤config/服务层 TTL 语义不一致未文档化 |
+| 主线程修复 | ①字典挪为实例属性+跨实例隔离防回归测试 ②`_public_progress` 出口过滤 created_at ③docstring 改"仅 init/get"④伪断言删除改文档化双保险+补 busy_timeout=0 锁冲突测试⑤docstring 注明配置层最小 1s；附加 NaN 守卫+WAL 不联动 synchronous docstring |
+| **复验结论** | **Approve（review-round8）**——216 passed / 0 failed + 五道防线 5/5 PASS + tsc 0 错误 + ruff 改动范围全绿 + 前端 build 成功 + web_dist 同步 |

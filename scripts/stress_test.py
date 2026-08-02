@@ -216,6 +216,80 @@ def run_storage_consistency(writes: int, concurrency: int) -> dict:
     }
 
 
+def run_sqlite_concurrent_writes(writes: int, concurrency: int) -> dict:
+    """SQLite 并发写一致性：WAL + busy_timeout 下不应出现 database is locked 或数据损坏。
+
+    复用 JSON 并发写用例的模式：多线程写不同 key 的快照，
+    写完后读回验证（a）无 locked 类异常（b）最终数据可解析且行数合理。
+    说明：_save_rows 为全量快照替换语义，"最后写赢"是设计行为；
+    本用例的红线是锁错误与文件损坏，而非写顺序。
+    """
+    from services.storage.database_storage import DatabaseStorageBackend
+
+    tmp_dir = ROOT / "data" / "stress_tmp"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    db_path = tmp_dir / "sqlite_stress.db"
+    if db_path.exists():
+        db_path.unlink()
+    backend = DatabaseStorageBackend(f"sqlite:///{db_path}")
+    errors: list[str] = []
+
+    def write_one(i: int) -> None:
+        try:
+            backend.save_accounts([{"access_token": f"tok_{i % 10}", "seq": i}])
+        except Exception as exc:  # noqa: BLE001 - 记录所有并发写异常
+            errors.append(f"write {i}: {exc!r}")
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as pool:
+        list(pool.map(write_one, range(writes)))
+
+    locked_errors = [e for e in errors if "locked" in e.lower()]
+    read_back_ok = True
+    detail = ""
+    try:
+        rows = backend.load_accounts()
+        if not isinstance(rows, list):
+            read_back_ok = False
+            detail = "读回结果不是 list"
+    except Exception as exc:  # noqa: BLE001
+        read_back_ok = False
+        detail = f"读回失败（疑似损坏）: {exc!r}"
+
+    # WAL 模式验证
+    journal_mode = "unknown"
+    try:
+        from sqlalchemy import text as sa_text
+
+        with backend.engine.connect() as conn:
+            journal_mode = str(conn.execute(sa_text("PRAGMA journal_mode")).scalar()).lower()
+    except Exception:
+        pass
+
+    # 释放连接池（Windows 下未 dispose 时文件被占用，unlink 会 PermissionError）
+    backend.engine.dispose()
+
+    for suffix in ("", "-wal", "-shm"):
+        try:
+            (tmp_dir / f"sqlite_stress.db{suffix}").unlink(missing_ok=True)
+        except OSError:
+            pass
+    try:
+        tmp_dir.rmdir()
+    except OSError:
+        pass
+
+    return {
+        "writes": writes,
+        "concurrency": concurrency,
+        "write_error_count": len(errors),
+        "write_errors_sample": errors[:5],
+        "locked_error_count": len(locked_errors),
+        "read_back_ok": read_back_ok,
+        "journal_mode": journal_mode,
+        "detail": detail,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="ChatGPT2API 极限施压与防穿透测试")
     parser.add_argument("--requests", type=int, default=300, help="每轮请求总数")
@@ -267,13 +341,34 @@ def main() -> int:
         "budget": DEFAULT_MAX_ERROR_RATE,
     })
 
-    print("[stress] 3/3 存储并发写一致性")
+    print("[stress] 3/4 存储并发写一致性（JSON）")
     consistency = run_storage_consistency(max(args.requests, 100), args.concurrency)
     checks.append({
         "name": "存储-并发写后文件可解析",
         "pass": consistency["file_valid_json_after_storm"],
         "actual": consistency["detail"] or "valid",
         "budget": "valid json",
+    })
+
+    print("[stress] 4/4 SQLite 并发写一致性（WAL+busy_timeout）")
+    sqlite_result = run_sqlite_concurrent_writes(max(args.requests, 120), args.concurrency)
+    checks.append({
+        "name": "SQLite-并发写零锁错误",
+        "pass": sqlite_result["locked_error_count"] == 0,
+        "actual": sqlite_result["locked_error_count"],
+        "budget": 0,
+    })
+    checks.append({
+        "name": "SQLite-并发写后读回正常",
+        "pass": sqlite_result["read_back_ok"],
+        "actual": sqlite_result["detail"] or "ok",
+        "budget": "readable",
+    })
+    checks.append({
+        "name": "SQLite-WAL模式生效",
+        "pass": sqlite_result["journal_mode"] == "wal",
+        "actual": sqlite_result["journal_mode"],
+        "budget": "wal",
     })
 
     passed = sum(1 for c in checks if c["pass"])
@@ -289,6 +384,7 @@ def main() -> int:
         "spike": spike,
         "slow_storage": slow,
         "storage_consistency": consistency,
+        "sqlite_consistency": sqlite_result,
     }
     (out_dir / f"{stamp}.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -318,10 +414,16 @@ def main() -> int:
         f"- 注入成功：{slow['slow_storage_injected']}（命中 {slow.get('injected_hits', 0)} 次日志读 × {slow['injected_delay_ms']}ms）",
         f"- p50={slow['p50_ms']}ms p99={slow['p99_ms']}ms 错误率={slow['error_rate']}",
         "",
-        "## 存储一致性详情",
+        "## 存储一致性详情（JSON）",
         "",
         f"- 并发写 {consistency['writes']} 次（{consistency['concurrency']} 线程），异常 {consistency['write_error_count']} 个",
         f"- 压后文件可解析：{consistency['file_valid_json_after_storm']} {consistency['detail']}",
+        "",
+        "## SQLite 并发写一致性详情",
+        "",
+        f"- 并发写 {sqlite_result['writes']} 次（{sqlite_result['concurrency']} 线程），锁错误 {sqlite_result['locked_error_count']} 个 / 总异常 {sqlite_result['write_error_count']} 个",
+        f"- journal_mode：{sqlite_result['journal_mode']}（预算 wal）",
+        f"- 压后读回：{sqlite_result['read_back_ok']} {sqlite_result['detail']}",
     ]
     report_path = out_dir / f"{stamp}.md"
     report_path.write_text("\n".join(lines) + "\n", encoding="utf-8")

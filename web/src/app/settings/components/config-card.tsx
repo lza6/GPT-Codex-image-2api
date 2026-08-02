@@ -38,6 +38,9 @@ export function ConfigCard() {
   const setRateLimitRpm = useSettingsStore((state) => state.setRateLimitRpm);
   const setRateLimitPerIpRpm = useSettingsStore((state) => state.setRateLimitPerIpRpm);
   const setWorkers = useSettingsStore((state) => state.setWorkers);
+  const setSqliteWalMode = useSettingsStore((state) => state.setSqliteWalMode);
+  const setSqliteBusyTimeoutMs = useSettingsStore((state) => state.setSqliteBusyTimeoutMs);
+  const setProgressTtlSeconds = useSettingsStore((state) => state.setProgressTtlSeconds);
   const setLogLevel = useSettingsStore((state) => state.setLogLevel);
   const setProxy = useSettingsStore((state) => state.setProxy);
   const setBaseUrl = useSettingsStore((state) => state.setBaseUrl);
@@ -263,6 +266,36 @@ export function ConfigCard() {
               className="h-10 rounded-xl border-stone-200 bg-white"
             />
             <p className="text-xs text-stone-500">多 Worker 并发处理请求，利用多核 CPU。建议设为 CPU 核心数，重启后生效。</p>
+          </div>
+          <div className="space-y-2">
+            <div className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-4 py-3">
+              <Checkbox
+                checked={Boolean(config?.sqlite_wal_mode !== false)}
+                onCheckedChange={(checked) => setSqliteWalMode(Boolean(checked))}
+              />
+              <span className="text-sm text-stone-700">SQLite WAL 模式</span>
+            </div>
+            <p className="text-xs text-stone-500">多 Worker 并发写安全，建议保持开启；仅 SQLite 存储后端生效，重启后生效。</p>
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm text-stone-700">SQLite 锁等待超时</label>
+            <Input
+              value={String(config?.sqlite_busy_timeout_ms ?? "")}
+              onChange={(event) => setSqliteBusyTimeoutMs(event.target.value)}
+              placeholder="5000"
+              className="h-10 rounded-xl border-stone-200 bg-white"
+            />
+            <p className="text-xs text-stone-500">单位毫秒，写锁冲突时等待时长。0 = 立即报错。仅 SQLite 存储后端生效，重启后生效。</p>
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm text-stone-700">进度记录保留时长</label>
+            <Input
+              value={String(config?.progress_ttl_seconds ?? "")}
+              onChange={(event) => setProgressTtlSeconds(event.target.value)}
+              placeholder="3600"
+              className="h-10 rounded-xl border-stone-200 bg-white"
+            />
+            <p className="text-xs text-stone-500">单位秒，批量刷新/重登进度在内存中的保留时长，超时自动清理防内存膨胀。重启后生效。</p>
           </div>
           <div className="space-y-2">
             <div className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-4 py-3">
