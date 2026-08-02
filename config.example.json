@@ -1,14 +1,22 @@
 {
-  "auth-key": "chatgpt2api",
+  "auth-key": "CHANGE_ME_strong_random_key_min_24_chars",
   "refresh_account_interval_minute": 5,
   "sqlite_wal_mode": true,
   "sqlite_busy_timeout_ms": 5000,
   "progress_ttl_seconds": 3600,
   "ssrf_allow_private_ips": false,
-  "trusted_proxies": ["127.0.0.1", "::1"],
+  "trusted_proxies": [
+    "127.0.0.1",
+    "::1"
+  ],
   "alert_webhook_url": "",
   "alert_webhook_timeout": 10,
-  "alert_events": ["circuit_breaker_open", "backup_failure", "account_invalid", "quota_exhausted"],
+  "alert_events": [
+    "circuit_breaker_open",
+    "backup_failure",
+    "account_invalid",
+    "quota_exhausted"
+  ],
   "image_retention_days": 15,
   "image_poll_timeout_secs": 120,
   "auto_remove_rate_limited_accounts": false,

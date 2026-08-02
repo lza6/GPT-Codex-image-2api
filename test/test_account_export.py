@@ -64,10 +64,10 @@ class AccountExportTests(unittest.TestCase):
 
         self.assertEqual(item["type"], "codex")
         self.assertEqual(item["email"], "test@example.com")
-        self.assertEqual(item["expired"], "1970-01-01T08:00:00+08:00")
+        self.assertEqual(item["expired"], "1970-01-01T00:00:00+00:00")
         self.assertEqual(item["account_id"], "acct_123")
         self.assertEqual(item["access_token"], access_token)
-        self.assertEqual(item["last_refresh"], "1970-01-01T09:00:00+08:00")
+        self.assertEqual(item["last_refresh"], "1970-01-01T01:00:00+00:00")
         self.assertEqual(item["id_token"], id_token)
         self.assertEqual(item["refresh_token"], "rt_test")
 

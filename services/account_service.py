@@ -122,12 +122,12 @@ class AccountService:
 
     @staticmethod
     def _timestamp_to_iso(value: object) -> str:
+        """D12/D17：导出时间戳统一为 UTC ISO8601（原 UTC+8 硬编码，跨时区部署不一致）。"""
         try:
             ts = int(value)
         except (TypeError, ValueError):
             return ""
-        tz = timezone(timedelta(hours=8))
-        return datetime.fromtimestamp(ts, tz=UTC).astimezone(tz).isoformat()
+        return datetime.fromtimestamp(ts, tz=UTC).isoformat()
 
     def _load_accounts(self) -> dict[str, dict]:
         accounts = self.storage.load_accounts()
