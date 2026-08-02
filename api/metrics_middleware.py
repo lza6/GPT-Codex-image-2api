@@ -13,7 +13,7 @@ import time
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from services.metrics_service import metrics_service
+from services.metrics_service import metrics_service, set_request_id
 
 
 class MetricsMiddleware(BaseHTTPMiddleware):
@@ -21,6 +21,8 @@ class MetricsMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next):
         request_id = metrics_service.new_request_id()
+        # 写入请求上下文，供日志记录读取，实现全链路追踪
+        set_request_id(request_id)
         method = request.method
         path = request.url.path
 

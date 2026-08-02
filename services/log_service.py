@@ -324,6 +324,12 @@ class LoggedCall:
 
     def log(self, suffix: str, result: object = None, status: str = "success", error: str = "",
             urls: list[str] | None = None, account_email: str = "", conversation_id: str = "") -> None:
+        # 读取请求级 request_id，实现全链路追踪（配合 metrics 中间件）
+        try:
+            from services.metrics_service import get_request_id
+            request_id = get_request_id()
+        except Exception:
+            request_id = ""
         detail = {
             "key_id": self.identity.get("id"),
             "key_name": self.identity.get("name"),
@@ -335,6 +341,8 @@ class LoggedCall:
             "duration_ms": int((time.time() - self.started) * 1000),
             "status": status,
         }
+        if request_id:
+            detail["request_id"] = request_id
         request_excerpt = _request_excerpt(self.request_text)
         if request_excerpt:
             detail["request_text"] = request_excerpt

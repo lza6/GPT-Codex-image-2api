@@ -12,11 +12,23 @@
 
 from __future__ import annotations
 
+import contextvars
 import time
 import uuid
 from collections import defaultdict
 from threading import Lock
 from typing import Any
+
+# 请求级 request_id 上下文变量：metrics 中间件设置，日志记录读取，实现全链路追踪。
+_request_id_ctx: contextvars.ContextVar[str] = contextvars.ContextVar("chatgpt2api_request_id", default="")
+
+
+def set_request_id(request_id: str) -> None:
+    _request_id_ctx.set(request_id)
+
+
+def get_request_id() -> str:
+    return _request_id_ctx.get()
 
 
 class RequestMetrics:
