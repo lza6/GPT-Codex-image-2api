@@ -55,3 +55,28 @@
 - [x] SSE 端点已注册（/api/dashboard/stream）
 - [x] 品牌定制后无 GitHub 引用残留（use-version-check 仅本地）
 - [x] 前端构建通过 + TypeScript 0 错误
+
+
+---
+
+# 终局闭环总审计（2026-08-02 第三轮）
+
+## 本轮新增节点
+
+| 节点 | 任务 | 状态 | 验收证据 |
+|------|------|------|---------|
+| N16 | UX 增强（5.2-5.6） | ✅ 闭环 | 拦截器/筛选排序/搜索/暗色/骨架屏 |
+| N17 | request_id 全链路追踪 | ✅ 闭环 | contextvars + LoggedCall 记录，test-req-12345 写入验证 |
+
+## 本轮独立审查修复
+
+| 问题 | 级别 | 根因 | 修复 |
+|------|------|------|------|
+| 日志缺 request_id（前端响应头有但日志无，搜索找不到） | P1 | metrics 中间件生成 request_id 但未传给日志 | contextvars 传递 + LoggedCall 记录 |
+| top-nav showGithubText 残留 | P2 | 改 HeaderActions 签名后调用处没同步 | 移除参数 |
+| version-release-dialog checkLatestRelease 参数 | P2 | 改签名后调用处没同步 | 移除参数 |
+
+## 当前 git 状态
+
+- 提交：be3322a fix: request_id 全链路追踪打通
+- remote：无（纯本地，已移除 origin 防止误推原作者仓库）
