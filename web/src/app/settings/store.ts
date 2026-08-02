@@ -191,6 +191,9 @@ function normalizeConfig(config: SettingsConfig): SettingsConfig {
     progress_ttl_seconds: Number(config.progress_ttl_seconds ?? 3600),
     ssrf_allow_private_ips: Boolean(config.ssrf_allow_private_ips),
     trusted_proxies: Array.isArray(config.trusted_proxies) ? config.trusted_proxies : ["127.0.0.1", "::1"],
+    alert_webhook_url: typeof config.alert_webhook_url === "string" ? config.alert_webhook_url : "",
+    alert_webhook_timeout: Number(config.alert_webhook_timeout ?? 10),
+    alert_events: Array.isArray(config.alert_events) ? config.alert_events : ["circuit_breaker_open", "backup_failure", "account_invalid", "quota_exhausted"],
     log_levels: Array.isArray(config.log_levels) ? config.log_levels : [],
     proxy: typeof config.proxy === "string" ? config.proxy : "",
     base_url: typeof config.base_url === "string" ? config.base_url : "",
@@ -323,6 +326,9 @@ type SettingsStore = {
   setProgressTtlSeconds: (value: string) => void;
   setSsrfAllowPrivateIps: (value: boolean) => void;
   setTrustedProxiesText: (value: string) => void;
+  setAlertWebhookUrl: (value: string) => void;
+  setAlertWebhookTimeout: (value: string) => void;
+  toggleAlertEvent: (event: string, enabled: boolean) => void;
   setLogLevel: (level: string, enabled: boolean) => void;
   setProxy: (value: string) => void;
   setBaseUrl: (value: string) => void;
@@ -634,6 +640,28 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       if (!state.config) return {};
       const ips = value.split("\n").map((s) => s.trim()).filter(Boolean);
       return { config: { ...state.config, trusted_proxies: ips.length ? ips : ["127.0.0.1", "::1"] } };
+    });
+  },
+
+  setAlertWebhookUrl: (value) => {
+    set((state) => state.config ? { config: { ...state.config, alert_webhook_url: value } } : {});
+  },
+
+  setAlertWebhookTimeout: (value) => {
+    set((state) => {
+      if (!state.config) return {};
+      const n = Number(value);
+      return { config: { ...state.config, alert_webhook_timeout: Number.isFinite(n) ? Math.max(1, n) : 10 } };
+    });
+  },
+
+  toggleAlertEvent: (event, enabled) => {
+    set((state) => {
+      if (!state.config) return {};
+      const current = new Set(state.config.alert_events || []);
+      if (enabled) current.add(event);
+      else current.delete(event);
+      return { config: { ...state.config, alert_events: Array.from(current) } };
     });
   },
 

@@ -200,6 +200,9 @@ export type SettingsConfig = {
   progress_ttl_seconds?: number;
   ssrf_allow_private_ips?: boolean;
   trusted_proxies?: string[];
+  alert_webhook_url?: string;
+  alert_webhook_timeout?: number;
+  alert_events?: string[];
   image_storage?: ImageStorageSettings;
   proxy_runtime?: ProxyRuntimeSettings;
   third_party_apps?: ThirdPartyAppsSettings;

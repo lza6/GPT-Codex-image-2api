@@ -500,6 +500,13 @@ class BackupService:
             # D9：备份失败必须可见——完整堆栈进日志 + Prometheus 计数器 +1
             logger.error("备份失败（trigger=%s）: %s", trigger, exc, exc_info=True)
             chatgpt2api_backup_failures_total.inc()
+            # D18：备份失败触发告警
+            try:
+                from services.alert_service import send_alert
+
+                send_alert("backup_failure", {"error": str(exc) or exc.__class__.__name__, "trigger": trigger})
+            except Exception:  # noqa: BLE001
+                pass
             save_backup_state({
                 "last_started_at": started_at,
                 "last_finished_at": _iso_now(),

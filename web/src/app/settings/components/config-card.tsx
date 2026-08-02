@@ -43,6 +43,9 @@ export function ConfigCard() {
   const setProgressTtlSeconds = useSettingsStore((state) => state.setProgressTtlSeconds);
   const setSsrfAllowPrivateIps = useSettingsStore((state) => state.setSsrfAllowPrivateIps);
   const setTrustedProxiesText = useSettingsStore((state) => state.setTrustedProxiesText);
+  const setAlertWebhookUrl = useSettingsStore((state) => state.setAlertWebhookUrl);
+  const setAlertWebhookTimeout = useSettingsStore((state) => state.setAlertWebhookTimeout);
+  const toggleAlertEvent = useSettingsStore((state) => state.toggleAlertEvent);
   const setLogLevel = useSettingsStore((state) => state.setLogLevel);
   const setProxy = useSettingsStore((state) => state.setProxy);
   const setBaseUrl = useSettingsStore((state) => state.setBaseUrl);
@@ -318,6 +321,48 @@ export function ConfigCard() {
               className="min-h-20 rounded-xl border-stone-200 bg-white font-mono text-xs shadow-none"
             />
             <p className="text-xs text-stone-500">一行一个 IP。仅这些来源的 X-Forwarded-For 头被信任（防伪造绕过限流）。默认仅回环，反向代理部署时填代理 IP。</p>
+          </div>
+          <div className="space-y-4 rounded-xl border border-stone-200 bg-white px-4 py-3 md:col-span-2">
+            <div>
+              <label className="text-sm text-stone-700">告警 Webhook</label>
+              <p className="mt-1 text-xs text-stone-500">熔断开启/备份失败/账号失效/配额耗尽时向该地址 POST JSON。留空 = 关闭告警。同一事件 5 分钟内只发一次。</p>
+            </div>
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="space-y-2 md:col-span-2">
+                <label className="text-sm text-stone-700">Webhook URL</label>
+                <Input
+                  value={String(config?.alert_webhook_url || "")}
+                  onChange={(event) => setAlertWebhookUrl(event.target.value)}
+                  placeholder="https://hooks.slack.com/… 或 https://webhook.site/…"
+                  className="h-10 rounded-xl border-stone-200 bg-white"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-stone-700">超时（秒）</label>
+                <Input
+                  value={String(config?.alert_webhook_timeout ?? "")}
+                  onChange={(event) => setAlertWebhookTimeout(event.target.value)}
+                  placeholder="10"
+                  className="h-10 rounded-xl border-stone-200 bg-white"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+              {[
+                ["circuit_breaker_open", "熔断开启"],
+                ["backup_failure", "备份失败"],
+                ["account_invalid", "账号失效"],
+                ["quota_exhausted", "配额耗尽"],
+              ].map(([eventKey, label]) => (
+                <label key={eventKey} className="flex items-center gap-2 text-sm text-stone-700">
+                  <Checkbox
+                    checked={Boolean(config?.alert_events?.includes(eventKey))}
+                    onCheckedChange={(checked) => toggleAlertEvent(eventKey, Boolean(checked))}
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
           </div>
           <div className="space-y-2">
             <div className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-4 py-3">

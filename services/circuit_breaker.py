@@ -28,10 +28,12 @@ class CircuitBreaker:
         failure_threshold: int = 5,
         recovery_timeout: float = 30.0,
         half_open_max_calls: int = 3,
+        key: str = "",
     ) -> None:
         self.failure_threshold = failure_threshold
         self.recovery_timeout = recovery_timeout
         self.half_open_max_calls = half_open_max_calls
+        self._key = key
 
         self._state = CircuitState.CLOSED
         self._failure_count = 0
@@ -80,6 +82,13 @@ class CircuitBreaker:
         self._state = CircuitState.OPEN
         self._opened_at = time.monotonic()
         self._failure_count = 0
+        # D18：熔断 OPEN 触发告警（token 末 8 位，不泄露完整 token）
+        try:
+            from services.alert_service import send_alert
+
+            send_alert("circuit_breaker_open", {"token_suffix": str(self._key)[-8:], "failure_threshold": self.failure_threshold})
+        except Exception:  # noqa: BLE001 - 告警绝不阻塞熔断主流程
+            pass
 
     def to_dict(self) -> dict[str, Any]:
         state = self.state
@@ -118,7 +127,7 @@ class CircuitBreakerRegistry:
             self._last_seen[key] = time.monotonic()
             breaker = self._breakers.get(key)
             if breaker is None:
-                breaker = CircuitBreaker(**self._kwargs)
+                breaker = CircuitBreaker(key=key, **self._kwargs)
                 self._breakers[key] = breaker
             return breaker
 

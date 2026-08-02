@@ -409,7 +409,7 @@ class ConfigStore:
         if mode is not None and mode not in ("round_robin", "remaining_quota"):
             errors.append(f"scheduler_mode 必须是 round_robin 或 remaining_quota，当前为 {mode!r}")
         # 数值型配置
-        int_fields = ["workers", "rate_limit_rpm", "rate_limit_per_ip_rpm", "refresh_account_interval_minute", "image_retention_days", "image_account_concurrency", "sqlite_busy_timeout_ms", "progress_ttl_seconds"]
+        int_fields = ["workers", "rate_limit_rpm", "rate_limit_per_ip_rpm", "refresh_account_interval_minute", "image_retention_days", "image_account_concurrency", "sqlite_busy_timeout_ms", "progress_ttl_seconds", "alert_webhook_timeout"]
         for field in int_fields:
             value = data.get(field)
             if value is None:
@@ -617,6 +617,31 @@ class ConfigStore:
         return _normalize_bool(self.data.get("ssrf_allow_private_ips"), False)
 
     @property
+    def alert_webhook_url(self) -> str:
+        """告警 webhook URL（默认空 = 关闭）。"""
+        return str(os.getenv("CHATGPT2API_ALERT_WEBHOOK_URL") or self.data.get("alert_webhook_url") or "").strip()
+
+    @property
+    def alert_webhook_timeout(self) -> int:
+        """告警 webhook 超时秒数（默认 10）。"""
+        try:
+            return max(1, int(os.getenv("CHATGPT2API_ALERT_WEBHOOK_TIMEOUT") or self.data.get("alert_webhook_timeout", 10)))
+        except (TypeError, ValueError):
+            return 10
+
+    @property
+    def alert_events(self) -> list[str]:
+        """启用的告警事件列表。"""
+        default = ["circuit_breaker_open", "backup_failure", "account_invalid", "quota_exhausted"]
+        raw = os.getenv("CHATGPT2API_ALERT_EVENTS")
+        if raw is not None:
+            return [e.strip() for e in str(raw).split(",") if e.strip()]
+        value = self.data.get("alert_events")
+        if isinstance(value, list):
+            return [str(e).strip() for e in value if str(e).strip()]
+        return default
+
+    @property
     def progress_ttl_seconds(self) -> int:
         """进度记录（刷新/重登）在内存中的存活秒数（默认 3600，配置层最小 1s；亚秒级仅供测试经构造参数传入）。"""
         try:
@@ -799,6 +824,9 @@ class ConfigStore:
         data["progress_ttl_seconds"] = self.progress_ttl_seconds
         data["ssrf_allow_private_ips"] = self.ssrf_allow_private_ips
         data["trusted_proxies"] = self.trusted_proxies
+        data["alert_webhook_url"] = self.alert_webhook_url
+        data["alert_webhook_timeout"] = self.alert_webhook_timeout
+        data["alert_events"] = self.alert_events
         data["image_remove_conversation_after_result"] = self.image_remove_conversation_after_result
         data["image_remove_conversation_always"] = self.image_remove_conversation_always
         data["auto_remove_invalid_accounts"] = self.auto_remove_invalid_accounts

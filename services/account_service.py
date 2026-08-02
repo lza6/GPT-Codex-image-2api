@@ -1139,6 +1139,13 @@ class AccountService:
             # 返回成功但账号不可用（限流/无配额），记为失败
             breaker.record_failure()
             self.release_image_slot(access_token)
+        # D18：配额耗尽触发告警
+        try:
+            from services.alert_service import send_alert
+
+            send_alert("quota_exhausted", {"tried_tokens": len(attempted_tokens), "plan_type": plan_type or "", "source_type": source_type or ""})
+        except Exception:  # noqa: BLE001
+            pass
         raise RuntimeError(
             f"no available {plan_type or source_type or ''} image quota (tried {len(attempted_tokens)} tokens)".replace("  ", " ").strip()
             if plan_type or source_type else f"no available image quota (tried {len(attempted_tokens)} tokens)"
@@ -1205,6 +1212,13 @@ class AccountService:
             pass
         if not config.auto_remove_invalid_accounts:
             self.update_account(access_token, {"status": "异常", "quota": 0}, quiet=quiet)
+            # D18：账号失效触发告警
+            try:
+                from services.alert_service import send_alert
+
+                send_alert("account_invalid", {"token_suffix": anonymize_token(access_token), "reason": event})
+            except Exception:  # noqa: BLE001
+                pass
             return False
         removed = bool(self.delete_accounts([access_token])["removed"])
         if removed:
