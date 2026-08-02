@@ -57,14 +57,19 @@ def _collect_log_stats() -> dict[str, object]:
     calls: dict[str, int] = {}
     recent: list[dict[str, object]] = []
     for item in logs:
-        created = item.get("created_at") or ""
+        # 兼容日志三种时间键：text 格式写 'time'，json 格式写 'ts'，历史可能写 'created_at'
+        created = str(item.get("time") or item.get("ts") or item.get("created_at") or "")
         try:
-            ts = time.mktime(datetime.datetime.strptime(created[:19], "%Y-%m-%d %H:%M:%S").timetuple())
+            # 'ts' 为 ISO 格式（含 T 与毫秒），统一截断前 19 字符并替换 T 为空格
+            normalized = created[:19].replace("T", " ")
+            ts = time.mktime(datetime.datetime.strptime(normalized, "%Y-%m-%d %H:%M:%S").timetuple())
         except (ValueError, TypeError):
             ts = 0
         if ts < day_ago:
             continue
-        status = str(item.get("status") or "success")
+        # 成败状态在 detail 子对象（detail['status']），顶层无 status 键，需兜底读取
+        detail = item.get("detail") if isinstance(item.get("detail"), dict) else {}
+        status = str(item.get("status") or detail.get("status") or "success")
         summary = str(item.get("summary") or "调用")
         calls[summary] = calls.get(summary, 0) + 1
         if status == "failed":

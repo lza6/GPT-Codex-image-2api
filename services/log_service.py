@@ -52,7 +52,8 @@ class LogService:
 
     @staticmethod
     def _matches_filters(item: dict[str, Any], *, type: str = "", start_date: str = "", end_date: str = "") -> bool:
-        t = str(item.get("time") or "")
+        # 兼容 text 格式 'time' 与 json 格式 'ts'（json 无 'time' 键，否则日期筛选全失效）
+        t = str(item.get("time") or item.get("ts") or "")
         day = t[:10]
         if type and item.get("type") != type:
             return False

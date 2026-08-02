@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Activity, Cpu, Database, HardDrive, RefreshCw, Server, Timer, Users } from "lucide-react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -71,7 +72,9 @@ function DashboardContent() {
   const [metrics, setMetrics] = useState<MetricsSummary | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const load = useCallback(async () => {
+    setIsRefreshing(true);
     try {
       const [sched, opsData, usageData, latencyData, metricsData] = await Promise.all([
         fetchSchedulerDashboard(),
@@ -85,8 +88,12 @@ function DashboardContent() {
       setUsage(usageData);
       setLatency(latencyData);
       setMetrics(metricsData);
+    } catch (error) {
+      // 网络层失败（拦截器未覆盖）也给出反馈，避免永久骨架屏 + 静默轮询 rejection
+      toast.error(error instanceof Error ? error.message : "加载看板失败");
     } finally {
       setLoading(false);
+      setIsRefreshing(false);
     }
   }, []);
 
@@ -187,9 +194,9 @@ function DashboardContent() {
           <h1 className="text-2xl font-semibold text-stone-900">运维看板</h1>
           <p className="text-sm text-stone-500">调度健康度 · 资源占用 · 用量统计</p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => void load()}>
-          <RefreshCw className="mr-1 h-4 w-4" />
-          刷新
+        <Button variant="outline" size="sm" onClick={() => void load()} disabled={isRefreshing}>
+          <RefreshCw className={`mr-1 h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
+          {isRefreshing ? "刷新中" : "刷新"}
         </Button>
       </div>
 

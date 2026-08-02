@@ -808,10 +808,14 @@ def stream_text_deltas(backend: OpenAIBackendAPI, request: ConversationRequest) 
                     token = refreshed_token
                 else:
                     account_service.remove_invalid_token(token, "text_stream")
-                    token = account_service.get_text_access_token(
-                        excluded_tokens=set(attempted_tokens),
-                        model=request.model,
-                    )
+                    try:
+                        token = account_service.get_text_access_token(
+                            excluded_tokens=set(attempted_tokens),
+                            model=request.model,
+                        )
+                    except Exception:
+                        # 候选排除空（ModelUnavailableError），统一为无可用账号契约
+                        raise RuntimeError("no available text account") from None
                 if token:
                     continue
             # 仅真上游抖动（5xx/超时/TLS/连接错误）记熔断失败；业务拒绝(4xx)不记，

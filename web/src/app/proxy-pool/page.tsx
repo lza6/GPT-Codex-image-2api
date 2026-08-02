@@ -94,6 +94,9 @@ function ProxyPoolContent() {
       const result = await fetchProxyPool();
       setData(result);
       setStrategyValue(result.stats.strategy);
+    } catch (e) {
+      // 后端挂掉时给出反馈，避免永久骨架屏 + 静默轮询 rejection
+      toast.error(e instanceof Error ? e.message : "加载代理池失败");
     } finally {
       setLoading(false);
     }
