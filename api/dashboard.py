@@ -223,11 +223,15 @@ def create_router() -> APIRouter:
         return _build_metrics_summary()
 
     @router.get("/metrics", include_in_schema=False)
-    async def prometheus_metrics():
+    async def prometheus_metrics(authorization: str | None = Header(default=None), token: str = ""):
         """Prometheus 指标端点（prometheus-client 库，供监控系统抓取）。
 
-        仅监听回环或内网，防止公网暴露内部状态。
+        指标含账号规模等敏感信息，需鉴权（Authorization header 或 ?token= 查询参数，
+        与 /api/* 一致），防止公网暴露内部状态。Prometheus 抓取方配置 Bearer <auth-key>。
         """
+        if not authorization and token:
+            authorization = f"Bearer {token}"
+        require_identity(authorization)
         from services.prometheus_metrics import generate_metrics
 
         content, content_type = generate_metrics()

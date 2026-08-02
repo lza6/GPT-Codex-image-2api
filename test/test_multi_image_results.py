@@ -32,10 +32,13 @@ def _conversation(file_ids: list[str], sediment_ids: list[str] | None = None) ->
 
 class FakeBackend(OpenAIBackendAPI):
     def __init__(self, conversations: list[dict] | None = None) -> None:
+        # 不调 super().__init__（避免真实网络/指纹构建），但需补 session 属性
+        # 以满足 _poll_image_results 中 tasks 查询路径对 backend.session 的访问
         self.conversations = conversations or []
         self.calls = 0
         self.file_urls: dict[str, str] = {}
         self.sediment_urls: dict[str, str] = {}
+        self.session = None  # 占位：tasks 查询路径访问 .session 时不抛 AttributeError
 
     def _get_conversation(self, conversation_id: str) -> dict:
         self.calls += 1

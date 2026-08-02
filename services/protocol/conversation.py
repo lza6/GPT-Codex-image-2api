@@ -712,7 +712,8 @@ def text_backend(model: str = "auto") -> OpenAIBackendAPI:
     attempted: set[str] = set()
     max_attempts = 20  # 与 get_available_access_token 一致的防护上限
     for _ in range(max_attempts):
-        token = account_service.get_text_access_token(excluded_tokens=attempted, model=model)
+        # 首次取号保持原签名（excluded_tokens 缺省），仅熔断换号重取时排除已试 token
+        token = account_service.get_text_access_token(model=model) if not attempted else account_service.get_text_access_token(excluded_tokens=attempted, model=model)
         if not token:
             return OpenAIBackendAPI(access_token=token)  # 匿名链路，无熔断概念
         breaker = circuit_breaker_registry.get(token)

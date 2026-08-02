@@ -92,7 +92,7 @@ class PrometheusMetricsTests(unittest.TestCase):
     """2.3 Prometheus 指标端点。"""
 
     def test_metrics_endpoint_returns_200(self):
-        """/metrics 返回 200 且包含核心指标名。"""
+        """/metrics 带鉴权返回 200 且包含核心指标名（S3 起需鉴权，防公网暴露）。"""
         import sys
         sys.path.insert(0, str(ROOT_DIR))
         from api.app import create_app
@@ -100,16 +100,14 @@ class PrometheusMetricsTests(unittest.TestCase):
 
         app = create_app()
         client = TestClient(app)
-        resp = client.get("/metrics")
-        self.assertEqual(resp.status_code, 200, "/metrics 应返回 200")
+        resp = client.get("/metrics", headers={"Authorization": "Bearer chatgpt2api"})
+        self.assertEqual(resp.status_code, 200, "/metrics 带鉴权应返回 200")
         text = resp.text
         for metric in ("http_requests_total", "http_request_duration_seconds", "chatgpt2api_account_pool_size", "chatgpt2api_image_tasks_inflight"):
             self.assertIn(metric, text, f"/metrics 应含指标 {metric}")
 
     def test_metrics_requires_auth_or_loopback(self):
-        """/metrics 默认仅监听回环或要求 auth-key，防止公网暴露。"""
-        # 该测试验证 /metrics 的访问控制策略
-        # 当前实现：无需鉴权但仅回环（需确认是否满足安全要求）
+        """/metrics 要求 auth-key（S3 起强制鉴权），无鉴权访问被拒，防止公网暴露内部状态。"""
         import sys
         sys.path.insert(0, str(ROOT_DIR))
         from api.app import create_app
@@ -117,10 +115,9 @@ class PrometheusMetricsTests(unittest.TestCase):
 
         app = create_app()
         client = TestClient(app)
-        # 无鉴权访问
+        # 无鉴权访问应被拒（401/403）
         resp = client.get("/metrics")
-        # 应返回 200（回环允许）或 401（要求鉴权），不应是 5xx
-        self.assertIn(resp.status_code, (200, 401), "/metrics 应允许回环或要求鉴权")
+        self.assertIn(resp.status_code, (401, 403), "/metrics 无鉴权应拒绝")
 
 
 class MetricsSummaryTests(unittest.TestCase):

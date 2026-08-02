@@ -310,6 +310,28 @@ def _is_invalid_auth_key(value: object) -> bool:
     return _normalize_auth_key(value) == ""
 
 
+_WEAK_AUTH_KEYS = {"chatgpt2api", "admin", "password", "123456", "test", "changeme", "sk-xxx"}
+
+
+def _is_weak_auth_key(value: object) -> bool:
+    """检测常见弱口令或过短的 auth-key。"""
+    v = _normalize_auth_key(value).lower()
+    return v in _WEAK_AUTH_KEYS or len(v) < 12
+
+
+def _warn_if_weak_auth_key(auth_key: str, env: str) -> None:
+    """弱口令告警；生产环境直接拒绝启动。"""
+    if not _is_weak_auth_key(auth_key):
+        return
+    msg = (
+        "❌ auth-key 为常见弱口令或过短（<12 位），存在被打满/白嫖风险！\n"
+        "   请在 CHATGPT2API_AUTH_KEY 或 config.json 的 auth-key 设置强随机值（建议 ≥24 位）。"
+    )
+    if env == "production":
+        raise ValueError("❌ 生产环境拒绝使用弱 auth-key 启动！\n" + msg)
+    print(f"⚠️  WARNING: {msg}", file=sys.stderr)
+
+
 def _read_json_object(path: Path, *, name: str) -> dict[str, object]:
     if not path.exists():
         return {}
@@ -343,6 +365,8 @@ def _load_settings() -> LoadedSettings:
             "❌ auth-key 未设置！\n"
             "请在环境变量 CHATGPT2API_AUTH_KEY 中设置，或者在 config.json 中填写 auth-key。"
         )
+    env = str(os.getenv("CHATGPT2API_ENV") or raw_config.get("env") or "development").strip().lower()
+    _warn_if_weak_auth_key(auth_key, env)
 
     try:
         refresh_interval = int(raw_config.get("refresh_account_interval_minute", 5))
@@ -498,6 +522,43 @@ class ConfigStore:
             ))
         except (TypeError, ValueError):
             return 1
+
+    @property
+    def env(self) -> str:
+        """运行环境（development/production），用于生产安全检查。"""
+        return str(os.getenv("CHATGPT2API_ENV") or self.data.get("env") or "development").strip().lower()
+
+    @property
+    def cors_origins(self) -> list[str]:
+        """CORS 允许来源。默认 ["*"]（保持向后兼容），生产环境应显式配置收紧。"""
+        raw = os.getenv("CHATGPT2API_CORS_ORIGINS") or self.data.get("cors_origins") or "*"
+        if isinstance(raw, str):
+            return [o.strip() for o in raw.split(",") if o.strip()]
+        if isinstance(raw, list):
+            return [str(o).strip() for o in raw if str(o).strip()]
+        return ["*"]
+
+    @property
+    def max_request_body_mb_chat(self) -> int:
+        """chat/responses 类请求体上限（MB），超限返回 413。"""
+        try:
+            return max(1, int(
+                os.getenv("CHATGPT2API_MAX_REQUEST_BODY_MB_CHAT")
+                or self.data.get("max_request_body_mb_chat", 10)
+            ))
+        except (TypeError, ValueError):
+            return 10
+
+    @property
+    def max_request_body_mb_image(self) -> int:
+        """图片编辑类请求体上限（MB，base64 图占体积），超限返回 413。"""
+        try:
+            return max(1, int(
+                os.getenv("CHATGPT2API_MAX_REQUEST_BODY_MB_IMAGE")
+                or self.data.get("max_request_body_mb_image", 50)
+            ))
+        except (TypeError, ValueError):
+            return 50
 
     @property
     def storage_backend_type(self) -> str:

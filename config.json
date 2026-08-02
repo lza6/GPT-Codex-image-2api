@@ -76,6 +76,10 @@
   "rate_limit_rpm": 0,
   "rate_limit_per_ip_rpm": 0,
   "workers": 1,
+  "env": "development",
+  "cors_origins": "*",
+  "max_request_body_mb_chat": 10,
+  "max_request_body_mb_image": 50,
   "image_poll_interval_secs": 10,
   "image_poll_initial_wait_secs": 10,
   "image_storage": {

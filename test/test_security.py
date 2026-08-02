@@ -90,5 +90,57 @@ class SecurityTests(unittest.TestCase):
             self.assertIsNotNone(path)
 
 
+class SecurityHardeningTests(unittest.TestCase):
+    """S3 安全加固行为测试：CORS/请求体限制/安全头/metrics鉴权/弱口令。"""
+
+    def _client(self):
+        import sys
+        sys.path.insert(0, str(ROOT_DIR))
+        from api.app import create_app
+        from fastapi.testclient import TestClient
+        return TestClient(create_app())
+
+    def test_request_body_limit_returns_413(self):
+        """超限 chat 请求体（>10MB）返回 413。"""
+        client = self._client()
+        big = "x" * (11 * 1024 * 1024)  # 11MB 超 chat 10MB 上限
+        resp = client.post(
+            "/v1/chat/completions",
+            content=big,
+            headers={"Content-Type": "application/json", "Authorization": "Bearer chatgpt2api"},
+        )
+        self.assertEqual(resp.status_code, 413, f"超限应 413，实际 {resp.status_code}")
+
+    def test_security_headers_present(self):
+        """响应含安全头（nosniff/DENY/Referrer-Policy）。"""
+        client = self._client()
+        resp = client.get("/api/dashboard/scheduler", headers={"Authorization": "Bearer chatgpt2api"})
+        self.assertEqual(resp.headers.get("x-content-type-options"), "nosniff")
+        self.assertEqual(resp.headers.get("x-frame-options"), "DENY")
+        self.assertEqual(resp.headers.get("referrer-policy"), "strict-origin-when-cross-origin")
+
+    def test_metrics_requires_auth(self):
+        """/metrics 未授权访问被拒（401/403）。"""
+        client = self._client()
+        resp = client.get("/metrics")
+        self.assertIn(resp.status_code, (401, 403), f"/metrics 无鉴权应拒，实际 {resp.status_code}")
+
+    def test_metrics_with_token_ok(self):
+        """/metrics 带 ?token= 可访问。"""
+        client = self._client()
+        resp = client.get("/metrics?token=chatgpt2api")
+        self.assertEqual(resp.status_code, 200)
+
+    def test_weak_auth_key_detected(self):
+        """弱口令检测函数正确识别。"""
+        import sys
+        sys.path.insert(0, str(ROOT_DIR))
+        from services.config import _is_weak_auth_key
+        self.assertTrue(_is_weak_auth_key("chatgpt2api"))
+        self.assertTrue(_is_weak_auth_key("admin"))
+        self.assertTrue(_is_weak_auth_key("short"))
+        self.assertFalse(_is_weak_auth_key("a" * 24))
+
+
 if __name__ == "__main__":
     unittest.main()
