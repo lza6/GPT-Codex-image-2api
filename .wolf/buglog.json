@@ -14,5 +14,36 @@
     "related_bugs": [],
     "occurrences": 1,
     "last_seen": "2026-08-03T00:50:16.192198"
+  },
+  {
+    "id": "bug-002",
+    "timestamp": "2026-08-03T02:32:07.306668",
+    "error_message": "codex 图片链路成功路径 AttributeError: Response object has no attribute read",
+    "file": "services/openai_backend_api.py",
+    "root_cause": "D6 codex 池化只改请求发起侧（urllib→session.post），响应消费侧 _iter_codex_response_events 仍按 urllib API 调 raw.read()；curl_cffi Response 无 read() 方法。测试 mock 凭空创造了 read() 造成假绿",
+    "fix": "改 raw.text（hasattr 防御回退）+ status_code 双兼容；测试 mock 改 spec 限定逼近真实接口",
+    "tags": [
+      "pool-migration",
+      "mock-lying",
+      "red-team-catch"
+    ],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-08-03T02:32:07.306686"
+  },
+  {
+    "id": "bug-003",
+    "timestamp": "2026-08-03T02:32:07.306689",
+    "error_message": "monkeypatch.setattr(字符串路径) 在模块内函数查找时不可靠，集成测试假失败",
+    "file": "test/test_alert_service.py",
+    "root_cause": "circuit_breaker._trip 内 from services.alert_service import send_alert，patch services.alert_service.requests.post 字符串路径时，生产代码经模块内函数 _build_from_config 引用，字符串 patch 未生效",
+    "fix": "改 monkeypatch.setattr(模块对象, 属性) 对象引用方式",
+    "tags": [
+      "monkeypatch",
+      "test-infra"
+    ],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-08-03T02:32:07.306690"
   }
 ]

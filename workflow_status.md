@@ -175,7 +175,7 @@ P8 HTML 报告（R4）+ workflow_status 收尾 + git 提交
 | 6 | 告警 webhook（D18） | 🔲 待做 | — |
 | 7 | 测试补强（D13 关键路径 ≥70%） | 🔲 待做 | — |
 | 追加 | D14 live-only mock 化 / D16 Redis 共享态 / D17 时间统一 / D12 导出 UTC / D1 密钥治理 / D19 docs 归档 | 🔲 待做 | — |
-| 8 | 收尾发版 v2.1.0 | 🔲 待做 | — |
+| 8 | 收尾发版 v2.1.0 | ✅ 完成 | 红队复测 Approve；4659137 |
 
 ## v2.1.0 全量闭环总结（2026-08-03）
 
@@ -191,7 +191,7 @@ P8 HTML 报告（R4）+ workflow_status 收尾 + git 提交
 | 追加 | D19/D12/D17/D1 | ✅ | 8e3b73d；归档+UTC+密钥治理 |
 | 追加 | D16 共享状态 | ✅ | caca241；Local/Redis+限流共享+docker profile |
 | 追加 | D14 离线等价物 | ✅ | c5a24d1；4 链路 mock 化 |
-| 8 | 收尾发版 v2.1.0 | 🟡 进行中 | VERSION 2.1.0；README/CHANGELOG Upgrade 章节 |
+| 8 | 收尾发版 v2.1.0 | ✅ 完成 | VERSION 2.1.0；README/CHANGELOG；红队复测 Approve（4659137）|
 
 **最终指标**：295 passed / 0 failed；五道防线 5/5 PASS；关键路径覆盖率 circuit_breaker 95%/session_pool 86%/retry_budget 100%
 **19 项债务**：D1-D19 全部闭环（无登记遗留）
