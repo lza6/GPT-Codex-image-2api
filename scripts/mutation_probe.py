@@ -60,6 +60,30 @@ MUTATIONS = [
         test_targets=["test/test_contracts.py"],
         hypothesis="test_contracts.test_rate_limit_window 直接断言 window_seconds==60.0，窗口漂移应变红",
     ),
+    Mutation(
+        name="进度淘汰 cutoff 方向反转",
+        file="services/account_service.py",
+        original='        expired = [pid for pid, item in store.items() if float(item.get("created_at") or 0) < cutoff]',
+        mutated='        expired = [pid for pid, item in store.items() if float(item.get("created_at") or 0) > cutoff]',
+        test_targets=["test/test_progress_ttl.py"],
+        hypothesis="淘汰条件方向反转（保留过期、删除未过期）应被 TTL 淘汰测试抓住",
+    ),
+    Mutation(
+        name="连接池上限 200→201",
+        file="services/session_pool.py",
+        original='session_pool = SessionPool(ttl_seconds=300.0, max_entries=200)',
+        mutated='session_pool = SessionPool(ttl_seconds=300.0, max_entries=201)',
+        test_targets=["test/test_session_pool_edge.py"],
+        hypothesis="池上限变更应被 LRU/上限边界测试抓住",
+    ),
+    Mutation(
+        name="SQLite WAL 开关反转（wal_mode 不生效）",
+        file="services/storage/database_storage.py",
+        original='            if wal_mode:\n                conn.execute(text("PRAGMA journal_mode=WAL"))',
+        mutated='            if not wal_mode:\n                conn.execute(text("PRAGMA journal_mode=WAL"))',
+        test_targets=["test/test_database_storage.py"],
+        hypothesis="WAL 开关逻辑反转应被 test_sqlite_wal_mode_enabled_by_default 抓住",
+    ),
 ]
 
 

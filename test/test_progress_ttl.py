@@ -126,3 +126,10 @@ def test_progress_dicts_are_instance_isolated(tmp_path):
     # 短 TTL 实例自己过期被清，但长 TTL 实例的记录不受影响
     assert short_svc.get_refresh_progress("short-lived") is None
     assert long_svc.get_refresh_progress("shared-target") is not None
+
+
+def test_progress_ttl_default_is_3600_explicit():
+    """默认值显式回归（变异探针防逃逸）：progress_ttl_seconds 必须为 3600。"""
+    from services.config import config
+
+    assert config.progress_ttl_seconds == 3600, "默认值漂移——可能被意外修改"

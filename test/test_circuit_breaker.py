@@ -126,3 +126,84 @@ class TextStreamCircuitBreakerWiringTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestCircuitBreakerConcurrency:
+    """熔断器并发状态迁移 + 注册表并发 get/remove 线程安全（阶段 7，D13）。"""
+
+    def test_concurrent_state_transitions_thread_safe(self):
+        import threading
+        from services.circuit_breaker import CircuitBreaker
+
+        breaker = CircuitBreaker(failure_threshold=100, recovery_timeout=0.01, half_open_max_calls=50)
+        errors: list[Exception] = []
+
+        def worker(n: int) -> None:
+            try:
+                for _ in range(200):
+                    breaker.record_failure()
+                    breaker.record_success()
+                    breaker.allow_request()
+            except Exception as exc:  # noqa: BLE001
+                errors.append(exc)
+
+        threads = [threading.Thread(target=worker, args=(i,)) for i in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=15)
+        assert not errors
+
+    def test_registry_concurrent_get_remove_thread_safe(self):
+        import threading
+        from services.circuit_breaker import CircuitBreakerRegistry
+
+        registry = CircuitBreakerRegistry()
+        errors: list[Exception] = []
+
+        def worker(n: int) -> None:
+            try:
+                for i in range(50):
+                    registry.get(f"tok-{i % 10}")
+                    registry.remove(f"tok-{i % 10}")
+                    registry.all_status()
+            except Exception as exc:  # noqa: BLE001
+                errors.append(exc)
+
+        threads = [threading.Thread(target=worker, args=(i,)) for i in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=15)
+        assert not errors
+
+
+class TestHalfOpenPartialTransitions:
+    """HALF_OPEN 部分成功部分失败的迁移（阶段 7，D13）。"""
+
+    def test_half_open_success_then_failure_reopens(self):
+        import time
+        from services.circuit_breaker import CircuitBreaker
+
+        b = CircuitBreaker(failure_threshold=3, recovery_timeout=0.05, half_open_max_calls=3)
+        for _ in range(3):
+            b.record_failure()
+        assert not b.allow_request()
+        time.sleep(0.06)
+        assert b.allow_request()  # HALF_OPEN
+        b.record_success()  # 半开成功 1 次
+        b.record_failure()  # 半开失败 → 立即回 OPEN
+        assert not b.allow_request()
+
+    def test_half_open_full_success_closes(self):
+        import time
+        from services.circuit_breaker import CircuitBreaker
+
+        b = CircuitBreaker(failure_threshold=3, recovery_timeout=0.05, half_open_max_calls=2)
+        for _ in range(3):
+            b.record_failure()
+        time.sleep(0.06)
+        b.allow_request()
+        b.record_success()
+        b.record_success()  # 达 half_open_max_calls → CLOSED
+        assert b.allow_request()

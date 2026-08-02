@@ -328,3 +328,10 @@ def test_sqlite_synchronous_normal_applies_to_every_pooled_connection(tmp_path):
 
     assert first == second == third == 1  # NORMAL
     assert int(_pragma(backend, "busy_timeout")) == 5000
+
+
+def test_sqlite_busy_timeout_default_is_5000_explicit():
+    """默认值显式回归（变异探针防逃逸）：sqlite_busy_timeout_ms 必须为 5000。"""
+    from services.config import config
+
+    assert config.sqlite_busy_timeout_ms == 5000, "默认值漂移——可能被意外修改"
