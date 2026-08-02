@@ -18,7 +18,11 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 
 class SlidingWindowLimiter:
-    """滑动窗口限流器：按 key 记录每分钟请求时间戳，超出上限拒绝。"""
+    """滑动窗口限流器：按 key 记录每分钟请求时间戳，超出上限拒绝。
+
+    D16：计数走共享状态层（Local 进程内 dict / Redis 跨进程），
+    多 worker 部署配 redis_url 后限流计数全局一致（原各进程独立，误差随 worker 数放大）。
+    """
 
     def __init__(self, window_seconds: float = 60.0, max_requests: int = 0):
         self.window_seconds = window_seconds
@@ -26,10 +30,17 @@ class SlidingWindowLimiter:
         self._records: dict[str, deque[float]] = defaultdict(deque)
         self._lock = Lock()
 
+    def _use_shared(self) -> bool:
+        from services.config import config
+
+        return bool(config.redis_url)
+
     def check(self, key: str) -> bool:
         """尝试记录一次请求，返回 True 表示允许，False 表示超限。"""
         if self.max_requests <= 0:
             return True
+        if self._use_shared():
+            return self._check_shared(key)
         now = time.monotonic()
         with self._lock:
             records = self._records[key]
@@ -40,6 +51,15 @@ class SlidingWindowLimiter:
                 return False
             records.append(now)
             return True
+
+    def _check_shared(self, key: str) -> bool:
+        """共享层固定窗口近似（incr + TTL）：多 worker 下误差 <5%（D16 验收口径）。"""
+        from services.shared_state import get_shared_state
+
+        window_slot = int(time.time() // self.window_seconds)
+        shared_key = f"ratelimit:{key}:{window_slot}"
+        count = get_shared_state().incr(shared_key, 1, ttl_seconds=self.window_seconds * 2)
+        return count <= self.max_requests
 
     def clear(self, key: str) -> None:
         with self._lock:

@@ -617,6 +617,11 @@ class ConfigStore:
         return _normalize_bool(self.data.get("ssrf_allow_private_ips"), False)
 
     @property
+    def redis_url(self) -> str:
+        """Redis 共享状态连接串（默认空 = Local 进程内，多 worker 状态分裂可接受时）。"""
+        return str(os.getenv("CHATGPT2API_REDIS_URL") or self.data.get("redis_url") or "").strip()
+
+    @property
     def alert_webhook_url(self) -> str:
         """告警 webhook URL（默认空 = 关闭）。"""
         return str(os.getenv("CHATGPT2API_ALERT_WEBHOOK_URL") or self.data.get("alert_webhook_url") or "").strip()
@@ -827,6 +832,7 @@ class ConfigStore:
         data["alert_webhook_url"] = self.alert_webhook_url
         data["alert_webhook_timeout"] = self.alert_webhook_timeout
         data["alert_events"] = self.alert_events
+        data["redis_url"] = self.redis_url
         data["image_remove_conversation_after_result"] = self.image_remove_conversation_after_result
         data["image_remove_conversation_always"] = self.image_remove_conversation_always
         data["auto_remove_invalid_accounts"] = self.auto_remove_invalid_accounts

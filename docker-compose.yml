@@ -27,3 +27,22 @@ services:
       
       # 基础 URL (可选)
       # - CHATGPT2API_BASE_URL=https://your-domain.com
+
+      # Redis 共享状态 (可选，多 worker 部署时启用：限流计数/缓存跨进程一致)
+      # 启用方式：docker compose --profile redis up -d，并取消下行注释
+      # - CHATGPT2API_REDIS_URL=redis://redis:6379/0
+
+  # 可选 Redis 共享状态（D16）：docker compose --profile redis up -d 启动
+  redis:
+    image: redis:7-alpine
+    container_name: chatgpt2api-redis
+    restart: unless-stopped
+    profiles: ["redis"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
+
+volumes:
+  redis-data:
