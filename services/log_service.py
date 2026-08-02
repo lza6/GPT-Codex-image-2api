@@ -81,6 +81,14 @@ class LogService:
 
     def add(self, type: str, summary: str = "", detail: dict[str, Any] | None = None, **data: Any) -> None:
         detail = detail or data
+        # 统一注入 request_id（text 和 json 格式都带，保证全链路追踪一致）
+        try:
+            from services.metrics_service import get_request_id
+            request_id = get_request_id()
+            if request_id and "request_id" not in detail:
+                detail = {**detail, "request_id": request_id}
+        except Exception:
+            pass
         if os.getenv("LOG_FORMAT", "").strip().lower() == "json":
             item = self._structured_item(type, summary, detail)
         else:

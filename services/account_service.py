@@ -1182,6 +1182,12 @@ class AccountService:
             self._save_accounts()
 
     def remove_invalid_token(self, access_token: str, event: str, quiet: bool = False) -> bool:
+        # token 失效时强制重建对应 Session，避免用过期会话继续请求
+        try:
+            from services.session_pool import session_pool
+            session_pool.invalidate(account=self.get_account(access_token))
+        except Exception:
+            pass
         if not config.auto_remove_invalid_accounts:
             self.update_account(access_token, {"status": "异常", "quota": 0}, quiet=quiet)
             return False
