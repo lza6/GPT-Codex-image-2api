@@ -22,6 +22,8 @@ from PIL import Image
 from services.account_service import account_service
 from services.config import config
 from services.proxy_service import proxy_settings
+from services.retry_budget import retry_idempotent_get
+from services.session_pool import session_pool
 from utils.helper import UpstreamHTTPError, ensure_ok, iter_sse_payloads, new_uuid, split_image_model
 from utils.log import logger
 from utils.pow import build_legacy_requirements_token, build_proof_token, parse_pow_resources
@@ -180,11 +182,13 @@ class OpenAIBackendAPI:
         self.pow_script_sources: list[str] = []
         self.pow_data_build = ""
         self.progress_callback: Callable[[str], None] | None = None
-        self.session = requests.Session(**proxy_settings.build_session_kwargs(
+        # 连接池接线：复用池化 Session（按账号+代理+impersonate 缓存），
+        # 避免每次请求新建 Session 导致的重复 TLS 握手；close() 转为 release 不拆连接。
+        self.session = session_pool.get(
             account=self.account,
             impersonate=self.fp["impersonate"],
             verify=True,
-        ))
+        )
         self.session.headers.update({
             "User-Agent": self.user_agent,
             "Origin": self.base_url,
@@ -219,11 +223,19 @@ class OpenAIBackendAPI:
             return
         self._closed = True
         session = getattr(self, "session", None)
-        if session:
+        if not session:
+            return
+        # 池化 Session：归还到池复用，不真正 close（否则每次请求都拆掉 TCP/TLS 连接）
+        if getattr(session, "_chatgpt2api_pooled", False):
             try:
-                session.close()
+                session_pool.release(session)
             except Exception:
                 pass
+            return
+        try:
+            session.close()
+        except Exception:
+            pass
 
     def __del__(self):
         self.close()
@@ -295,10 +307,15 @@ class OpenAIBackendAPI:
 
     def _get_me(self) -> dict[str, Any]:
         path = "/backend-api/me"
-        response = self.session.get(self.base_url + path, headers=self._headers(path), timeout=20)
-        if response.status_code != 200:
-            self._raise_on_error(response, path)
-        return response.json()
+
+        def _do() -> dict[str, Any]:
+            response = self.session.get(self.base_url + path, headers=self._headers(path), timeout=20)
+            if response.status_code != 200:
+                self._raise_on_error(response, path)
+            return response.json()
+
+        # 幂等 GET：连接/超时类瞬时错误指数退避最多重试 2 次
+        return retry_idempotent_get(_do)
 
     def _get_conversation_init(self) -> dict[str, Any]:
         path = "/backend-api/conversation/init"
@@ -1055,10 +1072,18 @@ class OpenAIBackendAPI:
     def _get_conversation(self, conversation_id: str) -> dict[str, Any]:
         """获取完整 conversation 详情。"""
         path = f"/backend-api/conversation/{conversation_id}"
-        response = self.session.get(self.base_url + path, headers=self._headers(path, {"Accept": "application/json"}),
-                                    timeout=60)
-        ensure_ok(response, path)
-        return response.json()
+
+        def _do() -> dict[str, Any]:
+            response = self.session.get(
+                self.base_url + path,
+                headers=self._headers(path, {"Accept": "application/json"}),
+                timeout=60,
+            )
+            ensure_ok(response, path)
+            return response.json()
+
+        # 幂等 GET：连接/超时类瞬时错误指数退避最多重试 2 次
+        return retry_idempotent_get(_do)
 
     def delete_conversation(self, conversation_id: str) -> dict[str, Any]:
         """删除本地对话记录。"""
@@ -2358,13 +2383,18 @@ class OpenAIBackendAPI:
         - 任务列表，每个任务包含 image_gen_message 等字段。
         """
         path = "/backend-api/tasks"
-        response = self.session.get(
-            self.base_url + path,
-            headers=self._headers(path, {"Accept": "application/json"}),
-            timeout=timeout_secs,
-        )
-        ensure_ok(response, path)
-        data = response.json()
+
+        def _do() -> dict[str, Any]:
+            response = self.session.get(
+                self.base_url + path,
+                headers=self._headers(path, {"Accept": "application/json"}),
+                timeout=timeout_secs,
+            )
+            ensure_ok(response, path)
+            return response.json()
+
+        # 幂等 GET：连接/超时类瞬时错误指数退避最多重试 2 次
+        data = retry_idempotent_get(_do)
         tasks = data.get("tasks", [])
         if not isinstance(tasks, list):
             return []

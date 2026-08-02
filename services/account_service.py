@@ -470,7 +470,11 @@ class AccountService:
                 "id_token": str(data.get("id_token") or "").strip(),
             }
         finally:
-            session.close()
+            # 池化 Session：归还到池复用，不真正 close（否则每次刷新都拆掉池化连接，池形同虚设）
+            if getattr(session, "_chatgpt2api_pooled", False):
+                session_pool.release(session)
+            else:
+                session.close()
 
     def _apply_refreshed_tokens(self, old_access_token: str, token_data: dict, event: str) -> str:
         now = datetime.now(UTC).isoformat()

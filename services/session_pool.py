@@ -29,14 +29,21 @@ class SessionPool:
         self._lock = threading.Lock()
 
     def _make_key(self, account: dict | None, impersonate: str, verify: bool) -> str:
-        """生成缓存 key：代理配置 + impersonate + verify。"""
+        """生成缓存 key：账号标识 + 代理配置 + impersonate + verify。
+
+        必须含账号标识：池化 Session 会被各调用方往 session.headers 注入指纹与
+        Authorization，若同代理多账号共享同一 Session，后注入者覆盖前者造成串号。
+        用 token 末 8 位做稳定标识（不泄露完整 token）。
+        """
         proxy = ""
         try:
             profile = proxy_settings.get_profile(account=account)
             proxy = profile.proxy_url or "direct"
         except Exception:
             proxy = "direct"
-        return f"{proxy}|{impersonate}|{int(verify)}"
+        token = str((account or {}).get("access_token") or "")
+        acct_id = token[-8:] if token else "anon"
+        return f"{acct_id}|{proxy}|{impersonate}|{int(verify)}"
 
     def get(self, account: dict | None = None, impersonate: str = "chrome110", verify: bool = True) -> requests.Session:
         """获取（或创建并缓存）一个 Session。"""
@@ -67,8 +74,20 @@ class SessionPool:
             session = requests.Session(
                 **proxy_settings.build_session_kwargs(account=account, impersonate=impersonate, verify=verify)
             )
+            # 标记为池化 Session：OpenAIBackendAPI.close() 检测到后转为 release 而非真正 close，
+            # 避免每次请求结束拆掉底层 TCP/TLS 连接导致复用失效。
+            session._chatgpt2api_pooled = True  # type: ignore[attr-defined]
             self._sessions[key] = (session, now)
             return session
+
+    def release(self, session: requests.Session) -> None:
+        """归还池化 Session：不关闭底层连接，仅保留在池中供下次复用。
+
+        供 OpenAIBackendAPI.close() 在检测到池化 Session 时调用。
+        非池化 Session（无标记）由调用方直接 close()。
+        """
+        # 池中 Session 无需任何操作；连接复用依赖 curl keep-alive，不做 close。
+        return
 
     def invalidate(self, account: dict | None = None, impersonate: str = "chrome110", verify: bool = True) -> None:
         """使某配置的 Session 失效（如 token 失效后强制重建）。"""

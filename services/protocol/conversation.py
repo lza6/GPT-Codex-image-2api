@@ -17,6 +17,7 @@ from services.circuit_breaker import circuit_breaker_registry
 from services.config import config
 from services.image_storage_service import image_storage_service
 from services.openai_backend_api import ImageContentPolicyError, ImagePollTimeoutError, OpenAIBackendAPI
+from services.prometheus_metrics import record_upstream_request
 from utils.helper import (
     IMAGE_MODELS,
     extract_image_from_message_content,
@@ -763,6 +764,20 @@ def stream_text_deltas(backend: OpenAIBackendAPI, request: ConversationRequest) 
     attempted_tokens: set[str] = set()
     token = getattr(backend, "access_token", "")
     emitted = False
+    _upstream_start = time.monotonic()
+    _upstream_recorded = False
+
+    def _record_upstream(result: str) -> None:
+        # 每个文本上游请求只记一次指标（成功/失败终态）
+        nonlocal _upstream_recorded
+        if _upstream_recorded:
+            return
+        _upstream_recorded = True
+        try:
+            record_upstream_request(request.model, result, time.monotonic() - _upstream_start)
+        except Exception:
+            pass
+
     while True:
         if token and token in attempted_tokens:
             raise RuntimeError("no available text account")
@@ -799,9 +814,11 @@ def stream_text_deltas(backend: OpenAIBackendAPI, request: ConversationRequest) 
             account_service.mark_text_used(token)
             if token:
                 circuit_breaker_registry.get(token).record_success()
+            _record_upstream("success")
             return
         except Exception as exc:
             error_message = str(exc)
+            _record_upstream("error")
             if token and not emitted and is_token_invalid_error(error_message):
                 refreshed_token = account_service.refresh_access_token(token, force=True, event="text_stream")
                 if refreshed_token and refreshed_token != token and refreshed_token not in attempted_tokens:
@@ -1382,6 +1399,19 @@ def _generate_single_image(
     conn_timeout_retry_count = 0
     poll_timeout_retry_count = 0
     account_email = ""
+    _upstream_start = time.monotonic()
+    _upstream_recorded = False
+
+    def _record_upstream(result: str) -> None:
+        # 每张图片上游请求只记一次指标（成功/失败终态）
+        nonlocal _upstream_recorded
+        if _upstream_recorded:
+            return
+        _upstream_recorded = True
+        try:
+            record_upstream_request(request.model, result, time.monotonic() - _upstream_start)
+        except Exception:
+            pass
 
     while True:
         try:
@@ -1395,6 +1425,7 @@ def _generate_single_image(
                 plan_types=("plus", "team", "pro") if codex_model and not plan_type else None,
             )
         except RuntimeError as exc:
+            _record_upstream("error")
             raise ImageGenerationError(str(exc) or "image generation failed", account_email=account_email) from exc
 
         emitted_for_token = False
@@ -1469,6 +1500,7 @@ def _generate_single_image(
             account_service.mark_image_result(token, True)
             if token:
                 circuit_breaker_registry.get(token).record_success()
+            _record_upstream("success")
             return outputs
         except ImagePollTimeoutError as exc:
             account_service.mark_image_result(token, False)
@@ -1497,10 +1529,13 @@ def _generate_single_image(
                     "retry_count": poll_timeout_retry_count,
                     "index": index,
                 })
+                _record_upstream("error")
                 raise
+            _record_upstream("error")
             raise
         except ImageContentPolicyError as exc:
             account_service.mark_image_result(token, False)
+            _record_upstream("error")
             logger.warning({
                 "event": "image_stream_content_policy_error",
                 "request_token": token,
@@ -1541,6 +1576,7 @@ def _generate_single_image(
                     "retry_count": text_reply_retry_count,
                     "index": index,
                 })
+                _record_upstream("error")
                 raise ImageGenerationError(
                     "Image generation failed: the upstream model returned a text description "
                     "instead of generating an image. Please try again later.",
@@ -1557,6 +1593,7 @@ def _generate_single_image(
                 "error": error_text,
                 "index": index,
             })
+            _record_upstream("error")
             raise
         except Exception as exc:
             account_service.mark_image_result(token, False)
@@ -1608,6 +1645,7 @@ def _generate_single_image(
             # 重试耗尽且确为上游抖动（TLS/连接超时/5xx）才记熔断失败；业务拒绝不记
             if token and is_upstream_instability_error(last_error):
                 circuit_breaker_registry.get(token).record_failure()
+            _record_upstream("error")
             raise ImageGenerationError(image_stream_error_message(last_error), account_email=account_email, conversation_id="") from exc
         finally:
             if backend is not None:

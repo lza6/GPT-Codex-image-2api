@@ -114,5 +114,38 @@ class ContractTests(unittest.TestCase):
         self.assertIn(config.storage_backend_type, ("json", "sqlite", "postgres", "git"))
 
 
+class CircuitOpenContractTests(unittest.TestCase):
+    """熔断 open 时文本链路应快速失败并给出符合契约的错误，而非挂起打到上游。"""
+
+    def setUp(self):
+        import sys
+        sys.path.insert(0, str(ROOT_DIR))
+
+    def test_circuit_open_fails_fast_with_contract_error(self):
+        from services.circuit_breaker import circuit_breaker_registry
+        from services.protocol import conversation
+
+        fake_token = "contract-circuit-open-token"
+        breaker = circuit_breaker_registry.get(fake_token)
+        for _ in range(5):
+            breaker.record_failure()
+        self.assertFalse(breaker.allow_request(), "前置：token 应已熔断 open")
+
+        import services.account_service as acct
+        orig = acct.account_service.get_text_access_token
+        acct.account_service.get_text_access_token = lambda *a, **k: fake_token
+        try:
+            started = __import__("time").monotonic()
+            with self.assertRaises(RuntimeError) as ctx:
+                conversation.text_backend(model="auto")
+            elapsed = __import__("time").monotonic() - started
+            self.assertIn("no available text account", str(ctx.exception),
+                          "熔断 open 应返回契约化无可用账号错误")
+            self.assertLess(elapsed, 2.0, "熔断 open 必须快速失败，不得挂起等待上游")
+        finally:
+            acct.account_service.get_text_access_token = orig
+            circuit_breaker_registry.remove(fake_token)
+
+
 if __name__ == "__main__":
     unittest.main()
