@@ -16,19 +16,6 @@
 > - 本项目基于对 ChatGPT 官网相关能力的逆向研究实现，存在账号受限、临时封禁或永久封禁的风险。请勿使用你自己的重要账号、常用账号或高价值账号进行测试。
 
 
-## 赞助商
-
-<table>
-  <tr>
-    <td width="190" align="center">
-      <a href="https://www.atlascloud.ai/zh?utm_source=github&utm_medium=link&utm_campaign=chatgpt2api"><img src="assets/atlascloud.svg" width="163" alt="Atlas Cloud"></a>
-    </td>
-    <td>
-      <a href="https://www.atlascloud.ai/zh?utm_source=github&utm_medium=link&utm_campaign=chatgpt2api">Atlas Cloud</a> is a full-modal AI inference platform that gives developers a single AI API to access video generation, image generation, and LLM APIs. Instead of managing multiple vendor integrations, you connect once and get unified access to 300+ curated models across all modalities. Check out <a href="https://www.atlascloud.ai/console/coding-plan">Atlas Cloud's new coding plan promotion</a> for more budget-friendly API access.
-    </td>
-  </tr>
-</table>
-
 ## 功能一览
 
 | 功能 | 状态 | 说明 |
@@ -78,18 +65,25 @@
 
 ## 快速开始
 
-### Docker 运行（推荐）
+### Windows 一键启动（推荐）
+
+双击 `启动chatgpt2api.bat` 即可启动（自动检测 Python/uv、清理残留进程、崩溃自动重启）。
+停止用 `停止chatgpt2api.bat`，或直接关闭启动窗口（自动清理进程与端口）。
+
+### Docker 运行
 
 ```bash
-git clone git@github.com:basketikun/chatgpt2api.git
+# 本项目为内部定制化部署，从内部代码仓库获取源码后：
 cd chatgpt2api
 docker compose up -d
 ```
 
-启动前请先在 `config.json` 中设置 `auth-key`，也可以在 `docker-compose.yml` 中通过 `CHATGPT2API_AUTH_KEY` 覆盖。
+启动前请先在 `config.json` 中设置强随机 `auth-key`（≥24 位，生产环境弱口令会拒绝启动），
+也可以通过环境变量 `CHATGPT2API_AUTH_KEY` 覆盖。
 
-- Web 面板：`http://localhost:3000`
-- API 地址：`http://localhost:3000/v1`
+- Web 面板：`http://localhost:23456`
+- API 地址：`http://localhost:23456/v1`
+- 运维看板：`http://localhost:23456/dashboard`（调度健康度/资源占用/用量/延迟，SSE 实时推送）
 - 数据目录：`./data`
 
 ### WARP / FlareSolverr 稳定代理部署
@@ -115,30 +109,26 @@ docker compose -f docker-compose.warp.yml up -d --build
 
 ### 本地开发
 
-启动后端：
+启动后端（项目根目录）：
 
 ```bash
-git clone git@github.com:basketikun/chatgpt2api.git
-cd chatgpt2api
 uv sync
 uv run main.py
 ```
 
-启动前端：
+启动前端（开发模式）：
 
 ```bash
-cd chatgpt2api/web
-bun install
-bun run dev
+cd web
+npm install
+npm run dev
 ```
 
-后续更新新版本：
+生产构建前端（webpack，注意必须用 `--webpack`，Turbopack 在中文路径下会崩溃）：
 
 ```bash
-docker pull ghcr.io/basketikun/chatgpt2api:latest
-docker-compose down
-docker-compose up -d
-
+cd web
+npm run build
 ```
 
 ### 存储后端配置
@@ -243,6 +233,21 @@ environment:
 - 单 Worker + JSON 存储：约 2000 req/min
 - 4 Worker + SQLite 存储：约 8000 req/min（实测 7912 req/min，0 崩溃）
 - 多实例 + Postgres + Redis：万级 req/min（需额外部署）
+
+### 安全与韧性（本轮增强）
+
+- **上游熔断**：文本/图片调用链路接入熔断器，账号连续失败 5 次熔断 30s，半开 3 次成功恢复；上游抖动时快速失败换号，避免雪崩
+- **请求体限制**：`/v1/images/*` 默认 50MB、其余 API 默认 10MB，超限返回 413（可配 `max_request_body_mb_chat` / `max_request_body_mb_image`）
+- **安全响应头**：所有响应注入 `X-Content-Type-Options: nosniff`、`X-Frame-Options: DENY`、`Referrer-Policy`
+- **CORS 配置驱动**：`cors_origins` 配置允许来源（默认 `*`，生产环境仍为 `*` 时启动警告）
+- **/metrics 鉴权**：Prometheus 指标端点需 `Authorization: Bearer <auth-key>` 或 `?token=<auth-key>`，防公网暴露账号规模等敏感信息
+- **弱口令检测**：auth-key 为常见弱口令或 <12 位时，开发环境警告、`CHATGPT2API_ENV=production` 拒绝启动
+
+### 质量保障（CI/CD）
+
+- **CI 四道门**（`.github/workflows/ci.yml`）：ruff lint / mypy type / pytest unit / pip-audit security + 前端 tsc + build
+- **活测试隔离**：需真实上游/活服务的测试打 `pytest.mark.live`，CI 默认排除（稳定不触网）；本地手动 `uv run pytest -m live` 运行
+- **运行测试**：`uv run pytest test/`（默认排除 live/redis）
 
 ### 实验性 / 规划中
 
@@ -451,18 +456,7 @@ curl http://localhost:23456/v1/responses \
 </details>
 </details>
 
-## 社区支持
+## 说明
 
-学 AI , 上 L 站：[LinuxDO](https://linux.do)
-
-## Contributors
-
-感谢所有为本项目做出贡献的开发者：
-
-<a href="https://github.com/basketikun/chatgpt2api/graphs/contributors">
-  <img alt="Contributors" src="https://contrib.rocks/image?repo=basketikun/chatgpt2api" />
-</a>
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/chart?repos=basketikun/chatgpt2api&type=date&legend=top-left)](https://www.star-history.com/?repos=basketikun%2Fchatgpt2api&type=date&legend=top-left)
+本项目为内部定制化部署版本，基于内部需求做了生产级增强（智能调度、熔断、连接池、
+运维看板、安全加固、CI 质量门等）。源码与更新通过内部渠道分发，不对外公开仓库。
