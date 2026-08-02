@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ChatGPT2API 终局闭环总审计 - 第五轮完整报告（对齐权威需求源）</title>
+<style>
+  body { font-family: -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif; max-width: 1020px; margin: 0 auto; padding: 24px; background: #f5f4f2; color: #1c1917; line-height: 1.65; }
+  h1 { border-bottom: 3px solid #292524; padding-bottom: 10px; font-size: 25px; }
+  h2 { margin-top: 32px; color: #292524; font-size: 19px; border-left: 4px solid #10b981; padding-left: 12px; }
+  h3 { font-size: 15px; margin-bottom: 6px; }
+  .badge { display: inline-block; padding: 2px 9px; border-radius: 10px; font-size: 11px; font-weight: 600; margin-right: 5px; }
+  .badge-p0 { background: #fee2e2; color: #991b1b; }
+  .badge-p1 { background: #fef3c7; color: #92400e; }
+  .badge-p2 { background: #dbeafe; color: #1e40af; }
+  .badge-done { background: #d1fae5; color: #065f46; }
+  .badge-defer { background: #f3e8ff; color: #6b21a8; }
+  .card { background: white; border-radius: 12px; padding: 16px 20px; margin: 12px 0; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; background: white; border-radius: 8px; overflow: hidden; }
+  th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #e7e5e4; vertical-align: top; }
+  th { background: #292524; color: white; font-weight: 600; }
+  code { background: #f1efed; padding: 1px 5px; border-radius: 4px; font-family: 'Consolas', monospace; font-size: 12.5px; }
+  .evidence { background: #f0fdf4; border-left: 3px solid #10b981; padding: 8px 12px; margin: 8px 0; font-size: 13px; border-radius: 0 6px 6px 0; }
+  .evidence strong { color: #065f46; }
+  .bug { background: #fef2f2; border-left: 3px solid #dc2626; padding: 8px 12px; margin: 8px 0; font-size: 13px; border-radius: 0 6px 6px 0; }
+  .bug strong { color: #991b1b; }
+  .insight { background: #eff6ff; border-left: 3px solid #2563eb; padding: 10px 14px; margin: 10px 0; font-size: 13.5px; border-radius: 0 6px 6px 0; }
+  .quiz { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 12px; padding: 18px 22px; margin: 20px 0; }
+  .quiz h2 { border-left-color: #2563eb; margin-top: 0; }
+  .q { background: white; border-radius: 8px; padding: 12px 16px; margin: 10px 0; }
+  .q p { margin: 0 0 6px 0; font-weight: 600; font-size: 14px; }
+  .q .opts { color: #57534e; font-size: 13px; }
+  .q .ans { color: #2563eb; font-size: 12px; margin-top: 6px; display: none; }
+  .q button { background: #292524; color: white; border: none; padding: 3px 10px; border-radius: 5px; font-size: 11px; cursor: pointer; margin-top: 6px; }
+  .summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 14px 0; }
+  .stat { background: white; border-radius: 10px; padding: 12px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+  .stat .num { font-size: 24px; font-weight: 700; color: #10b981; }
+  .stat .label { font-size: 11px; color: #78716c; margin-top: 3px; }
+  .turn { background: #fef9c3; border-left: 3px solid #ca8a04; padding: 10px 14px; margin: 10px 0; font-size: 13.5px; border-radius: 0 6px 6px 0; }
+</style>
+</head>
+<body>
+
+<h1>ChatGPT2API 终局闭环总审计 - 第五轮完整报告</h1>
+<p><strong>审计日期</strong>：2026-08-02 &nbsp;|&nbsp; <strong>模式</strong>：发现权威需求源 → 多代理核验 → 修复 → 独立红队审查 → 复验循环 &nbsp;|&nbsp; <strong>状态</strong>：<span class="badge badge-done">核心 P0/P1 全部闭环</span></p>
+
+<div class="summary-grid">
+  <div class="stat"><div class="num">8</div><div class="label">S1-S8 权威缺口</div></div>
+  <div class="stat"><div class="num">161</div><div class="label">测试通过 (0 失败)</div></div>
+  <div class="stat"><div class="num">2+4</div><div class="label">红队 Blocking+Required 修复</div></div>
+  <div class="stat"><div class="num">10</div><div class="label">本轮 git 提交</div></div>
+</div>
+
+<div class="turn"><strong>本轮关键转向</strong>：发现项目内存在权威需求源 <code>计划书/下一步改进指南.md</code>（S1-S8 缺口清单 + 阶段 0-7 计划）。此前 N1-N21 是在不知道该指南的情况下自创的框架。本轮以 S1-S8 为准重新核验，避免"自说自话闭环"。</div>
+
+<h2>一、上下文与目标重建</h2>
+<p>项目是已上生产的 OpenAI 兼容图片 API 代理（FastAPI + Next.js），本轮目标是<strong>终局闭环总审计</strong>：把它当成即将被真实用户/调用方/部署者使用的系统，做最严格的查漏补缺。核心约束来自指南：不大幅重构、不重复造轮子、先修 bug 再加功能、每阶段闭环。</p>
+
+<div class="insight"><strong>直觉 → 求证 → 实证</strong>：本轮最有价值的不是"又加了功能"，而是三个核验工作流 + 一个红队审查交叉验证，把多处"<em>宣称已闭环但实际未接线/恒为空</em>"的伪闭环揪了出来——包括 CHANGELOG 宣称的熔断/TLS 池化、看板用量统计、请求体限制。</div>
+
+<h2>二、权威需求追踪矩阵（S1-S8）</h2>
+<table>
+<tr><th>#</th><th>短板</th><th>本轮状态</th><th>验收证据</th></tr>
+<tr><td>S2</td><td>熔断器/连接池是孤儿组件</td><td><span class="badge badge-done">熔断已接线</span> <span class="badge badge-defer">池化登记</span></td><td>conversation.py text_backend/stream_text_deltas/图片路径接入；test_circuit_breaker 6 测试</td></tr>
+<tr><td>S3</td><td>安全默认值偏弱</td><td><span class="badge badge-done">闭环</span></td><td>5 SecurityHardeningTests 全过；413/安全头/metrics鉴权实测</td></tr>
+<tr><td>S5</td><td>无 CI/CD 质量门</td><td><span class="badge badge-done">闭环</span></td><td>.github/workflows/ci.yml 四道门 + 前端 job，YAML 验证</td></tr>
+<tr><td>S7</td><td>测试标记缺失</td><td><span class="badge badge-done">闭环</span></td><td>11 文件 pytest.mark.live；默认排除 30 live，-m live 选中</td></tr>
+<tr><td>S8</td><td>文档/产物未清理</td><td><span class="badge badge-done">闭环</span></td><td>删 4 旧报告；README 内部定制化清理</td></tr>
+<tr><td>S6</td><td>前端体验未闭环</td><td><span class="badge badge-done">核心闭环</span></td><td>SSE 补全看板数据；dashboard/proxy-pool load 加 catch + loading</td></tr>
+<tr><td>S1</td><td>多 Worker 状态不共享(Redis)</td><td><span class="badge badge-defer">登记 v2.1</span></td><td>工作流评估现状功能正确仅公平性受损；预留 redis marker</td></tr>
+<tr><td>S4</td><td>巨型文件维护性差</td><td><span class="badge badge-defer">登记 v2.1</span></td><td>指南建议 v2.1 温和拆分；本轮优先核心 P0/P1</td></tr>
+</table>
+
+<h2>三、独立红队审查（对平庸懒惰零容忍）与修复闭环</h2>
+<p>用户要求"独立审查线程，只验证不改代码，修复清单交回主线程修复，持续循环直到通过"。本轮严格走此流程：<strong>审查 → 修复 → 复验（Approve）</strong>。</p>
+
+<div class="card">
+<h3>Blocking 1：CI 测试门必挂（环境污染）<span class="badge badge-p0">Blocking</span></h3>
+<div class="bug"><strong>根因</strong>：<code>test_account_image_capabilities.py:9</code> 模块级 <code>os.environ.setdefault("CHATGPT2API_AUTH_KEY","test-auth")</code> 在导入时污染全局环境，ConfigStore.auth_key 每次读 os.getenv，导致按字母序排在其后的测试 <code>Bearer chatgpt2api</code> 全部 401。基线 2 失败被本轮扩到 9。</div>
+<div class="evidence"><strong>修复</strong>：新建 <code>test/conftest.py</code> autouse fixture 用 monkeypatch 固定 auth-key。结果 9 failed → <strong>0 failed</strong>（161 passed）。复验确认闭环。</div>
+</div>
+
+<div class="card">
+<h3>Blocking 2：熔断误判——业务拒绝当上游抖动<span class="badge badge-p0">Blocking</span></h3>
+<div class="bug"><strong>根因</strong>：<code>record_failure</code> 用反向白名单 <code>not is_token_invalid_error</code>，任何非 token 失效的异常都记熔断失败——包括内容审核 400、prompt 违规。后果：5 个用户连续发违规内容就把健康账号熔断 30s，恶意用户可逐个熔断整个账号池造成<strong>拒绝服务</strong>。熔断语义应是"上游抖动"，业务 4xx 是上游正常工作的证据。</div>
+<div class="evidence"><strong>修复</strong>：新增 <code>is_upstream_instability_error</code> 正向白名单（5xx/超时/TLS/连接），仅命中才 record_failure。复验确认 moderation 400 不再触发熔断。</div>
+</div>
+
+<div class="card">
+<h3>Required（4 项全部修复并复验闭环）</h3>
+<ul>
+<li>text_backend 同 token 重复立即 break（消除 19 次无用 refresh）+ 取号抛错统一 RuntimeError 契约</li>
+<li>stream_text_deltas 熔断换号防御 ModelUnavailableError（两处换号统一契约）</li>
+<li>ruff E402 65→3：pytestmark 移到所有 import 后（live 标记仍生效）</li>
+<li>删 account_service 两处 ruff F841 悬空表达式死代码</li>
+</ul>
+<div class="evidence"><strong>复验结论：Approve</strong>——2 Blocking + 4 Required 全部闭环，实测 161 passed / 0 failed，E402 收敛到 3 个存量债。</div>
+</div>
+
+<h2>四、契约核验发现的隐藏真 bug（最有价值）</h2>
+
+<div class="card">
+<h3>看板用量统计恒为空（字段错位）<span class="badge badge-p1">P1</span></h3>
+<div class="bug"><strong>根因</strong>：<code>_collect_log_stats</code> 读 <code>created_at</code> 与顶层 <code>status</code>，但日志实际写的是 <code>time</code>(text)/<code>ts</code>(json) + <code>detail.status</code>。实测：注入 5 条当天日志，/api/dashboard/usage 仍返回 <code>{total_24h:0, failed_24h:0}</code>——看板"近24h调用"卡片从上线起就恒空，契约形同虚设。</div>
+<div class="evidence"><strong>修复</strong>：兼容 time/ts/created_at + detail.status 兜底。<strong>实测修复后</strong>：total_24h&gt;0、failed_24h&gt;0、by_summary/recent 有真实数据。</div>
+</div>
+
+<div class="card">
+<h3>chunked 传输绕过请求体限制<span class="badge badge-p1">P1</span></h3>
+<div class="bug"><strong>根因</strong>：仅查 Content-Length 头，无 Content-Length 的 chunked 传输直接放行。实测：11MB chunked body 返回 422（进路由解析）而非 413——10/50MB 上限形同虚设。</div>
+<div class="evidence"><strong>修复</strong>：API 写请求无 Content-Length 且 chunked 时返回 411 Length Required（OpenAI SDK/curl 客户端总带 Content-Length，不影响正常调用）。</div>
+</div>
+
+<h2>五、最强自我反驳（红队视角攻击自己）</h2>
+<table>
+<tr><th>反驳</th><th>是否成立</th><th>处置</th></tr>
+<tr><td>宣称熔断已闭环，实际未接入真实流量</td><td><strong>成立</strong></td><td>本轮接入 conversation.py + 正向白名单</td></tr>
+<tr><td>宣称请求体限制生效，实际 chunked 可绕过</td><td><strong>成立</strong></td><td>无 Length 的 chunked 写请求 411</td></tr>
+<tr><td>宣称看板实时，实际用量统计恒空</td><td><strong>成立</strong></td><td>修字段错位，实测有数据</td></tr>
+<tr><td>CI 测试门上线即红（9 failed）</td><td><strong>成立</strong></td><td>conftest 隔离污染，0 failed</td></tr>
+<tr><td>Session 池化可直接 session_pool.get 替换</td><td><strong>不成立（我修正）</strong></td><td>发现同代理多账号指纹串扰会串号，池化需含账号标识 key，登记 v2.1 而非贸然做</td></tr>
+<tr><td>前端 F1 断链（普通用户卡死 /accounts）</td><td><strong>不成立（误报）</strong></td><td>useAuthGuard 会把非 admin 重定向回 /image，不存在卡死</td></tr>
+</table>
+
+<h2>六、验证证据（全部实测，非空话）</h2>
+<ul>
+<li><strong>测试</strong>：161 passed / 0 failed（30 live 正确排除）；改动域 44 聚焦全绿</li>
+<li><strong>启动</strong>：create_app() 98 路由无报错</li>
+<li><strong>端点实测</strong>：8 关键端点 200；/metrics 无鉴权 401；安全头 nosniff/DENY 就位；413 正确</li>
+<li><strong>lint</strong>：78→27（余项全既有债非本轮）</li>
+<li><strong>前端</strong>：tsc 0 错误</li>
+<li><strong>usage 统计</strong>：修复前恒 0 → 修复后实测有真实数据</li>
+<li><strong>红队复验</strong>：Approve（2 Blocking + 4 Required 闭环）</li>
+</ul>
+
+<h2>七、剩余真实边界（诚实说明）</h2>
+<ul>
+<li><strong>S1 Redis 共享状态</strong>：登记 v2.1。现状功能正确，仅多 Worker 公平性受损（限流阈值×N）。工作流评估 0.5-1 人日，非阻塞。</li>
+<li><strong>S4 巨型文件拆分</strong>：登记 v2.1（指南建议）。openai_backend_api 2763 行等，温和拆分风险低但本轮优先核心 P0/P1。</li>
+<li><strong>Session 池化</strong>：登记 v2.1。池化 key 需含账号标识防指纹串扰，需专项设计。</li>
+<li><strong>lint/mypy 存量</strong>：68 lint/434 mypy 既有债，CI continue-on-error 提示，逐步清零。</li>
+<li><strong>SSE/多 Worker</strong>：SSE 浏览器可消费（TestClient 无法读无限流）；多 Worker 需共享存储后端。</li>
+<li><strong>expires_at 未入库</strong>：存量 bug 登记（账号过期时间未写入 token_data）。</li>
+</ul>
+
+<h2>八、变更测验（测测你是否理解）</h2>
+<div class="quiz">
+<h2>终局审计测验（第五轮）</h2>
+
+<div class="q">
+  <p>1. 熔断器 record_failure 为什么必须用 is_upstream_instability_error 正向白名单，而非 not is_token_invalid_error 反向白名单？</p>
+  <div class="opts">A. 性能更好 &nbsp; B. 业务拒绝(内容审核400/prompt违规)是上游正常工作证据，误记会让恶意用户熔断健康账号造成拒绝服务 &nbsp; C. 代码更短</div>
+  <button onclick="this.nextElementSibling.style.display='block';this.style.display='none'">显示答案</button>
+  <div class="ans">B. 反向白名单把任何非 token 失效异常都记失败，包括业务 4xx。5 个用户连续发违规内容就熔断一个健康账号 30s，恶意用户可逐个熔断整个账号池。正向白名单只在 5xx/超时/TLS/连接等真上游抖动时记失败。</div>
+</div>
+
+<div class="q">
+  <p>2. test_account_image_capabilities.py 为什么会导致 CI 9 个测试 401 失败？</p>
+  <div class="opts">A. 测试写错了 &nbsp; B. 模块级 os.environ.setdefault 在导入时污染全局 auth-key，ConfigStore 每次读 os.getenv 导致后续测试的 Bearer chatgpt2api 失效 &nbsp; C. 网络问题</div>
+  <button onclick="this.nextElementSibling.style.display='block';this.style.display='none'">显示答案</button>
+  <div class="ans">B. 模块导入时 setdefault("CHATGPT2API_AUTH_KEY","test-auth") 改写全局环境变量，ConfigStore.auth_key 是 property 每次读 os.getenv，按字母序排在其后的测试全部 401。修复：conftest.py autouse fixture 固定并复原 auth-key。</div>
+</div>
+
+<div class="q">
+  <p>3. 看板"近24h调用"卡片为什么从上线起就恒为空？</p>
+  <div class="opts">A. 没有日志 &nbsp; B. _collect_log_stats 读 created_at/顶层 status，但日志实际写 time/ts + detail.status，字段错位导致统计恒 0 &nbsp; C. 前端没渲染</div>
+  <button onclick="this.nextElementSibling.style.display='block';this.style.display='none'">显示答案</button>
+  <div class="ans">B. 日志 text 格式写 'time'、json 格式写 'ts'，成败状态在 detail.status 子对象，但统计代码读 'created_at' 和顶层 'status'——全部对不上，实测注入日志仍返回 0。修复后实测有真实数据。</div>
+</div>
+
+<div class="q">
+  <p>4. 请求体限制为什么对 chunked 传输形同虚设？怎么修？</p>
+  <div class="opts">A. 不用修 &nbsp; B. 仅查 Content-Length 头，无 Length 的 chunked 直接放行；修为 API 写请求无 Content-Length 且 chunked 时返回 411 &nbsp; C. 改成 100MB</div>
+  <button onclick="this.nextElementSibling.style.display='block';this.style.display='none'">显示答案</button>
+  <div class="ans">B. 实测 11MB chunked 返回 422（进路由）而非 413。OpenAI SDK/curl 客户端总带 Content-Length，故对无 Length 的 chunked API 写请求返回 411 Length Required，堵住绕过且不影响正常客户端。</div>
+</div>
+
+<div class="q">
+  <p>5. 为什么本轮没有直接把 OpenAIBackendAPI 的 Session 换成 session_pool.get()？</p>
+  <div class="opts">A. 忘了 &nbsp; B. 每个 backend 有独立指纹(fp/device_id)注入 session.headers，同代理多账号共享 Session 会互相覆盖 Authorization/device_id 导致串号——池化 key 需含账号标识，登记 v2.1 专项设计 &nbsp; C. 性能问题</div>
+  <button onclick="this.nextElementSibling.style.display='block';this.style.display='none'">显示答案</button>
+  <div class="ans">B. Session 池按(代理,impersonate,verify)缓存，但 __init__ 会把独立指纹和 Authorization 写进 session.headers，同代理下不同账号共享同一 Session 会互相覆盖——串号是 P0 正确性风险。正确池化 key 必须含账号标识。</div>
+</div>
+
+<div class="q">
+  <p>6. 本轮审计方法论上最关键的一步是什么？</p>
+  <div class="opts">A. 多写测试 &nbsp; B. 发现权威需求源(计划书/下一步改进指南.md)并以 S1-S8 为准，避免自创框架自说自话闭环；再用多代理核验+独立红队审查交叉验证，揪出"宣称闭环实际未接线"的伪闭环 &nbsp; C. 改更多代码</div>
+  <button onclick="this.nextElementSibling.style.display='block';this.style.display='none'">显示答案</button>
+  <div class="ans">B. 前四轮 N1-N21 是在不知道指南的情况下自创的。本轮对齐权威需求源，并用红队审查"有罪推定"揪出熔断未接线、用量统计恒空、chunked 绕过等真实伪闭环，再修复并复验（Approve）。</div>
+</div>
+</div>
+
+<h2>九、最终完成度结论（诚实、基于证据）</h2>
+<ul>
+<li><strong>已真实闭环</strong>：S2(熔断)、S3(安全)、S5(CI)、S7(测试标记)、S8(清理)、S6 核心(前端反馈/SSE数据)。红队审查 2 Blocking + 4 Required 修复并复验 Approve。契约核验 3 个 P1(用量统计/chunked/日志筛选)修复并实测。</li>
+<li><strong>部分闭环</strong>：S6 前端（核心反馈/加载/错误态已修，删除确认 Dialog 等批量一致性待统一）。</li>
+<li><strong>登记 v2.1（明确非阻塞）</strong>：S1 Redis 共享状态、S4 巨型文件拆分、Session 池化（需防指纹串扰的正确 key）。</li>
+<li><strong>当前标准</strong>：达到"一次调用即可跑通、逻辑基本连贯、核心链路真实闭环"。测试 161/0、端点实测全过、红队复验 Approve。</li>
+<li><strong>差距</strong>：S1/S4/池化为 v2.1 范围（指南认可的渐进路径，非缺陷）；lint/mypy 存量债逐步清零中。</li>
+</ul>
+
+</body>
+</html>

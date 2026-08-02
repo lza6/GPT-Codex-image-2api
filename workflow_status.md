@@ -150,6 +150,39 @@
 
 ## 当前 git 状态
 
-- 提交链：4f7ccb3(S2熔断) → 5d34046(S3安全) → 8c2bcca(S5/S7 CI) → 00662f4(S8清理) → 690689b(README) → 188b65d(.env.example)
+- 提交链：4f7ccb3(S2熔断) → 5d34046(S3安全) → 8c2bcca(S5/S7 CI) → 00662f4(S8清理) → 690689b(README) → 188b65d(.env.example) → 453a159(workflow) → 1313d6b(红队修复) → f500828(契约+UX) → 22a2ec5(技能)
 - remote：无（纯本地）
 - 测试：改动域 48 全绿；全量 152 过（9 失败为已知缓存竞态/既有 bug，单独跑全过）
+
+## 独立红队审查 → 复验循环（用户要求的核心流程）
+
+| 阶段 | 结果 |
+|------|------|
+| 红队审查（有罪推定） | Verdict: Request Changes——2 Blocking + 4 Required |
+| Blocking 1 环境污染击穿 CI | test_account_image_capabilities 模块级 setdefault 污染 auth-key，9 failed → conftest.py autouse 隔离 → **0 failed** |
+| Blocking 2 熔断误判业务拒绝 | record_failure 反向白名单，恶意用户可熔断健康账号 → is_upstream_instability_error 正向白名单 |
+| Required 4 项 | text_backend 死循环 refresh / 换号未防御 / ruff E402 65→3 / F841 悬空表达式 |
+| **复验结论** | **Approve**——2 Blocking + 4 Required 全部闭环，实测 161 passed / 0 failed |
+
+## 契约核验发现的隐藏真 bug（第三轮核验）
+
+| 问题 | 级别 | 实测证据 | 修复 |
+|------|------|---------|------|
+| usage 统计恒空（字段错位） | P1 | 注入 5 条日志 /api/dashboard/usage 仍 {total_24h:0} | 兼容 time/ts/created_at + detail.status，实测有数据 |
+| chunked 绕过请求体限制 | P1 | 11MB chunked 返回 422 非 413 | 无 Length 的 chunked API 写请求 411 |
+| 日志 json 格式日期筛选失效 | P2 | _matches_filters 只读 time 键 | 兼容 time/ts |
+
+## 误报澄清（核验代理误判，已修正）
+
+| 主张 | 实际 | 结论 |
+|------|------|------|
+| F1 断链：普通用户登录卡死 /accounts | useAuthGuard 会把非 admin 重定向回 /image，getDefaultRouteForRole 逻辑正确 | **误报**，不存在卡死 |
+| Session 池化可直接 session_pool.get 替换 | 同代理多账号共享 Session 会覆盖 Authorization 串号（P0 正确性风险） | 池化登记 v2.1，需含账号标识 key |
+
+## 最终验证（2026-08-02 第五轮收尾）
+
+- 测试：**161 passed / 0 failed**（30 live 排除）
+- 启动：create_app() 98 路由无报错
+- 端点实测：8 关键端点 200；/metrics 无鉴权 401；安全头就位；413 正确
+- lint：78→27（余项全既有债）；前端 tsc 0 错误
+- 红队复验：Approve
