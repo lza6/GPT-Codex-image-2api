@@ -4,7 +4,7 @@ import hashlib
 import hmac
 import secrets
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from threading import Lock
 from typing import Literal
 
@@ -15,7 +15,7 @@ AuthRole = Literal["admin", "user"]
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _hash_key(value: str) -> str:
@@ -235,7 +235,7 @@ class AuthService:
                 if not stored_hash or not hmac.compare_digest(stored_hash, candidate_hash):
                     continue
                 next_item = dict(item)
-                now = datetime.now(timezone.utc)
+                now = datetime.now(UTC)
                 next_item["last_used_at"] = now.isoformat()
                 self._items[index] = next_item
                 item_id = self._clean(next_item.get("id"))

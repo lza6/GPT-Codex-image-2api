@@ -52,7 +52,7 @@ def import_from_json(input_file: str):
     try:
         accounts = json.loads(input_path.read_text(encoding="utf-8"))
         if not isinstance(accounts, list):
-            print(f"[migrate] Error: Invalid JSON format, expected array")
+            print("[migrate] Error: Invalid JSON format, expected array")
             sys.exit(1)
     except json.JSONDecodeError as e:
         print(f"[migrate] Error: Invalid JSON: {e}")
@@ -84,7 +84,7 @@ def migrate_data(from_backend: str, to_backend: str):
         to_storage.save_accounts(accounts)
         print(f"[migrate] Saved {len(accounts)} accounts to {to_backend}")
         
-        print(f"[migrate] Migration completed successfully!")
+        print("[migrate] Migration completed successfully!")
         
     finally:
         # 恢复原始环境变量

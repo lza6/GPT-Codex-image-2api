@@ -2,19 +2,18 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
 import json
 import re
 import threading
 import time
-from typing import Callable, Mapping
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field, replace
 from urllib import request as urllib_request
 from urllib.parse import quote, urlparse
 
 from curl_cffi.requests import Session
 
 from services.config import config
-
 
 FlareSolverrRequestMethod = Callable[[str, bytes, dict[str, str], float], bytes]
 

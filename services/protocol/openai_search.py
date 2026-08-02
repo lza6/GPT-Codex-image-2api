@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from services.account_service import account_service
-from services.openai_backend_api import OpenAIBackendAPI, SEARCH_MODEL
+from services.openai_backend_api import SEARCH_MODEL, OpenAIBackendAPI
 
 MODEL = SEARCH_MODEL
 

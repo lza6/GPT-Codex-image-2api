@@ -3,7 +3,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-
 ROOT_DIR = Path(__file__).resolve().parents[1]
 ROOT_CONFIG_FILE = ROOT_DIR / "config.json"
 

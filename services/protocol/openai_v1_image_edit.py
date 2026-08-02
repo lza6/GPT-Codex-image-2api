@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from io import BytesIO
-from typing import Any, Iterator
+from typing import Any
 
 from PIL import Image
 

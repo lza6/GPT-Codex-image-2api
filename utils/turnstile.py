@@ -2,7 +2,7 @@ import base64
 import json
 import random
 import time
-from typing import Any, Dict, Optional
+from typing import Any
 
 
 class OrderedMap:
@@ -46,14 +46,14 @@ def _xor_string(text: str, key: str) -> str:
     return "".join(chr(ord(ch) ^ ord(key[i % len(key)])) for i, ch in enumerate(text))
 
 
-def solve_turnstile_token(dx: str, p: str) -> Optional[str]:
+def solve_turnstile_token(dx: str, p: str) -> str | None:
     try:
         decoded = base64.b64decode(dx).decode()
         token_list = json.loads(_xor_string(decoded, p))
     except Exception:
         return None
 
-    process_map: Dict[Any, Any] = {}
+    process_map: dict[Any, Any] = {}
     start_time = time.time()
     result = ""
 

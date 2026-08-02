@@ -6,7 +6,7 @@ import json
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from threading import Lock
 
@@ -16,7 +16,6 @@ from services.account_service import account_service
 from services.config import DATA_DIR
 from services.proxy_service import proxy_settings
 
-
 CPA_CONFIG_FILE = DATA_DIR / "cpa_config.json"
 
 
@@ -25,7 +24,7 @@ def _new_id() -> str:
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _normalize_import_job(raw: object, *, fail_unfinished: bool) -> dict | None:

@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import pytest
+
+# 需真实上游/活服务(localhost:23456)的测试，CI 默认排除（pytest -m live 本地手动跑）
+pytestmark = pytest.mark.live
+
 import base64
 import unittest
 from unittest import mock
@@ -8,7 +13,6 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import api.ai as ai_module
-
 
 AUTH_HEADERS = {"Authorization": "Bearer chatgpt2api"}
 PNG_BYTES = b"\x89PNG\r\n\x1a\n"

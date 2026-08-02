@@ -94,7 +94,7 @@ DEFAULT_SENTINEL_SEC_CH_UA = '"Chromium";v="145", "Google Chrome";v="145", "Not/
 
 
 def build_sentinel_token(
-    session: "Session",
+    session: Session,
     device_id: str,
     flow: str,
     *,

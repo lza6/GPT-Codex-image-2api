@@ -8,10 +8,10 @@ from __future__ import annotations
 import json
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Callable
 
 
 class ProxyHealthStatus(Enum):
@@ -275,7 +275,6 @@ class ProxyPool:
             self._health_thread.join(timeout=5)
 
     def _health_loop(self) -> None:
-        import urllib.request
         while not self._stop_event.is_set():
             self._stop_event.wait(self.config.check_interval)
             with self._lock:

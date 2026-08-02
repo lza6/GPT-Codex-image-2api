@@ -5,9 +5,10 @@ import json
 import re
 import threading
 import time
+from collections.abc import Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Iterator
+from typing import Any
 
 import tiktoken
 

@@ -5,12 +5,14 @@ import mimetypes
 import re
 import time
 import uuid
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 from urllib.parse import urlparse
 
 from curl_cffi import requests
 from fastapi import HTTPException
+
 from services.proxy_service import proxy_settings
 from utils.log import logger
 

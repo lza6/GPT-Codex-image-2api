@@ -42,7 +42,7 @@ def test_storage():
                         database_url = f"{protocol}://{username}:****@{host}"
             print(f"数据库连接: {database_url}")
         else:
-            print(f"数据库连接: 本地 SQLite (data/accounts.db)")
+            print("数据库连接: 本地 SQLite (data/accounts.db)")
     
     elif backend_type == "git":
         repo_url = os.getenv("GIT_REPO_URL", "")

@@ -510,8 +510,8 @@ class ImageTaskService:
             # 获取 task 的原始 prompt（从 _public_task 的 mode 判断）
             with self._lock:
                 task = self._tasks.get(key)
-                quality = _clean(task.get("quality"), "auto") if task else "auto"
-                size = _clean(task.get("size")) if task else None
+                _clean(task.get("quality"), "auto") if task else "auto"
+                _clean(task.get("size")) if task else None
             data = format_image_result(
                 image_items,
                 "",  # prompt 已不重要，结果已经拿到了

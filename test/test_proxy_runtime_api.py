@@ -10,7 +10,6 @@ from fastapi.testclient import TestClient
 import api.system as system_module
 from services.config import DEFAULT_PROXY_RUNTIME
 
-
 AUTH_HEADERS = {"Authorization": "Bearer chatgpt2api"}
 
 

@@ -1,0 +1,67 @@
+name: CI
+
+# 四道质量门：lint / type / test / security + 前端构建
+# 默认排除 live/redis 测试（不触网、不需活服务），保证 CI 稳定
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend-quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Lint (ruff)
+        run: uv run ruff check .
+        # 存量 lint 逐步清零（本轮已修复 180），暂提示不阻断；清零后去除 continue-on-error
+        continue-on-error: true
+
+      - name: Type check (mypy)
+        run: uv run mypy --ignore-missing-imports services/ api/ || true  # baseline 逐步清零，先不阻断
+        continue-on-error: true
+
+      - name: Unit tests (exclude live/redis)
+        run: uv run pytest test/ -q --tb=short -m "not live and not redis"
+
+      - name: Dependency audit (pip-audit)
+        # uvx 隔离运行避免污染 lock；高危漏洞提示，逐步清零后去除 continue-on-error
+        run: uvx pip-audit
+        continue-on-error: true
+
+  frontend-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        working-directory: web
+        run: npm install --no-audit --no-fund
+
+      - name: Type check (tsc)
+        working-directory: web
+        run: npx tsc --noEmit
+
+      - name: Build (webpack)
+        working-directory: web
+        run: npm run build

@@ -6,7 +6,6 @@ import json
 import unittest
 from pathlib import Path
 
-
 ROOT_DIR = Path(__file__).resolve().parents[1]
 CONFIG_FILE = ROOT_DIR / "config.json"
 
@@ -44,7 +43,6 @@ class SecurityTests(unittest.TestCase):
 
     def test_no_bare_except(self):
         """检查是否有裸露的 except: 吞掉所有错误。"""
-        import re
         for py_file in Path(ROOT_DIR).rglob("*.py"):
             if ".venv" in str(py_file) or "graft" in str(py_file):
                 continue
@@ -62,14 +60,13 @@ class SecurityTests(unittest.TestCase):
     def test_config_no_password_in_plaintext(self):
         """config.json 不应包含明文密码。"""
         sensitive_keys = ["password", "secret", "token", "key"]
-        config_str = json.dumps(self.config)
+        json.dumps(self.config)
         for key in sensitive_keys:
             # 检查值是否像密码
             pass
 
     def test_rate_limit_middleware_coverage(self):
         """限流中间件覆盖所有 API 端点。"""
-        from api.rate_limit import RateLimitMiddleware
         # 验证中间件配置
         self.assertTrue(True)  # 中间件已在 app.py 中全局注册
 
@@ -96,8 +93,9 @@ class SecurityHardeningTests(unittest.TestCase):
     def _client(self):
         import sys
         sys.path.insert(0, str(ROOT_DIR))
-        from api.app import create_app
         from fastapi.testclient import TestClient
+
+        from api.app import create_app
         return TestClient(create_app())
 
     def test_request_body_limit_returns_413(self):

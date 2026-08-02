@@ -89,7 +89,7 @@ class TextStreamCircuitBreakerWiringTests(unittest.TestCase):
         acct.account_service.get_text_access_token = lambda *a, **k: fake_token
         try:
             try:
-                backend = conversation.text_backend(model="auto")
+                conversation.text_backend(model="auto")
                 # 若返回了 backend，说明未检查熔断（缺口）；应抛 RuntimeError
                 self.fail("text_backend 未检查熔断，返回了熔断 token 的 backend")
             except RuntimeError:

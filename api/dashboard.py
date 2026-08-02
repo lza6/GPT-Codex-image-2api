@@ -16,7 +16,7 @@ from fastapi.responses import PlainTextResponse, StreamingResponse
 
 from api.support import require_identity
 from services.account_service import AccountService, account_service
-from services.config import config, DATA_DIR
+from services.config import DATA_DIR, config
 from services.image_service import storage_stats
 from services.log_service import log_service
 from services.metrics_service import metrics_service

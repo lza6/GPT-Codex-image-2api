@@ -3,15 +3,15 @@ import json
 import random
 import re
 import time
+from collections.abc import Sequence
 from datetime import datetime, timedelta, timezone
 from html.parser import HTMLParser
-from typing import Any, Sequence
+from typing import Any
 
 import pybase64
 
 DEFAULT_POW_SCRIPT = "https://chatgpt.com/backend-api/sentinel/sdk.js"
 from utils.helper import new_uuid
-
 
 CORES = [8, 16, 24, 32]
 DOCUMENT_KEYS = ["__reactContainer$fzelfjyxej8", "_reactListening5dehydibo78", "location"]

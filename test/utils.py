@@ -5,7 +5,6 @@ import time
 import urllib.request
 from pathlib import Path
 
-
 ROOT_DIR = Path(__file__).resolve().parents[1]
 OUTPUT_DIR = ROOT_DIR / "data" / "output"
 BASE_URL = "http://127.0.0.1:23456"

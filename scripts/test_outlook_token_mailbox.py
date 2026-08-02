@@ -16,7 +16,6 @@ from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any
 
-
 TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
 GRAPH_MESSAGES_URL = "https://graph.microsoft.com/v1.0/me/messages"
 GRAPH_SCOPE = "offline_access https://graph.microsoft.com/Mail.Read"

@@ -8,7 +8,6 @@ from pathlib import Path
 
 from services.image_task_service import ImageTaskService
 
-
 OWNER = {"id": "owner-1", "name": "Owner", "role": "admin"}
 OTHER_OWNER = {"id": "owner-2", "name": "Other", "role": "user"}
 

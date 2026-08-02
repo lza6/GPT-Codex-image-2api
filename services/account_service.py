@@ -6,7 +6,7 @@ import secrets
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from threading import Condition, Lock, Thread
 from typing import Any
@@ -79,7 +79,7 @@ class AccountService:
 
     @staticmethod
     def _now() -> str:
-        return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        return datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
 
     @staticmethod
     def _decode_jwt_payload(token: str) -> dict:
@@ -106,8 +106,8 @@ class AccountService:
             except Exception:
                 return None
         if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
-        return parsed.astimezone(timezone.utc)
+            parsed = parsed.replace(tzinfo=UTC)
+        return parsed.astimezone(UTC)
 
     @staticmethod
     def _timestamp_to_iso(value: object) -> str:
@@ -116,7 +116,7 @@ class AccountService:
         except (TypeError, ValueError):
             return ""
         tz = timezone(timedelta(hours=8))
-        return datetime.fromtimestamp(ts, tz=timezone.utc).astimezone(tz).isoformat()
+        return datetime.fromtimestamp(ts, tz=UTC).astimezone(tz).isoformat()
 
     def _load_accounts(self) -> dict[str, dict]:
         accounts = self.storage.load_accounts()
@@ -356,7 +356,7 @@ class AccountService:
             return None
         if iat <= 0:
             return None
-        return datetime.fromtimestamp(iat, tz=timezone.utc)
+        return datetime.fromtimestamp(iat, tz=UTC)
 
     @staticmethod
     def _safe_response_text(response: object, limit: int = 300) -> str:
@@ -386,7 +386,7 @@ class AccountService:
             return resolved, dict(account) if account else None
 
     def _record_token_refresh_error(self, access_token: str, event: str, error: str) -> None:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         with self._lock:
             resolved = self._resolve_access_token_locked(access_token)
             current = self._accounts.get(resolved)
@@ -409,7 +409,7 @@ class AccountService:
         last_error_at = self._parse_time(account.get("last_token_refresh_error_at"))
         if last_error_at is None:
             return False
-        return (datetime.now(timezone.utc) - last_error_at).total_seconds() < self._TOKEN_REFRESH_ERROR_BACKOFF_SECONDS
+        return (datetime.now(UTC) - last_error_at).total_seconds() < self._TOKEN_REFRESH_ERROR_BACKOFF_SECONDS
 
     def _recent_refresh_token_keepalive_error(self, account: dict, now: datetime) -> bool:
         last_error_at = self._parse_time(account.get("last_token_refresh_error_at"))
@@ -438,7 +438,6 @@ class AccountService:
         return due_at if due_at <= now else None
 
     def _request_access_token_refresh(self, refresh_token: str, account: dict | None = None) -> dict[str, str]:
-        from curl_cffi import requests
         from services.session_pool import session_pool
 
         # 复用连接池中的 Session，避免每次 TLS 握手
@@ -474,7 +473,7 @@ class AccountService:
             session.close()
 
     def _apply_refreshed_tokens(self, old_access_token: str, token_data: dict, event: str) -> str:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         with self._image_slot_condition:
             old_token = self._resolve_access_token_locked(old_access_token)
             current = self._accounts.get(old_token)
@@ -565,7 +564,7 @@ class AccountService:
                 new_access_token = result.get("access_token", "")
                 new_refresh_token = result.get("refresh_token", "")
                 new_id_token = result.get("id_token", "")
-                new_expires_at = result.get("expires_at")
+                result.get("expires_at")
 
                 # 构建 token_data 供 _apply_refreshed_tokens 使用
                 token_data = {
@@ -616,7 +615,7 @@ class AccountService:
                     if isinstance(detail_error, dict) and detail_error.get("code") == "account_deactivated":
                         # 账号已删除/停用 → 标记为禁用
                         self.update_account(access_token, {"status": "禁用", "quota": 0}, quiet=True)
-                        account = self.get_account(access_token) or {}
+                        self.get_account(access_token) or {}
                         log_service.add(
                             LOG_TYPE_ACCOUNT,
                             "账号已停用-标记禁用",
@@ -930,7 +929,7 @@ class AccountService:
             ]
 
     def list_refresh_token_keepalive_tokens(self) -> list[str]:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         due_items: list[tuple[datetime, str]] = []
         with self._lock:
             for account in self._accounts.values():
@@ -1415,7 +1414,7 @@ class AccountService:
         error: str,
         defer_invalid_removal: bool = True,
     ) -> bool:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         with self._lock:
             access_token = self._resolve_access_token_locked(access_token)
             current = self._accounts.get(access_token)

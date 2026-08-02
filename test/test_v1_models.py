@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import pytest
+
+# 需真实上游/活服务(localhost:23456)的测试，CI 默认排除（pytest -m live 本地手动跑）
+pytestmark = pytest.mark.live
+
 import json
 import unittest
 from unittest import mock
@@ -7,7 +12,6 @@ from unittest import mock
 import requests
 
 from services.protocol import openai_v1_models
-
 
 AUTH_KEY = "chatgpt2api"
 BASE_URL = "http://localhost:23456"

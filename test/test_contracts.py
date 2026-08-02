@@ -6,10 +6,8 @@
 from __future__ import annotations
 
 import json
-import sys
 import unittest
 from pathlib import Path
-
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 CONFIG_FILE = ROOT_DIR / "config.json"

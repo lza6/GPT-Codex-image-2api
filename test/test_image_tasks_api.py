@@ -1,14 +1,11 @@
 from __future__ import annotations
 
 import base64
-import threading
 import unittest
 from unittest import mock
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-
-
 
 AUTH_HEADERS = {"Authorization": "Bearer chatgpt2api"}
 PNG_BYTES = b"\x89PNG\r\n\x1a\n"
@@ -66,6 +63,7 @@ class FakeImageTaskService:
 class ImageTasksApiTests(unittest.TestCase):
     def setUp(self):
         import importlib
+
         import api.image_tasks
         importlib.reload(api.image_tasks)
         self._image_tasks_module = api.image_tasks

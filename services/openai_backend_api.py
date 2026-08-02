@@ -6,15 +6,14 @@ import random
 import re
 import threading
 import time
-
 import urllib.error
 import urllib.request
+from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
-from collections.abc import Callable
-from typing import Any, Dict, Iterator, Optional
+from typing import Any
 from urllib.parse import unquote, urlparse
 
 from curl_cffi import requests
@@ -62,7 +61,7 @@ class ChatRequirements:
     proof_token: str = ""
     turnstile_token: str = ""
     so_token: str = ""
-    raw_finalize: Optional[Dict[str, Any]] = None
+    raw_finalize: dict[str, Any] | None = None
 
 
 DEFAULT_CLIENT_VERSION = "prod-a194cd50d4416d3c0b47c740f206b12ce60f5887"
@@ -236,7 +235,7 @@ class OpenAIBackendAPI:
         self.close()
         return False
 
-    def _build_fp(self) -> Dict[str, str]:
+    def _build_fp(self) -> dict[str, str]:
         account = self.account
         raw_fp = account.get("fp")
         fp = {str(k).lower(): str(v) for k, v in raw_fp.items()} if isinstance(raw_fp, dict) else {}
@@ -265,7 +264,7 @@ class OpenAIBackendAPI:
         fp.setdefault("sec-ch-ua-platform", '"Windows"')
         return fp
 
-    def _headers(self, path: str, extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    def _headers(self, path: str, extra: dict[str, str] | None = None) -> dict[str, str]:
         """构造请求头，并补上 web 端要求的 target path/route。"""
         headers = dict(self.session.headers)
         headers["X-OpenAI-Target-Path"] = path
@@ -294,14 +293,14 @@ class OpenAIBackendAPI:
             raise InvalidAccessTokenError(f"token invalidated ({path})")
         raise RuntimeError(f"{path} failed: HTTP {response.status_code}")
 
-    def _get_me(self) -> Dict[str, Any]:
+    def _get_me(self) -> dict[str, Any]:
         path = "/backend-api/me"
         response = self.session.get(self.base_url + path, headers=self._headers(path), timeout=20)
         if response.status_code != 200:
             self._raise_on_error(response, path)
         return response.json()
 
-    def _get_conversation_init(self) -> Dict[str, Any]:
+    def _get_conversation_init(self) -> dict[str, Any]:
         path = "/backend-api/conversation/init"
         response = self.session.post(
             self.base_url + path,
@@ -318,7 +317,7 @@ class OpenAIBackendAPI:
             self._raise_on_error(response, path)
         return response.json()
 
-    def _get_default_account(self) -> Dict[str, Any]:
+    def _get_default_account(self) -> dict[str, Any]:
         path = "/backend-api/accounts/check/v4-2023-04-27"
         response = self.session.get(self.base_url + path + "?timezone_offset_min=-480", headers=self._headers(path),
                                     timeout=20)
@@ -337,7 +336,7 @@ class OpenAIBackendAPI:
         })
         return default_account
 
-    def get_user_info(self) -> Dict[str, Any]:
+    def get_user_info(self) -> dict[str, Any]:
         """获取当前 token 的账号信息。"""
         if not self.access_token:
             raise RuntimeError("access_token is required")
@@ -383,7 +382,7 @@ class OpenAIBackendAPI:
         })
         return result
 
-    def _bootstrap_headers(self) -> Dict[str, str]:
+    def _bootstrap_headers(self) -> dict[str, str]:
         """构造首页预热请求头。"""
         return {
             "User-Agent": self.user_agent,
@@ -399,7 +398,7 @@ class OpenAIBackendAPI:
             "Upgrade-Insecure-Requests": "1",
         }
 
-    def _build_requirements(self, data: Dict[str, Any], source_p: str = "") -> ChatRequirements:
+    def _build_requirements(self, data: dict[str, Any], source_p: str = "") -> ChatRequirements:
         """把 sentinel 响应整理成后续对话需要的 token 集合。"""
         if (data.get("arkose") or {}).get("required"):
             raise RuntimeError("chat requirements requires arkose token, which is not implemented")
@@ -428,7 +427,7 @@ class OpenAIBackendAPI:
             raw_finalize=data,
         )
 
-    def _conversation_headers(self, path: str, requirements: ChatRequirements) -> Dict[str, str]:
+    def _conversation_headers(self, path: str, requirements: ChatRequirements) -> dict[str, str]:
         """根据当前 requirements 构造对话 SSE 请求头。"""
         headers = {
             "Accept": "text/event-stream",
@@ -443,7 +442,7 @@ class OpenAIBackendAPI:
             headers["OpenAI-Sentinel-SO-Token"] = requirements.so_token
         return self._headers(path, headers)
 
-    def _api_messages_to_conversation_messages(self, messages: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
+    def _api_messages_to_conversation_messages(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """把标准 chat messages 转成 web conversation 所需的 messages。"""
         conversation_messages = []
         for item in messages:
@@ -480,7 +479,7 @@ class OpenAIBackendAPI:
                 continue
             if not self.access_token:
                 raise RuntimeError("authenticated upstream account required for image input")
-            uploaded: list[Dict[str, Any]] = []
+            uploaded: list[dict[str, Any]] = []
             for idx, (data, mime) in enumerate(image_inputs, start=1):
                 ext_part = mime.split("/", 1)[1].split("+")[0] if "/" in mime else "png"
                 extension = "jpg" if ext_part == "jpeg" else (ext_part or "png")
@@ -528,11 +527,11 @@ class OpenAIBackendAPI:
 
     def _conversation_payload(
             self,
-            messages: list[Dict[str, Any]],
+            messages: list[dict[str, Any]],
             model: str,
             timezone: str,
             thinking_effort: str = "",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """把标准 messages 构造成 web 对话请求体。"""
         payload = {
             "action": "next",
@@ -586,7 +585,7 @@ class OpenAIBackendAPI:
         return upstream_model, self._normalize_thinking_effort(config.default_thinking_effort)
 
     def _image_headers(self, path: str, requirements: ChatRequirements, conduit_token: str = "", accept: str = "*/*") -> \
-            Dict[str, str]:
+            dict[str, str]:
         """构造图片链路请求头。"""
         headers = {
             "Content-Type": "application/json",
@@ -601,7 +600,7 @@ class OpenAIBackendAPI:
             headers["X-Oai-Turn-Trace-Id"] = new_uuid()
         return self._headers(path, headers)
 
-    def _codex_responses_headers(self) -> Dict[str, str]:
+    def _codex_responses_headers(self) -> dict[str, str]:
         return {
             "Authorization": f"Bearer {self.access_token}",
             "Content-Type": "application/json",
@@ -614,8 +613,8 @@ class OpenAIBackendAPI:
             raise RuntimeError("codex responses endpoint requires a codex source account")
 
     @staticmethod
-    def _codex_image_input(prompt: str, images: list[str]) -> list[Dict[str, Any]]:
-        content: list[Dict[str, Any]] = [{"type": "input_text", "text": prompt}]
+    def _codex_image_input(prompt: str, images: list[str]) -> list[dict[str, Any]]:
+        content: list[dict[str, Any]] = [{"type": "input_text", "text": prompt}]
         for image in images:
             payload = image if image.startswith("data:image/") else f"data:image/png;base64,{image}"
             content.append({"type": "input_image", "image_url": payload})
@@ -649,8 +648,8 @@ class OpenAIBackendAPI:
         return []
 
     @staticmethod
-    def _codex_event_summary(event: Dict[str, Any]) -> Dict[str, Any]:
-        summary: Dict[str, Any] = {
+    def _codex_event_summary(event: dict[str, Any]) -> dict[str, Any]:
+        summary: dict[str, Any] = {
             "type": str(event.get("type") or ""),
             "keys": list(event.keys())[:30],
         }
@@ -690,7 +689,7 @@ class OpenAIBackendAPI:
             path: str,
             status_code: int,
             headers: Any,
-            payload: Dict[str, Any],
+            payload: dict[str, Any],
             body: Any,
     ) -> None:
         request_headers = self._codex_responses_headers()
@@ -723,12 +722,12 @@ class OpenAIBackendAPI:
         })
 
     @staticmethod
-    def _iter_codex_response_events(raw: Any) -> Iterator[Dict[str, Any]]:
+    def _iter_codex_response_events(raw: Any) -> Iterator[dict[str, Any]]:
         content_type = str(raw.headers.get("content-type") or "").lower()
         text = raw.read().decode("utf-8", "replace")
         status_code = getattr(raw, "status", None)
         parse_errors: list[str] = []
-        events: list[Dict[str, Any]] = []
+        events: list[dict[str, Any]] = []
         if "application/json" in content_type:
             try:
                 data = json.loads(text)
@@ -754,7 +753,7 @@ class OpenAIBackendAPI:
                 elif line.startswith("data:"):
                     lines.append(line[5:].lstrip())
 
-        event_types: Dict[str, int] = {}
+        event_types: dict[str, int] = {}
         image_result_lengths: list[int] = []
         for event in events:
             event_type = str(event.get("type") or "<missing>")
@@ -786,7 +785,7 @@ class OpenAIBackendAPI:
             images: list[str] | None = None,
             size: str | None = None,
             quality: str = "auto",
-    ) -> Iterator[Dict[str, Any]]:
+    ) -> Iterator[dict[str, Any]]:
         if not self.access_token:
             raise RuntimeError("access_token is required for codex image endpoints")
         self._ensure_codex_source_account()
@@ -918,7 +917,7 @@ class OpenAIBackendAPI:
         payload = image.split(",", 1)[1] if image.startswith("data:") and "," in image else image
         return base64.b64decode(payload)
 
-    def _upload_image(self, image: str, file_name: str = "image.png") -> Dict[str, Any]:
+    def _upload_image(self, image: str, file_name: str = "image.png") -> dict[str, Any]:
         """上传一张 base64 图片，返回底层文件元数据。"""
         data = self._decode_image_base64(image)
         if (
@@ -978,7 +977,7 @@ class OpenAIBackendAPI:
         }
 
     def _start_image_generation(self, prompt: str, requirements: ChatRequirements, conduit_token: str, model: str,
-                                references: Optional[list[Dict[str, Any]]] = None) -> requests.Response:
+                                references: list[dict[str, Any]] | None = None) -> requests.Response:
         """启动图片生成或编辑的 SSE 请求。"""
         upstream_model, thinking_effort = self._image_model_settings(model)
         references = references or []
@@ -1053,7 +1052,7 @@ class OpenAIBackendAPI:
         ensure_ok(response, path)
         return response
 
-    def _get_conversation(self, conversation_id: str) -> Dict[str, Any]:
+    def _get_conversation(self, conversation_id: str) -> dict[str, Any]:
         """获取完整 conversation 详情。"""
         path = f"/backend-api/conversation/{conversation_id}"
         response = self.session.get(self.base_url + path, headers=self._headers(path, {"Accept": "application/json"}),
@@ -1061,7 +1060,7 @@ class OpenAIBackendAPI:
         ensure_ok(response, path)
         return response.json()
 
-    def delete_conversation(self, conversation_id: str) -> Dict[str, Any]:
+    def delete_conversation(self, conversation_id: str) -> dict[str, Any]:
         """删除本地对话记录。"""
         path = f"/backend-api/conversation/{conversation_id}"
         headers = self._headers(path, {
@@ -1079,7 +1078,7 @@ class OpenAIBackendAPI:
         ensure_ok(response, path)
         return response.json()
 
-    def _list_recent_conversations(self, limit: int = 5, timeout_secs: float = 10.0) -> list[Dict[str, Any]]:
+    def _list_recent_conversations(self, limit: int = 5, timeout_secs: float = 10.0) -> list[dict[str, Any]]:
         """列出最近的对话列表，按更新时间倒序。
 
         当 SSE 流太短导致 conversation_id 丢失时，可以通过此方法
@@ -1268,7 +1267,7 @@ class OpenAIBackendAPI:
             raise RuntimeError(f"download finished but did not get both {primary_label} and zip files: {downloaded}")
         return EditableFileExportResult(conversation_id=conversation_id, primary_path=primary_path, zip_path=zip_path)
 
-    def _upload_editable_base64_image(self, base64_image: str, index: int) -> Dict[str, Any]:
+    def _upload_editable_base64_image(self, base64_image: str, index: int) -> dict[str, Any]:
         data, file_name, mime_type, width, height = self._decode_editable_base64_image(base64_image, index)
         path = "/backend-api/files"
         response = self.session.post(
@@ -1345,7 +1344,7 @@ class OpenAIBackendAPI:
 
     def _prepare_editable_conversation(self, prompt: str, attachment_mime_types: list[str]) -> str:
         path = "/backend-api/f/conversation/prepare"
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "action": "next",
             "fork_from_shared_post": False,
             "parent_message_id": "client-created-root",
@@ -1375,10 +1374,10 @@ class OpenAIBackendAPI:
             raise RuntimeError(f"missing conduit_token: {response.text}")
         return conduit_token
 
-    def _run_editable_conversation(self, prompt: str, uploaded: list[Dict[str, Any]], conduit_token: str) -> str:
+    def _run_editable_conversation(self, prompt: str, uploaded: list[dict[str, Any]], conduit_token: str) -> str:
         self._bootstrap()
         requirements = self._get_chat_requirements()
-        message: Dict[str, Any] = {"id": new_uuid(), "author": {"role": "user"}, "create_time": time.time()}
+        message: dict[str, Any] = {"id": new_uuid(), "author": {"role": "user"}, "create_time": time.time()}
         if uploaded:
             parts = [{
                 "content_type": "image_asset_pointer",
@@ -1487,28 +1486,28 @@ class OpenAIBackendAPI:
             time.sleep(poll_interval_secs)
         raise RuntimeError(f"timed out waiting for {primary_label}/zip outputs")
 
-    def _get_editable_conversation_detail(self, conversation_id: str) -> Dict[str, Any]:
+    def _get_editable_conversation_detail(self, conversation_id: str) -> dict[str, Any]:
         path = f"/backend-api/conversation/{conversation_id}"
         response = self.session.get(self.base_url + path, headers=self._editable_conversation_document_headers(path, conversation_id), timeout=60)
         ensure_ok(response, path)
         return response.json()
 
-    def _editable_browser_headers(self, path: str, conversation_id: str) -> Dict[str, str]:
+    def _editable_browser_headers(self, path: str, conversation_id: str) -> dict[str, str]:
         headers = self._headers(path, {"Accept": "*/*"})
         headers["Referer"] = f"{self.base_url}/c/{conversation_id}"
         return headers
 
-    def _editable_conversation_document_headers(self, path: str, conversation_id: str) -> Dict[str, str]:
+    def _editable_conversation_document_headers(self, path: str, conversation_id: str) -> dict[str, str]:
         headers = self._editable_browser_headers(path, conversation_id)
         headers["X-OpenAI-Target-Route"] = "/backend-api/conversation/{conversation_id}"
         return headers
 
-    def _extract_editable_artifacts(self, conversation: Dict[str, Any], export_file_re: re.Pattern[str]) -> list[EditableFileArtifact]:
+    def _extract_editable_artifacts(self, conversation: dict[str, Any], export_file_re: re.Pattern[str]) -> list[EditableFileArtifact]:
         artifacts: dict[str, EditableFileArtifact] = {}
         for node in sorted((conversation.get("mapping") or {}).values(), key=lambda item: float(((item or {}).get("message") or {}).get("create_time") or 0.0)):
             message = (node or {}).get("message") or {}
             message_id = str(message.get("id") or "")
-            author_role = str(((message.get("author") or {}).get("role") or "")).strip()
+            author_role = str((message.get("author") or {}).get("role") or "").strip()
             if author_role not in {"assistant", "tool"}:
                 continue
             create_time = float(message.get("create_time") or 0.0)
@@ -1524,7 +1523,7 @@ class OpenAIBackendAPI:
 
     def _extract_editable_message_artifacts(
             self,
-            message: Dict[str, Any],
+            message: dict[str, Any],
             message_id: str,
             author_role: str,
             create_time: float,
@@ -1543,7 +1542,7 @@ class OpenAIBackendAPI:
 
     def _editable_artifact_from_dict(
             self,
-            payload: Dict[str, Any],
+            payload: dict[str, Any],
             message_id: str,
             author_role: str,
             create_time: float,
@@ -1659,7 +1658,7 @@ class OpenAIBackendAPI:
                     return url
         return ""
 
-    def _editable_download_headers(self, path: str, conversation_id: str, route: str) -> Dict[str, str]:
+    def _editable_download_headers(self, path: str, conversation_id: str, route: str) -> dict[str, str]:
         headers = self._editable_browser_headers(path, conversation_id)
         headers["X-OpenAI-Target-Route"] = route
         return headers
@@ -1830,7 +1829,7 @@ class OpenAIBackendAPI:
         return values
 
     def search(self, prompt: str, model: str = SEARCH_MODEL, timeout_secs: float = SEARCH_TIMEOUT_SECS,
-               poll_interval_secs: float = SEARCH_POLL_INTERVAL_SECS) -> Dict[str, Any]:
+               poll_interval_secs: float = SEARCH_POLL_INTERVAL_SECS) -> dict[str, Any]:
         if not self.access_token:
             raise RuntimeError("access_token is required for search")
         conduit_token = self._prepare_search_conversation(prompt, model)
@@ -1919,9 +1918,9 @@ class OpenAIBackendAPI:
             raise RuntimeError("conversation_id not found in stream")
         return conversation_id
 
-    def _wait_search_result(self, conversation_id: str, timeout_secs: float, poll_interval_secs: float) -> Dict[str, Any]:
+    def _wait_search_result(self, conversation_id: str, timeout_secs: float, poll_interval_secs: float) -> dict[str, Any]:
         deadline = time.time() + timeout_secs
-        last_result: Dict[str, Any] | None = None
+        last_result: dict[str, Any] | None = None
         last_answer = ""
         stable_hits = 0
         while time.time() < deadline:
@@ -1943,7 +1942,7 @@ class OpenAIBackendAPI:
             return last_result
         raise RuntimeError(f"timed out waiting for search result: {conversation_id}")
 
-    def _get_search_conversation(self, conversation_id: str) -> Dict[str, Any]:
+    def _get_search_conversation(self, conversation_id: str) -> dict[str, Any]:
         path = f"/backend-api/conversation/{conversation_id}"
         headers = self._headers(path, {"Accept": "*/*"})
         headers["Referer"] = f"{self.base_url}/c/{conversation_id}"
@@ -1952,7 +1951,7 @@ class OpenAIBackendAPI:
         ensure_ok(response, path)
         return response.json()
 
-    def _extract_search_result(self, conversation_id: str, conversation: Dict[str, Any]) -> Dict[str, Any]:
+    def _extract_search_result(self, conversation_id: str, conversation: dict[str, Any]) -> dict[str, Any]:
         messages = []
         for node in (conversation.get("mapping") or {}).values():
             message = (node or {}).get("message") or {}
@@ -1976,8 +1975,8 @@ class OpenAIBackendAPI:
             "create_time": float(message.get("create_time") or 0.0),
         }
 
-    def _extract_search_sources(self, payload: Any) -> list[Dict[str, str]]:
-        sources: list[Dict[str, str]] = []
+    def _extract_search_sources(self, payload: Any) -> list[dict[str, str]]:
+        sources: list[dict[str, str]] = []
         for obj in self._walk_search_dicts(payload):
             metadata = obj.get("metadata") if isinstance(obj.get("metadata"), dict) else {}
             url = self._clean_search_url(obj.get("url") or obj.get("link") or obj.get("source_url") or metadata.get("url"))
@@ -2023,7 +2022,7 @@ class OpenAIBackendAPI:
             return next((found for item in payload if (found := self._find_search_value(item, key))), "")
         return ""
 
-    def _walk_search_dicts(self, payload: Any) -> list[Dict[str, Any]]:
+    def _walk_search_dicts(self, payload: Any) -> list[dict[str, Any]]:
         if isinstance(payload, dict):
             return [payload, *(item for value in payload.values() for item in self._walk_search_dicts(value))]
         if isinstance(payload, list):
@@ -2075,7 +2074,7 @@ class OpenAIBackendAPI:
             return any(cls._has_image_asset_pointer(item) for item in payload)
         return False
 
-    def _extract_image_tool_records(self, data: Dict[str, Any]) -> list[Dict[str, Any]]:
+    def _extract_image_tool_records(self, data: dict[str, Any]) -> list[dict[str, Any]]:
         """从 conversation 明细里提取图片工具输出记录。"""
         mapping = data.get("mapping") or {}
         records = []
@@ -2100,7 +2099,7 @@ class OpenAIBackendAPI:
         return sorted(records, key=lambda item: item["create_time"])
 
     @staticmethod
-    def _find_content_policy_error_in_conversation(data: Dict[str, Any]) -> str:
+    def _find_content_policy_error_in_conversation(data: dict[str, Any]) -> str:
         """从对话文档中查找内容政策违规错误消息。
 
         上游拒绝生成图片时，错误消息会出现在 assistant 消息的文本中。
@@ -2194,7 +2193,7 @@ class OpenAIBackendAPI:
             if remaining <= 0:
                 return False
             sleep_for = min(backoff, remaining)
-            log_payload: Dict[str, Any] = {
+            log_payload: dict[str, Any] = {
                 "event": "image_poll_retry",
                 "conversation_id": conversation_id,
                 "attempt": attempt,
@@ -2347,7 +2346,7 @@ class OpenAIBackendAPI:
         conversation_id: str = "",
         task_id: str = "",
         timeout_secs: float = 30.0,
-    ) -> list[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """查询 /backend-api/tasks/ 接口获取异步任务状态和错误信息。
 
         参数：
@@ -2383,7 +2382,7 @@ class OpenAIBackendAPI:
             tasks = [t for t in tasks if isinstance(t, dict) and t.get("task_id") == task_id]
         return tasks
 
-    def check_task_error(self, task: Dict[str, Any]) -> tuple[bool, str, Dict[str, Any]]:
+    def check_task_error(self, task: dict[str, Any]) -> tuple[bool, str, dict[str, Any]]:
         """检查单个任务是否包含结构化错误。
 
         通过以下字段判断（不依赖文本匹配）：
@@ -2404,7 +2403,7 @@ class OpenAIBackendAPI:
 
         is_error = metadata.get("is_error", False)
         is_text_only = content.get("content_type") == "text"
-        is_assistant_role = author.get("role") == "assistant"
+        author.get("role") == "assistant"
 
         # 提取错误文本
         error_msg = ""
@@ -2565,11 +2564,11 @@ class OpenAIBackendAPI:
 
     def stream_conversation(
             self,
-            messages: Optional[list[Dict[str, Any]]] = None,
+            messages: list[dict[str, Any]] | None = None,
             model: str = "auto",
             prompt: str = "",
-            images: Optional[list[str]] = None,
-            system_hints: Optional[list[str]] = None,
+            images: list[str] | None = None,
+            system_hints: list[str] | None = None,
             thinking_effort: str = "",
     ) -> Iterator[str]:
         system_hints = system_hints or []
@@ -2735,7 +2734,7 @@ class OpenAIBackendAPI:
             return "/backend-api/conversation", "Asia/Shanghai"
         return "/backend-anon/conversation", "America/Los_Angeles"
 
-    def list_models(self) -> Dict[str, Any]:
+    def list_models(self) -> dict[str, Any]:
         """返回当前模式下可用模型，格式对齐 OpenAI `/v1/models`。"""
         self._bootstrap()
         path = "/backend-api/models?history_and_training_disabled=false" if self.access_token else (

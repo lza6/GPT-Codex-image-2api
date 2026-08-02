@@ -10,7 +10,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-
 ROOT_DIR = Path(__file__).resolve().parents[1]
 
 
@@ -21,8 +20,9 @@ class RequestIdChainTests(unittest.TestCase):
         """响应头含 X-Request-Id。"""
         import sys
         sys.path.insert(0, str(ROOT_DIR))
-        from api.app import create_app
         from fastapi.testclient import TestClient
+
+        from api.app import create_app
 
         app = create_app()
         client = TestClient(app)
@@ -36,8 +36,8 @@ class RequestIdChainTests(unittest.TestCase):
         """日志中的 request_id 与响应头一致。"""
         import sys
         sys.path.insert(0, str(ROOT_DIR))
-        from services.metrics_service import set_request_id, get_request_id
         from services.log_service import LoggedCall, log_service
+        from services.metrics_service import get_request_id, set_request_id
 
         test_id = "test-chain-abc123"
         set_request_id(test_id)
@@ -95,8 +95,9 @@ class PrometheusMetricsTests(unittest.TestCase):
         """/metrics 带鉴权返回 200 且包含核心指标名（S3 起需鉴权，防公网暴露）。"""
         import sys
         sys.path.insert(0, str(ROOT_DIR))
-        from api.app import create_app
         from fastapi.testclient import TestClient
+
+        from api.app import create_app
 
         app = create_app()
         client = TestClient(app)
@@ -110,8 +111,9 @@ class PrometheusMetricsTests(unittest.TestCase):
         """/metrics 要求 auth-key（S3 起强制鉴权），无鉴权访问被拒，防止公网暴露内部状态。"""
         import sys
         sys.path.insert(0, str(ROOT_DIR))
-        from api.app import create_app
         from fastapi.testclient import TestClient
+
+        from api.app import create_app
 
         app = create_app()
         client = TestClient(app)
@@ -127,8 +129,9 @@ class MetricsSummaryTests(unittest.TestCase):
         """/api/dashboard/metrics_summary 返回请求速率/错误率/P95。"""
         import sys
         sys.path.insert(0, str(ROOT_DIR))
-        from api.app import create_app
         from fastapi.testclient import TestClient
+
+        from api.app import create_app
 
         app = create_app()
         client = TestClient(app)

@@ -23,7 +23,39 @@ dev = [
     "httpx>=0.28.1",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
+    "ruff>=0.8.0",
+    "mypy>=1.13.0",
+    "pip-audit>=2.7.0",
 ]
+
+[tool.pytest.ini_options]
+# 默认排除需真实上游/活服务的测试，保证 CI 稳定不触网
+addopts = "-m 'not live and not redis'"
+markers = [
+    "live: 需要真实上游 OpenAI 或活服务(localhost:23456)的测试，CI 默认排除，本地手动 pytest -m live 运行",
+    "redis: 需要 Redis 的测试，CI 默认排除",
+    "unit: 纯单元测试（不触网、不需活服务）",
+]
+# 测试文件收集路径（live 测试仍放 test/ 下，用标记区分而非目录隔离）
+testpaths = ["test"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+
+[tool.ruff.lint]
+# 宽松起步：E(风格)/F(未用导入等)/I(import排序)/UP(语法升级)，逐步收紧
+select = ["E", "F", "I", "UP"]
+ignore = [
+    "E501",  # 行宽由 formatter 处理
+]
+
+[tool.mypy]
+python_version = "3.13"
+ignore_missing_imports = true
+# 现状宽松：仅扫语法与明显类型错误，逐步收紧
+warn_unused_ignores = false
+warn_redundant_casts = false
 
 [[tool.uv.index]]
 url = "https://mirrors.aliyun.com/pypi/simple"

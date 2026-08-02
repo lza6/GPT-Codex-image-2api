@@ -5,8 +5,9 @@ import hashlib
 import json
 import threading
 import time
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
-from typing import Any, Callable, Iterable, Iterator
+from typing import Any
 
 from services.config import config
 

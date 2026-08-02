@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
 import uvicorn
+
 from api import create_app
 from services.config import config
 

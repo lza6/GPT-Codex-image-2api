@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import time
 import uuid
-from typing import Any, Iterable, Iterator
+from collections.abc import Iterable, Iterator
+from typing import Any
 
 from fastapi import HTTPException
 
@@ -29,7 +30,13 @@ from services.protocol.web_search_tool import (
     search_query_from_messages,
     text_with_url_citations,
 )
-from utils.helper import build_chat_image_markdown_content, extract_chat_image, extract_chat_prompt, is_image_chat_request, parse_image_count
+from utils.helper import (
+    build_chat_image_markdown_content,
+    extract_chat_image,
+    extract_chat_prompt,
+    is_image_chat_request,
+    parse_image_count,
+)
 from utils.image_tokens import (
     chat_usage_from_image_usage,
     count_image_inputs_tokens,
