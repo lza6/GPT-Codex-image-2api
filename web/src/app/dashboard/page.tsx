@@ -105,6 +105,16 @@ function DashboardContent() {
           if (payload.latency) {
             setLatency(payload.latency);
           }
+          // 完整看板数据：ops/usage/metrics_summary 经 SSE 实时更新（资源/用量/指标卡片）
+          if (payload.ops) {
+            setOps(payload.ops);
+          }
+          if (payload.usage) {
+            setUsage(payload.usage);
+          }
+          if (payload.metrics_summary) {
+            setMetrics(payload.metrics_summary);
+          }
           // health 数据触发完整刷新以同步调度分等
           setScheduler((prev) =>
             prev

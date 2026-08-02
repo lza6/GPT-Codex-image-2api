@@ -81,6 +81,43 @@ def _collect_log_stats() -> dict[str, object]:
     }
 
 
+def _build_metrics_summary() -> dict[str, object]:
+    """看板聚合指标：请求速率/错误率/P95 延迟。供 metrics_summary 端点与 SSE 复用。"""
+    summary = metrics_service.get_summary()
+    total = summary["total_requests"]
+    errors = summary["total_errors"]
+    uptime = max(1, summary["uptime_seconds"])
+    # P95 延迟估算（基于平均延迟 + 错误率加权的简单估算，真实 P95 需 histogram 分位数）
+    avg = summary["avg_latency_ms"]
+    p95 = round(avg * 1.8, 1) if avg else 0.0  # 简化估算
+    return {
+        "request_rate": round(total / uptime, 2),
+        "error_rate": summary["error_rate"],
+        "p95_latency_ms": p95,
+        "avg_latency_ms": avg,
+        "total_requests": total,
+        "total_errors": errors,
+    }
+
+
+def _build_stream_payload() -> dict[str, object]:
+    """构建 SSE 每帧推送的完整看板数据。
+
+    包含 ops/usage/metrics_summary，使看板顶部资源、用量、指标卡片
+    都能经 SSE 实时更新，而非依赖 30s 兜底轮询。
+    """
+    accounts = account_service.list_accounts()
+    return {
+        "type": "dashboard",
+        "ts": int(time.time()),
+        "health": _collect_account_health(accounts),
+        "latency": metrics_service.get_summary(),
+        "ops": _collect_ops_overview(),
+        "usage": _collect_log_stats(),
+        "metrics_summary": _build_metrics_summary(),
+    }
+
+
 def _collect_ops_overview() -> dict[str, object]:
     """运维概览：CPU/内存/磁盘/进程/存储统计。"""
     # CPU 使用率（Windows 上取不到精确值，用 loadavg 兜底）
@@ -183,21 +220,7 @@ def create_router() -> APIRouter:
     async def metrics_summary(authorization: str | None = Header(default=None)):
         """看板聚合指标：请求速率/错误率/P95 延迟。"""
         require_identity(authorization)
-        summary = metrics_service.get_summary()
-        total = summary["total_requests"]
-        errors = summary["total_errors"]
-        uptime = max(1, summary["uptime_seconds"])
-        # P95 延迟估算（基于平均延迟 + 错误率加权的简单估算，真实 P95 需 histogram 分位数）
-        avg = summary["avg_latency_ms"]
-        p95 = round(avg * 1.8, 1) if avg else 0.0  # 简化估算
-        return {
-            "request_rate": round(total / uptime, 2),
-            "error_rate": summary["error_rate"],
-            "p95_latency_ms": p95,
-            "avg_latency_ms": avg,
-            "total_requests": total,
-            "total_errors": errors,
-        }
+        return _build_metrics_summary()
 
     @router.get("/metrics", include_in_schema=False)
     async def prometheus_metrics():
@@ -224,14 +247,8 @@ def create_router() -> APIRouter:
             try:
                 while True:
                     try:
-                        accounts = account_service.list_accounts()
-                        health = _collect_account_health(accounts)
-                        payload = {
-                            "type": "dashboard",
-                            "ts": int(time.time()),
-                            "health": health,
-                            "latency": metrics_service.get_summary(),
-                        }
+                        # 收集逻辑（含磁盘/账号 IO）放线程池，避免阻塞事件循环
+                        payload = await run_in_threadpool(_build_stream_payload)
                         yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
                     except Exception:
                         # 单次数据构建失败，跳过本次，等待下一周期

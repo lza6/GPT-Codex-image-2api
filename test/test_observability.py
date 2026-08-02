@@ -146,5 +146,37 @@ class MetricsSummaryTests(unittest.TestCase):
             self.assertIn(field, data, f"metrics_summary 应含字段 {field}")
 
 
+class DashboardStreamCompletenessTests(unittest.TestCase):
+    """S6 真实缺口：SSE 应推送完整看板数据（ops/usage/metrics_summary），而非仅 health+latency。
+
+    说明：SSE 是无限流，TestClient 无法增量读取首帧（portal 阻塞）。
+    因此直接测试 payload 构建函数 `_build_stream_payload()` 的返回键——
+    这是 SSE 每帧数据的唯一来源，断言它等价于断言 SSE 帧内容，且可真正 RED/GREEN。
+    """
+
+    @classmethod
+    def _payload(cls) -> dict:
+        import sys
+        sys.path.insert(0, str(ROOT_DIR))
+        from api.dashboard import _build_stream_payload
+        return _build_stream_payload()
+
+    def test_sse_payload_contains_ops(self):
+        """SSE 帧应含 ops（CPU/内存/磁盘），供资源卡片实时更新。"""
+        payload = self._payload()
+        self.assertIn("ops", payload, "SSE payload 应含 ops 键（否则资源卡片只能 30s 轮询更新）")
+
+    def test_sse_payload_contains_usage(self):
+        """SSE 帧应含 usage（24h 调用量），供用量卡片实时更新。"""
+        payload = self._payload()
+        self.assertIn("usage", payload, "SSE payload 应含 usage 键")
+
+    def test_sse_payload_contains_metrics_summary(self):
+        """SSE 帧应含 metrics_summary（请求速率/P95），供指标卡片实时更新。"""
+        payload = self._payload()
+        self.assertIn("metrics_summary", payload, "SSE payload 应含 metrics_summary 键")
+        self.assertIn("p95_latency_ms", payload["metrics_summary"], "metrics_summary 应含 p95_latency_ms")
+
+
 if __name__ == "__main__":
     unittest.main()
