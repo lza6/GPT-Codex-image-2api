@@ -7,6 +7,11 @@
 分级规则：
 - /v1/images/* 走 image 上限（图片编辑含 base64，体积大）
 - 其余 API 默认走 chat 上限
+
+已知限制：仅检查 Content-Length 头。客户端用 Transfer-Encoding: chunked（不带
+Content-Length）时无法预知大小，会放行——但本服务上游调用方（curl_cffi 客户端与
+标准 OpenAI SDK）总是带 Content-Length，故可接受。若未来暴露给任意客户端，
+需在中间件对无 Content-Length 的请求包一层 body 流计数。
 """
 
 from __future__ import annotations
@@ -21,8 +26,8 @@ _IMAGE_PREFIXES = ("/v1/images",)
 
 
 def _limit_for_path(path: str) -> int:
-    """按路径返回请求体上限（字节）。"""
-    if path.startswith(_IMAGE_PREFIXES):
+    """按路径返回请求体上限（字节）。精确匹配前缀，避免 /v1/images2 误判。"""
+    if any(path == p or path.startswith(p + "/") for p in _IMAGE_PREFIXES):
         return config.max_request_body_mb_image * 1024 * 1024
     return config.max_request_body_mb_chat * 1024 * 1024
 

@@ -564,7 +564,7 @@ class AccountService:
                 new_access_token = result.get("access_token", "")
                 new_refresh_token = result.get("refresh_token", "")
                 new_id_token = result.get("id_token", "")
-                result.get("expires_at")
+                # 注意：expires_at 取出后未写入 token_data（存量 bug，账号过期时间未入库），登记后续修复
 
                 # 构建 token_data 供 _apply_refreshed_tokens 使用
                 token_data = {
@@ -615,7 +615,6 @@ class AccountService:
                     if isinstance(detail_error, dict) and detail_error.get("code") == "account_deactivated":
                         # 账号已删除/停用 → 标记为禁用
                         self.update_account(access_token, {"status": "禁用", "quota": 0}, quiet=True)
-                        self.get_account(access_token) or {}
                         log_service.add(
                             LOG_TYPE_ACCOUNT,
                             "账号已停用-标记禁用",

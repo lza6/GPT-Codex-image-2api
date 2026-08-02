@@ -1,10 +1,5 @@
 from __future__ import annotations
 
-import pytest
-
-# 需真实上游/活服务(localhost:23456)的测试，CI 默认排除（pytest -m live 本地手动跑）
-pytestmark = pytest.mark.live
-
 import base64
 import unittest
 from unittest import mock
@@ -14,10 +9,14 @@ from fastapi.testclient import TestClient
 
 import api.ai as ai_module
 
+import pytest
+
+# 需真实上游/活服务(localhost:23456)的测试，CI 默认排除（pytest -m live 本地手动跑）
+pytestmark = pytest.mark.live
+
 AUTH_HEADERS = {"Authorization": "Bearer chatgpt2api"}
 PNG_BYTES = b"\x89PNG\r\n\x1a\n"
 DATA_IMAGE_URL = f"data:image/png;base64,{base64.b64encode(PNG_BYTES).decode('ascii')}"
-
 
 class ImagesEditsApiTests(unittest.TestCase):
     def setUp(self):
@@ -70,7 +69,6 @@ class ImagesEditsApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 400, response.text)
         self.assertIn("file_id image references are not supported", response.text)
         self.assertEqual(self.handle_calls, [])
-
 
 if __name__ == "__main__":
     unittest.main()

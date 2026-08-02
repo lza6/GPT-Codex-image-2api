@@ -1,10 +1,5 @@
 from __future__ import annotations
 
-import pytest
-
-# 需真实上游/活服务(localhost:23456)的测试，CI 默认排除（pytest -m live 本地手动跑）
-pytestmark = pytest.mark.live
-
 import json
 import time
 import urllib.error
@@ -13,12 +8,16 @@ import urllib.request
 from pathlib import Path
 from uuid import uuid4
 
+import pytest
+
+# 需真实上游/活服务(localhost:23456)的测试，CI 默认排除（pytest -m live 本地手动跑）
+pytestmark = pytest.mark.live
+
 BASE_URL = "http://127.0.0.1:23456"
 PROMPT = "生成一份 2026 年 Q2 电商运营复盘 PPT，8 页以内，商务科技风，包含销售、用户、渠道、广告、618 活动和 Q3 规划。"
 BASE64_IMAGES: list[str] = []
 TIMEOUT_SECS = 600
 POLL_INTERVAL_SECS = 5
-
 
 def request_json(method: str, path: str, payload: dict | None = None) -> dict:
     api_key = json.loads((Path(__file__).resolve().parents[1] / "config.json").read_text(encoding="utf-8"))["auth-key"]
@@ -36,7 +35,6 @@ def request_json(method: str, path: str, payload: dict | None = None) -> dict:
             return json.loads(response.read().decode())
     except urllib.error.HTTPError as exc:
         raise RuntimeError(exc.read().decode("utf-8", "replace")) from exc
-
 
 def main() -> None:
     task = request_json("POST", "/v1/ppt/generations", {
@@ -57,7 +55,6 @@ def main() -> None:
         if item.get("status") in {"success", "error"}:
             return
     raise TimeoutError(f"task timeout: {task_id}")
-
 
 if __name__ == "__main__":
     main()

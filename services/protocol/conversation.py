@@ -106,6 +106,34 @@ def is_connection_timeout_error(message: str) -> bool:
     )
 
 
+def is_upstream_instability_error(message: str) -> bool:
+    """正向白名单：仅真正的上游抖动（5xx/超时/TLS/连接错误）才返回 True。
+
+    用于熔断器 record_failure 判定——业务拒绝（内容审核 400、prompt 违规、
+    模型不支持等 4xx）是上游正常工作的证据，不应记为熔断失败，否则恶意/违规
+    用户输入可逐个熔断健康账号造成拒绝服务。
+    """
+    text = str(message or "").lower()
+    if not text:
+        return False
+    # 5xx 服务器错误
+    for code in ("500", "502", "503", "504", "520", "521", "522", "523", "524"):
+        if code in text:
+            return True
+    # 超时 / TLS / 连接错误（复用现有判定）
+    if is_connection_timeout_error(text) or is_tls_connection_error(text):
+        return True
+    # 通用上游不稳定关键词
+    return (
+        "upstream" in text and ("timeout" in text or "unavailable" in text or "error" in text)
+        or "service unavailable" in text
+        or "bad gateway" in text
+        or "gateway timeout" in text
+        or "connection refused" in text
+        or "connection aborted" in text
+    )
+
+
 def image_stream_error_message(message: str) -> str:
     text = str(message or "")
     if is_token_invalid_error(text):
@@ -714,9 +742,16 @@ def text_backend(model: str = "auto") -> OpenAIBackendAPI:
     max_attempts = 20  # 与 get_available_access_token 一致的防护上限
     for _ in range(max_attempts):
         # 首次取号保持原签名（excluded_tokens 缺省），仅熔断换号重取时排除已试 token
-        token = account_service.get_text_access_token(model=model) if not attempted else account_service.get_text_access_token(excluded_tokens=attempted, model=model)
+        try:
+            token = account_service.get_text_access_token(model=model) if not attempted else account_service.get_text_access_token(excluded_tokens=attempted, model=model)
+        except Exception:
+            # 候选被排除空（ModelUnavailableError）等取号失败，统一转为无可用账号
+            raise RuntimeError("no available text account (all candidates circuit-open)") from None
         if not token:
             return OpenAIBackendAPI(access_token=token)  # 匿名链路，无熔断概念
+        # 取到已试过的 token（候选耗尽），立即抛出，避免对同一 token 反复 refresh
+        if token in attempted:
+            raise RuntimeError("no available text account (all candidates circuit-open)")
         breaker = circuit_breaker_registry.get(token)
         if breaker.allow_request():
             return OpenAIBackendAPI(access_token=token)
@@ -734,10 +769,14 @@ def stream_text_deltas(backend: OpenAIBackendAPI, request: ConversationRequest) 
         # 熔断接线：熔断 open 的账号直接换号，不打到抖动上游
         if token and not circuit_breaker_registry.get(token).allow_request():
             attempted_tokens.add(token)
-            token = account_service.get_text_access_token(
-                excluded_tokens=set(attempted_tokens),
-                model=request.model,
-            )
+            try:
+                token = account_service.get_text_access_token(
+                    excluded_tokens=set(attempted_tokens),
+                    model=request.model,
+                )
+            except Exception:
+                # 候选排除空（ModelUnavailableError），统一为无可用账号契约
+                raise RuntimeError("no available text account") from None
             continue
         if token:
             attempted_tokens.add(token)
@@ -775,8 +814,9 @@ def stream_text_deltas(backend: OpenAIBackendAPI, request: ConversationRequest) 
                     )
                 if token:
                     continue
-            # 上游抖动（5xx/超时/连接错误，非 token 失效）记熔断失败，让熔断器感知
-            if token and not is_token_invalid_error(error_message):
+            # 仅真上游抖动（5xx/超时/TLS/连接错误）记熔断失败；业务拒绝(4xx)不记，
+            # 否则恶意/违规用户输入可逐个熔断健康账号造成拒绝服务
+            if token and is_upstream_instability_error(error_message):
                 circuit_breaker_registry.get(token).record_failure()
             raise
         finally:
@@ -1561,8 +1601,8 @@ def _generate_single_image(
                     })
                     time.sleep(wait_secs)
                     continue
-            # 重试耗尽的上游错误（TLS/连接超时等）记熔断失败，让熔断器感知真上游抖动
-            if token and not is_token_invalid_error(last_error):
+            # 重试耗尽且确为上游抖动（TLS/连接超时/5xx）才记熔断失败；业务拒绝不记
+            if token and is_upstream_instability_error(last_error):
                 circuit_breaker_registry.get(token).record_failure()
             raise ImageGenerationError(image_stream_error_message(last_error), account_email=account_email, conversation_id="") from exc
         finally:

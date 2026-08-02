@@ -1,10 +1,5 @@
 from __future__ import annotations
 
-import pytest
-
-# 需真实上游/活服务(localhost:23456)的测试，CI 默认排除（pytest -m live 本地手动跑）
-pytestmark = pytest.mark.live
-
 import json
 import time
 import unittest
@@ -15,14 +10,17 @@ import requests
 from test.utils import save_image
 from utils.log import logger
 
+import pytest
+
+# 需真实上游/活服务(localhost:23456)的测试，CI 默认排除（pytest -m live 本地手动跑）
+pytestmark = pytest.mark.live
+
 AUTH_KEY = "chatgpt2api"
 BASE_URL = "http://localhost:23456"
 ASSETS_DIR = Path(__file__).resolve().parents[1] / "assets"
 
-
 def load_asset_bytes(name: str) -> bytes:
     return (ASSETS_DIR / name).read_bytes()
-
 
 def summarize_chunk(chunk: dict[str, object]) -> dict[str, object]:
     data = chunk.get("data")
@@ -38,7 +36,6 @@ def summarize_chunk(chunk: dict[str, object]) -> dict[str, object]:
         "data_count": len(data_items),
         "has_b64_json": any(isinstance(item, dict) and bool(item.get("b64_json")) for item in data_items),
     }
-
 
 class ImageEditsTests(unittest.TestCase):
     def test_image_edit_http(self):
@@ -143,7 +140,6 @@ class ImageEditsTests(unittest.TestCase):
             "saved_paths": [str(path) for path in saved_paths],
             "image_count": len(saved_paths),
         })
-
 
 if __name__ == "__main__":
     unittest.main()

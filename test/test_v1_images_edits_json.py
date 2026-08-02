@@ -1,10 +1,5 @@
 from __future__ import annotations
 
-import pytest
-
-# 需真实上游/活服务(localhost:23456)的测试，CI 默认排除（pytest -m live 本地手动跑）
-pytestmark = pytest.mark.live
-
 import base64
 import os
 import unittest
@@ -17,10 +12,14 @@ from fastapi.testclient import TestClient
 
 import api.ai as ai_module
 
+import pytest
+
+# 需真实上游/活服务(localhost:23456)的测试，CI 默认排除（pytest -m live 本地手动跑）
+pytestmark = pytest.mark.live
+
 AUTH_HEADERS = {"Authorization": "Bearer chatgpt2api"}
 PNG_DATA_URL = "data:image/png;base64," + base64.b64encode(b"fake-png").decode("ascii")
 JPEG_DATA_URL = "data:image/jpeg;base64," + base64.b64encode(b"fake-jpeg").decode("ascii")
-
 
 class ImageEditsJsonApiTests(unittest.TestCase):
     def setUp(self):
@@ -129,7 +128,6 @@ class ImageEditsJsonApiTests(unittest.TestCase):
         response = self.client.post("/v1/images/edits", headers=AUTH_HEADERS, json={"prompt": "n 越界", "n": 5, "image": PNG_DATA_URL})
         self.assertEqual(response.status_code, 400, response.text)
         self.assertFalse(self.calls)
-
 
 if __name__ == "__main__":
     unittest.main()

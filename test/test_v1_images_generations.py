@@ -1,10 +1,5 @@
 from __future__ import annotations
 
-import pytest
-
-# 需真实上游/活服务(localhost:23456)的测试，CI 默认排除（pytest -m live 本地手动跑）
-pytestmark = pytest.mark.live
-
 import json
 import time
 import unittest
@@ -13,9 +8,13 @@ import requests
 
 from test.utils import save_image
 
+import pytest
+
+# 需真实上游/活服务(localhost:23456)的测试，CI 默认排除（pytest -m live 本地手动跑）
+pytestmark = pytest.mark.live
+
 AUTH_KEY = "chatgpt2api"
 BASE_URL = "http://localhost:23456"
-
 
 class ImageGenerationsTests(unittest.TestCase):
     def test_image_generation_http(self):
@@ -91,7 +90,6 @@ class ImageGenerationsTests(unittest.TestCase):
         print("images generations stream saved files:")
         for path in saved_paths:
             print(path)
-
 
 if __name__ == "__main__":
     unittest.main()
