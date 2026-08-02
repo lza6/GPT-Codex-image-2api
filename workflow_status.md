@@ -80,3 +80,30 @@
 
 - 提交：be3322a fix: request_id 全链路追踪打通
 - remote：无（纯本地，已移除 origin 防止误推原作者仓库）
+
+
+---
+
+# 终局闭环总审计（2026-08-02 第四轮）
+
+## 本轮新增节点
+
+| 节点 | 任务 | 状态 | 验收证据 |
+|------|------|------|---------|
+| N18 | 可观测性深化（2.1-2.4） | ✅ 闭环 | prometheus-client + 结构化日志 + 看板 P95 |
+| N19 | prometheus multiprocess 初始化 | ✅ 闭环 | main.py PROMETHEUS_MULTIPROC_DIR |
+| N20 | request_id 统一注入 | ✅ 闭环 | log_service.add text/json 一致 |
+| N21 | Session 池 invalidate | ✅ 闭环 | remove_invalid_token 强制重建 |
+
+## 本轮独立审查修复
+
+| 问题 | 级别 | 根因 | 修复 |
+|------|------|------|------|
+| main.py 未初始化 PROMETHEUS_MULTIPROC_DIR | P0 | 多 Worker prometheus 指标不聚合 | 启动时初始化共享目录 |
+| log_service.add 在 text 格式无 request_id | P2 | 只有 LoggedCall 有 request_id，直接 add 调用漏了 | add 统一注入 |
+| Session 池 invalidate 未被调用 | P1 | token 失效后用过期 Session 继续请求 | remove_invalid_token 接入 invalidate |
+
+## 当前 git 状态
+
+- 提交：b6c7605 fix: 终局闭环总审计 - 生产级缺口修复
+- remote：无（纯本地）
