@@ -418,10 +418,15 @@ class ConfigStore:
                 errors.append(f"{field} 必须是整数，当前为 {value!r} ({type(value).__name__})")
             elif value < 0:
                 errors.append(f"{field} 不能为负数，当前为 {value}")
-        # sqlite_wal_mode 布尔校验
-        wal = data.get("sqlite_wal_mode")
-        if wal is not None and not isinstance(wal, bool):
-            errors.append(f"sqlite_wal_mode 必须是布尔值，当前为 {wal!r} ({type(wal).__name__})")
+        # trusted_proxies 类型校验（list[str] 或逗号分隔 str）
+        tp = data.get("trusted_proxies")
+        if tp is not None and not isinstance(tp, (list, str)):
+            errors.append(f"trusted_proxies 必须是数组或逗号分隔字符串，当前为 {tp!r} ({type(tp).__name__})")
+        # sqlite_wal_mode / ssrf_allow_private_ips 布尔校验
+        for field in ("sqlite_wal_mode", "ssrf_allow_private_ips"):
+            bval = data.get(field)
+            if bval is not None and not isinstance(bval, bool):
+                errors.append(f"{field} 必须是布尔值，当前为 {bval!r} ({type(bval).__name__})")
         # scheduler_priority 必须为 dict[str, int]
         sp = data.get("scheduler_priority")
         if sp is not None and not isinstance(sp, dict):
@@ -589,6 +594,27 @@ class ConfigStore:
             ))
         except (TypeError, ValueError):
             return 5000
+
+    @property
+    def trusted_proxies(self) -> list[str]:
+        """可信反向代理 IP 白名单（默认仅回环）；仅这些来源的 XFF 头被信任。"""
+        raw = os.getenv("CHATGPT2API_TRUSTED_PROXIES")
+        if raw is not None:
+            return [ip.strip() for ip in str(raw).split(",") if ip.strip()]
+        value = self.data.get("trusted_proxies")
+        if isinstance(value, list):
+            return [str(ip).strip() for ip in value if str(ip).strip()]
+        if isinstance(value, str):
+            return [ip.strip() for ip in value.split(",") if ip.strip()]
+        return ["127.0.0.1", "::1"]
+
+    @property
+    def ssrf_allow_private_ips(self) -> bool:
+        """SSRF 防护回退：true 时允许抓取内网图片（用户内网图床场景，默认 false 拒绝）。"""
+        value = os.getenv("CHATGPT2API_SSRF_ALLOW_PRIVATE_IPS")
+        if value is not None:
+            return _normalize_bool(value, False)
+        return _normalize_bool(self.data.get("ssrf_allow_private_ips"), False)
 
     @property
     def progress_ttl_seconds(self) -> int:
@@ -771,6 +797,8 @@ class ConfigStore:
         data["sqlite_wal_mode"] = self.sqlite_wal_mode
         data["sqlite_busy_timeout_ms"] = self.sqlite_busy_timeout_ms
         data["progress_ttl_seconds"] = self.progress_ttl_seconds
+        data["ssrf_allow_private_ips"] = self.ssrf_allow_private_ips
+        data["trusted_proxies"] = self.trusted_proxies
         data["image_remove_conversation_after_result"] = self.image_remove_conversation_after_result
         data["image_remove_conversation_always"] = self.image_remove_conversation_always
         data["auto_remove_invalid_accounts"] = self.auto_remove_invalid_accounts

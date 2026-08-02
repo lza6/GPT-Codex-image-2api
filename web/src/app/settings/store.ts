@@ -189,6 +189,8 @@ function normalizeConfig(config: SettingsConfig): SettingsConfig {
     sqlite_wal_mode: Boolean(config.sqlite_wal_mode !== false),
     sqlite_busy_timeout_ms: Number(config.sqlite_busy_timeout_ms ?? 5000),
     progress_ttl_seconds: Number(config.progress_ttl_seconds ?? 3600),
+    ssrf_allow_private_ips: Boolean(config.ssrf_allow_private_ips),
+    trusted_proxies: Array.isArray(config.trusted_proxies) ? config.trusted_proxies : ["127.0.0.1", "::1"],
     log_levels: Array.isArray(config.log_levels) ? config.log_levels : [],
     proxy: typeof config.proxy === "string" ? config.proxy : "",
     base_url: typeof config.base_url === "string" ? config.base_url : "",
@@ -319,6 +321,8 @@ type SettingsStore = {
   setSqliteWalMode: (value: boolean) => void;
   setSqliteBusyTimeoutMs: (value: string) => void;
   setProgressTtlSeconds: (value: string) => void;
+  setSsrfAllowPrivateIps: (value: boolean) => void;
+  setTrustedProxiesText: (value: string) => void;
   setLogLevel: (level: string, enabled: boolean) => void;
   setProxy: (value: string) => void;
   setBaseUrl: (value: string) => void;
@@ -618,6 +622,18 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       if (!state.config) return {};
       const n = Number(value);
       return { config: { ...state.config, progress_ttl_seconds: Number.isFinite(n) ? Math.max(1, n) : 3600 } };
+    });
+  },
+
+  setSsrfAllowPrivateIps: (value) => {
+    set((state) => state.config ? { config: { ...state.config, ssrf_allow_private_ips: value } } : {});
+  },
+
+  setTrustedProxiesText: (value) => {
+    set((state) => {
+      if (!state.config) return {};
+      const ips = value.split("\n").map((s) => s.trim()).filter(Boolean);
+      return { config: { ...state.config, trusted_proxies: ips.length ? ips : ["127.0.0.1", "::1"] } };
     });
   },
 

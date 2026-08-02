@@ -161,3 +161,18 @@ P8 HTML 报告（R4）+ workflow_status 收尾 + git 提交
 | review-round8 六维审查 | **Verdict: Request Changes**——Critical①类属性进度字典×实例TTL跨实例误删（本次放大既有包袱）②monotonic created_at 直出 API 污染契约；Required③prune docstring 不符④postgres no-op 伪测试⑤config/服务层 TTL 语义不一致未文档化 |
 | 主线程修复 | ①字典挪为实例属性+跨实例隔离防回归测试 ②`_public_progress` 出口过滤 created_at ③docstring 改"仅 init/get"④伪断言删除改文档化双保险+补 busy_timeout=0 锁冲突测试⑤docstring 注明配置层最小 1s；附加 NaN 守卫+WAL 不联动 synchronous docstring |
 | **复验结论** | **Approve（review-round8）**——216 passed / 0 failed + 五道防线 5/5 PASS + tsc 0 错误 + ruff 改动范围全绿 + 前端 build 成功 + web_dist 同步 |
+
+## v2.1.0 迭代追踪（阶段 3-8 + 全量收口）
+
+> 启动：2026-08-02 · 基线：09c31bd（216 passed / 防线 5/5）
+> 范围：计划书阶段 3-8 + 用户追加 D1/D12/D13/D14/D16/D17/D19 全量闭环
+
+| 阶段 | 内容 | 状态 | 证据 |
+|------|------|------|------|
+| 3 | 安全收口（D2 SSRF/D3 XFF/D10 文件鉴权/D11 备份白名单） | 🔲 进行中 | — |
+| 4 | 韧性收口（D4 熔断生命周期/D6 codex 池化/D7 搜索熔断） | 🔲 待做 | — |
+| 5 | 可观测性（D9 备份可见/D15 优雅停机） | 🔲 待做 | — |
+| 6 | 告警 webhook（D18） | 🔲 待做 | — |
+| 7 | 测试补强（D13 关键路径 ≥70%） | 🔲 待做 | — |
+| 追加 | D14 live-only mock 化 / D16 Redis 共享态 / D17 时间统一 / D12 导出 UTC / D1 密钥治理 / D19 docs 归档 | 🔲 待做 | — |
+| 8 | 收尾发版 v2.1.0 | 🔲 待做 | — |

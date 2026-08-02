@@ -156,3 +156,56 @@ class SecurityHardeningTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+# ---------------------------------------------------------------------------
+# 阶段 3 安全收口（D10/D11/D2/D3）
+# ---------------------------------------------------------------------------
+
+
+def _client():
+    from fastapi.testclient import TestClient
+
+    from api.app import create_app
+
+    return TestClient(create_app())
+
+
+def test_files_download_requires_auth():
+    """D10：未认证访问 /files/{path} 必须 401。"""
+    client = _client()
+    resp = client.get("/files/ppt/some-task/result.zip")
+    assert resp.status_code == 401
+
+
+def test_files_download_rejects_path_traversal():
+    """D10：路径遍历绝不泄露目标文件内容。
+
+    说明：未编码的 ../ 会被 ASGI 层规范化，落到前端 SPA catch-all（返回 index.html
+    而非目标文件）；编码 %2F 会到达路由并被 public_file_path 的 resolve+relative_to
+    拦截。两者都不允许泄露 config.json 内容——断言响应体不含文件内容，而非仅看状态码。
+    """
+    import os
+
+    key = os.environ.get("CHATGPT2API_AUTH_KEY", "")
+    client = _client()
+    for path in ("/files/..%2F..%2Fconfig.json", "/files/..%2F..%2F..%2Fconfig.json"):
+        resp = client.get(path, headers={"Authorization": f"Bearer {key}"})
+        assert resp.status_code in (400, 404), f"{path} 应拒绝: {resp.status_code}"
+    # 未编码 ../（ASGI 规范化后落 SPA）：即使 200 也绝不能泄露 config.json 内容
+    resp2 = client.get("/files/../../../config.json", headers={"Authorization": f"Bearer {key}"})
+    assert "auth-key" not in resp2.text, "路径遍历泄露了 config.json 内容"
+    assert resp2.headers.get("content-type", "").startswith("text/html"), "应落到 SPA 而非文件下载"
+
+
+def test_backup_endpoints_reject_non_whitelist_key():
+    """D11：备份端点 key 必须经前缀白名单校验，任意 key 返回 400。"""
+    import os
+
+    key = os.environ.get("CHATGPT2API_AUTH_KEY", "")
+    client = _client()
+    headers = {"Authorization": f"Bearer {key}"}
+    for path in ("/api/backups/download", "/api/backups/detail"):
+        resp = client.get(path, params={"key": "etc/passwd"}, headers=headers)
+        assert resp.status_code == 400, f"{path} 未拒绝非白名单 key: {resp.status_code}"
+        resp2 = client.get(path, params={"key": "../secret.txt"}, headers=headers)
+        assert resp2.status_code == 400, f"{path} 未拒绝路径遍历 key: {resp2.status_code}"

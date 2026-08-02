@@ -181,7 +181,9 @@ def create_router() -> APIRouter:
         return await run_in_threadpool(editable_file_task_service.list_tasks, identity, task_ids)
 
     @router.get("/files/{file_path:path}")
-    async def download_editable_file(file_path: str):
+    async def download_editable_file(file_path: str, authorization: str | None = Header(default=None)):
+        # D10：下载需鉴权（原为公开端点，任何匿名者可拉取生成的 PPT/PSD 文件）
+        require_identity(authorization)
         try:
             path = await run_in_threadpool(editable_file_task_service.public_file_path, file_path)
         except Exception as exc:

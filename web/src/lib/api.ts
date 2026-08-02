@@ -198,6 +198,8 @@ export type SettingsConfig = {
   sqlite_wal_mode?: boolean;
   sqlite_busy_timeout_ms?: number;
   progress_ttl_seconds?: number;
+  ssrf_allow_private_ips?: boolean;
+  trusted_proxies?: string[];
   image_storage?: ImageStorageSettings;
   proxy_runtime?: ProxyRuntimeSettings;
   third_party_apps?: ThirdPartyAppsSettings;

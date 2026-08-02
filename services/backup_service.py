@@ -413,10 +413,19 @@ class BackupService:
             })
         return parsed
 
-    def delete_backup(self, key: str) -> None:
+    @staticmethod
+    def _validate_backup_key(key: str) -> str:
+        """D11：备份对象 key 白名单校验——只允许 backups/ 前缀下 backup-*.tar.gz[.enc]，
+        拒绝任意 key（防经签名 URL 拉取/删除 bucket 内非备份对象）。"""
         candidate = _clean(key)
         if not candidate:
             raise BackupError("备份对象 key 不能为空")
+        if not _is_backup_object(candidate):
+            raise BackupError("非法的备份对象 key")
+        return candidate
+
+    def delete_backup(self, key: str) -> None:
+        candidate = self._validate_backup_key(key)
         client = CloudflareR2Client(config.get_backup_settings())
         try:
             client.delete_object(candidate)
@@ -424,9 +433,7 @@ class BackupService:
             client.close()
 
     def download_backup(self, key: str) -> dict[str, object]:
-        candidate = _clean(key)
-        if not candidate:
-            raise BackupError("备份对象 key 不能为空")
+        candidate = self._validate_backup_key(key)
         client = CloudflareR2Client(config.get_backup_settings())
         try:
             payload = client.download_bytes(candidate)
@@ -449,9 +456,7 @@ class BackupService:
         }
 
     def get_backup_detail(self, key: str) -> dict[str, object]:
-        candidate = _clean(key)
-        if not candidate:
-            raise BackupError("备份对象 key 不能为空")
+        candidate = self._validate_backup_key(key)
         client = CloudflareR2Client(config.get_backup_settings())
         try:
             payload = client.download_bytes(candidate)

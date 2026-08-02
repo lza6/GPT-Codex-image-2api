@@ -41,6 +41,8 @@ export function ConfigCard() {
   const setSqliteWalMode = useSettingsStore((state) => state.setSqliteWalMode);
   const setSqliteBusyTimeoutMs = useSettingsStore((state) => state.setSqliteBusyTimeoutMs);
   const setProgressTtlSeconds = useSettingsStore((state) => state.setProgressTtlSeconds);
+  const setSsrfAllowPrivateIps = useSettingsStore((state) => state.setSsrfAllowPrivateIps);
+  const setTrustedProxiesText = useSettingsStore((state) => state.setTrustedProxiesText);
   const setLogLevel = useSettingsStore((state) => state.setLogLevel);
   const setProxy = useSettingsStore((state) => state.setProxy);
   const setBaseUrl = useSettingsStore((state) => state.setBaseUrl);
@@ -296,6 +298,26 @@ export function ConfigCard() {
               className="h-10 rounded-xl border-stone-200 bg-white"
             />
             <p className="text-xs text-stone-500">单位秒，批量刷新/重登进度在内存中的保留时长，超时自动清理防内存膨胀。重启后生效。</p>
+          </div>
+          <div className="space-y-2">
+            <div className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-4 py-3">
+              <Checkbox
+                checked={Boolean(config?.ssrf_allow_private_ips)}
+                onCheckedChange={(checked) => setSsrfAllowPrivateIps(Boolean(checked))}
+              />
+              <span className="text-sm text-stone-700">允许抓取内网图片</span>
+            </div>
+            <p className="text-xs text-stone-500">默认拒绝抓取内网/回环地址的图片（SSRF 防护）。仅当图床在内网时才开启，开启有安全风险。</p>
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm text-stone-700">可信反向代理 IP</label>
+            <Textarea
+              value={(config?.trusted_proxies || []).join("\n")}
+              onChange={(event) => setTrustedProxiesText(event.target.value)}
+              placeholder={"127.0.0.1\n::1"}
+              className="min-h-20 rounded-xl border-stone-200 bg-white font-mono text-xs shadow-none"
+            />
+            <p className="text-xs text-stone-500">一行一个 IP。仅这些来源的 X-Forwarded-For 头被信任（防伪造绕过限流）。默认仅回环，反向代理部署时填代理 IP。</p>
           </div>
           <div className="space-y-2">
             <div className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-4 py-3">

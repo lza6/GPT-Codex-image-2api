@@ -4,6 +4,8 @@
   "sqlite_wal_mode": true,
   "sqlite_busy_timeout_ms": 5000,
   "progress_ttl_seconds": 3600,
+  "ssrf_allow_private_ips": false,
+  "trusted_proxies": ["127.0.0.1", "::1"],
   "image_retention_days": 15,
   "image_poll_timeout_secs": 120,
   "auto_remove_rate_limited_accounts": false,

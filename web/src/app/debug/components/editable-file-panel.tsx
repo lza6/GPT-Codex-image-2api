@@ -9,7 +9,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { httpRequest } from "@/lib/request";
+import { httpRequest, request } from "@/lib/request";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
   listDeletedEditableFileIds,
@@ -73,7 +74,30 @@ const fileNameOf = (url: string) => {
 };
 
 function ResultFile({ href, icon, label }: { href?: string; icon: ReactNode; label: string }) {
+  const [downloading, setDownloading] = useState(false);
   if (!href) return null;
+
+  // /files/{path} 需鉴权（D10）：裸 <a href> 不带 Authorization 会 401，
+  // 必须经统一 request 实例（自动注入 Bearer）拉 blob 再触发本地下载。
+  const handleDownload = async () => {
+    setDownloading(true);
+    try {
+      const resp = await request.get<Blob>(href, { responseType: "blob" });
+      const blobUrl = URL.createObjectURL(resp.data);
+      const anchor = document.createElement("a");
+      anchor.href = blobUrl;
+      anchor.download = fileNameOf(href) || "download";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(blobUrl);
+    } catch {
+      toast.error("下载失败，请确认已登录后重试");
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   return (
     <div className="flex items-center gap-3 rounded-md border border-stone-200 bg-stone-50/80 px-3 py-3 dark:border-white/10 dark:bg-white/[0.04]">
       <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-white text-stone-700 shadow-sm dark:bg-white/10 dark:text-stone-200">
@@ -83,8 +107,8 @@ function ResultFile({ href, icon, label }: { href?: string; icon: ReactNode; lab
         <div className="text-sm font-semibold text-stone-950 dark:text-stone-50">{label}</div>
         <div className="truncate text-xs text-stone-500 dark:text-stone-400">{fileNameOf(href)}</div>
       </div>
-      <Button size="sm" asChild>
-        <a href={href} target="_blank" rel="noreferrer">下载</a>
+      <Button size="sm" disabled={downloading} onClick={() => void handleDownload()}>
+        {downloading ? "下载中…" : "下载"}
       </Button>
     </div>
   );

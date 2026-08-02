@@ -46,11 +46,25 @@ class SlidingWindowLimiter:
             self._records.pop(key, None)
 
 
+def resolve_client_ip(client_host: str, headers: dict[str, str], trusted_proxies: list[str]) -> str:
+    """按 trusted_proxies 白名单解析真实客户端 IP（D3 XFF 伪造防护）。
+
+    只有连接来源 IP 在白名单（可信反向代理）时才信任 XFF 首跳；
+    否则忽略 XFF，直接用连接 IP——防攻击者伪造 XFF 绕过按 IP 限流。
+    """
+    xff = str(headers.get("x-forwarded-for") or "").strip()
+    if xff and client_host in set(trusted_proxies):
+        first_hop = xff.split(",")[0].strip()
+        if first_hop:
+            return first_hop
+    return client_host or "unknown"
+
+
 def _get_client_ip(request: Request) -> str:
-    forwarded = request.headers.get("x-forwarded-for", "")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+    from services.config import config
+
+    client_host = request.client.host if request.client else "unknown"
+    return resolve_client_ip(client_host, request.headers, config.trusted_proxies)
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
