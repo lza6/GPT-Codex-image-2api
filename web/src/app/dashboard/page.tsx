@@ -254,7 +254,28 @@ function DashboardContent() {
         />
         <StatCard icon={HardDrive} label="磁盘剩余" value={`${ops?.disk_free_mb ?? 0} MB`} sub={`总 ${ops?.disk_total_mb ?? 0} MB`} />
         <StatCard icon={Server} label="运行时长" value={ops ? formatUptime(ops.uptime_seconds) : "-"} sub={`${ops?.platform ?? ""}`} />
+        <StatCard
+          icon={Database}
+          label="备份状态"
+          value={
+            !ops?.backup?.configured
+              ? "未配置"
+              : ops.backup.running
+                ? "执行中"
+                : ops.backup.last_status === "success"
+                  ? "成功"
+                  : ops.backup.last_status === "error"
+                    ? "失败"
+                    : "空闲"
+          }
+          sub={ops?.backup?.last_finished_at ? `最近 ${ops.backup.last_finished_at}` : undefined}
+        />
       </div>
+      {ops?.backup?.last_status === "error" && ops.backup.last_error ? (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-xs text-rose-700">
+          备份失败：{ops.backup.last_error}
+        </div>
+      ) : null}
 
       {/* 请求延迟与连接池并发 */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">

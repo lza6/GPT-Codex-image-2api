@@ -33,9 +33,13 @@ def create_app() -> FastAPI:
             yield
         finally:
             stop_event.set()
-            thread.join(timeout=1)
-            cleanup_thread.join(timeout=1)
+            thread.join(timeout=5)
+            cleanup_thread.join(timeout=5)
             backup_service.stop()
+            # D15：优雅停机——归还并关闭所有池化 TLS 连接，防资源泄漏
+            from services.session_pool import session_pool
+
+            session_pool.close_all()
 
     app = FastAPI(title="chatgpt2api", version=app_version, lifespan=lifespan)
     install_exception_handlers(app)

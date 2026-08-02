@@ -1005,6 +1005,13 @@ export type OpsOverview = {
   scheduler_mode: string;
   refresh_account_interval_minute: number;
   image_account_concurrency: number;
+  backup?: {
+    configured: boolean;
+    running: boolean;
+    last_status: string;
+    last_finished_at?: string | null;
+    last_error?: string | null;
+  };
 };
 
 export type UsageStats = {

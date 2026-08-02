@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import io
 import json
+import logging
 import os
 import random
 import subprocess
@@ -18,6 +19,9 @@ from curl_cffi import requests
 from services.config import CONFIG_FILE, DATA_DIR, config, load_backup_state, save_backup_state
 from services.image_storage_service import IMAGE_INDEX_FILE
 from services.image_tags_service import TAGS_FILE
+from services.prometheus_metrics import chatgpt2api_backup_failures_total
+
+logger = logging.getLogger(__name__)
 
 
 def _utc_now() -> datetime:
@@ -493,6 +497,9 @@ class BackupService:
             })
             return result
         except Exception as exc:
+            # D9：备份失败必须可见——完整堆栈进日志 + Prometheus 计数器 +1
+            logger.error("备份失败（trigger=%s）: %s", trigger, exc, exc_info=True)
+            chatgpt2api_backup_failures_total.inc()
             save_backup_state({
                 "last_started_at": started_at,
                 "last_finished_at": _iso_now(),

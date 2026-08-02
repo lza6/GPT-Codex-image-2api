@@ -81,6 +81,11 @@ chatgpt2api_image_tasks_inflight = Gauge(
     "Current image tasks inflight",
 )
 
+chatgpt2api_backup_failures_total = Counter(
+    "chatgpt2api_backup_failures_total",
+    "Total backup failures",
+)
+
 
 def record_http_request(path: str, method: str, status: int, duration_seconds: float) -> None:
     """记录 HTTP 请求指标。"""

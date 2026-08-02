@@ -157,7 +157,26 @@ def _collect_ops_overview() -> dict[str, object]:
         "scheduler_mode": config.scheduler_mode,
         "refresh_account_interval_minute": config.refresh_account_interval_minute,
         "image_account_concurrency": config.image_account_concurrency,
+        # D9：备份状态接看板（最近备份时间/状态/错误），SSE 实时可见
+        "backup": _collect_backup_overview(),
     }
+
+
+def _collect_backup_overview() -> dict[str, object]:
+    """备份状态概览：最近备份时间/状态/错误/是否配置。"""
+    try:
+        from services.backup_service import backup_service
+
+        status = backup_service.get_status()
+        return {
+            "configured": backup_service.is_configured(),
+            "running": bool(status.get("running")),
+            "last_status": status.get("last_status") or "idle",
+            "last_finished_at": status.get("last_finished_at"),
+            "last_error": status.get("last_error"),
+        }
+    except Exception:
+        return {"configured": False, "running": False, "last_status": "idle", "last_finished_at": None, "last_error": None}
 
 
 def _collect_circuit_breaker_status() -> dict[str, object]:
