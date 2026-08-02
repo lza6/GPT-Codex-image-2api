@@ -54,6 +54,8 @@ class AccountService:
         self._refresh_progress_lock = Lock()
         self._relogin_progress: dict[str, dict] = {}
         self._relogin_progress_lock = Lock()
+        # 熔断器注册表引用（默认全局单例；测试可注入独立注册表验证生命周期清理 D4）
+        self._breaker_registry = circuit_breaker_registry
         self._lock = Lock()
         self._token_refresh_lock = Lock()
         self._image_slot_condition = Condition(self._lock)
@@ -62,6 +64,10 @@ class AccountService:
         self._image_inflight: dict[str, int] = {}
         self._token_aliases: dict[str, str] = {}
         self._cumulative_total = self._load_cumulative_total()
+
+    def set_circuit_breaker_registry(self, registry) -> None:
+        """注入熔断器注册表（生产为全局单例，测试注入独立实例验证清理）。"""
+        self._breaker_registry = registry
 
     def _get_cumulative_file(self) -> Path:
         from services.config import DATA_DIR
@@ -514,6 +520,8 @@ class AccountService:
             if rotated:
                 self._accounts.pop(old_token, None)
                 self._token_aliases[old_token] = new_token
+                # D4：token 轮换后清理旧 token 的熔断器（防注册表孤儿化）
+                self._breaker_registry.remove(old_token)
                 old_inflight = int(self._image_inflight.pop(old_token, 0))
                 if old_inflight:
                     self._image_inflight[new_token] = int(self._image_inflight.get(new_token, 0)) + old_inflight
@@ -1347,6 +1355,8 @@ class AccountService:
             removed = sum(self._accounts.pop(token, None) is not None for token in target_set)
             for token in target_set:
                 self._image_inflight.pop(token, None)
+                # D4：账号删除时清理熔断器（防注册表孤儿化）
+                self._breaker_registry.remove(token)
             self._token_aliases = {
                 old: new
                 for old, new in self._token_aliases.items()
@@ -1375,6 +1385,8 @@ class AccountService:
                 return None
             if account.get("status") == "限流" and config.auto_remove_rate_limited_accounts:
                 self._accounts.pop(access_token, None)
+                # D4：自动移除账号时清理熔断器（防注册表孤儿化）
+                self._breaker_registry.remove(access_token)
                 self._save_accounts()
                 log_service.add(LOG_TYPE_ACCOUNT, "自动移除限流账号", {"token": anonymize_token(access_token)})
                 return None
@@ -1473,6 +1485,8 @@ class AccountService:
                 return None
             if account.get("status") == "限流" and config.auto_remove_rate_limited_accounts:
                 self._accounts.pop(access_token, None)
+                # D4：自动移除账号时清理熔断器（防注册表孤儿化）
+                self._breaker_registry.remove(access_token)
                 self._save_accounts()
                 log_service.add(LOG_TYPE_ACCOUNT, "自动移除限流账号", {"token": anonymize_token(access_token)})
                 return None

@@ -6,8 +6,6 @@ import random
 import re
 import threading
 import time
-import urllib.error
-import urllib.request
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -845,12 +843,6 @@ class OpenAIBackendAPI:
             "tool_choice": {"type": "image_generation"},
             "stream": True,
         }
-        request = urllib.request.Request(
-            self.base_url + path,
-            json.dumps(payload).encode(),
-            self._codex_responses_headers(),
-            method="POST",
-        )
         account = account_service.get_account(self.access_token) or {}
         token_payload = account_service._decode_jwt_payload(self.access_token)
         auth_claim = token_payload.get("https://api.openai.com/auth")
@@ -859,7 +851,7 @@ class OpenAIBackendAPI:
         logger.info({
             "event": "codex_responses_request_debug",
             "url": self.base_url + path,
-            "transport": "urllib.request",
+            "transport": "curl_cffi.session",
             "timeout_secs": 1200,
             "account_email": str(account.get("email") or "").strip(),
             "source_type": str(account.get("source_type") or "").strip(),
@@ -892,20 +884,30 @@ class OpenAIBackendAPI:
                 if key.lower() != "authorization"
             },
         })
+        # D6：codex 从裸 urllib 改为池化 curl_cffi Session——
+        # 复用 TCP/TLS 连接、走统一代理/指纹，不再绕过连接池/指标。
         try:
-            with urllib.request.urlopen(request, timeout=1200) as raw:
-                yield from self._iter_codex_response_events(raw)
-        except urllib.error.HTTPError as error:
-            body_text = error.read().decode("utf-8", "replace")
+            response = self.session.post(
+                self.base_url + path,
+                headers=self._codex_responses_headers(),
+                data=json.dumps(payload).encode(),
+                timeout=1200,
+            )
+        except Exception as exc:
+            raise RuntimeError(f"{path} failed: {exc}") from exc
+        status_code = int(getattr(response, "status_code", 0) or 0)
+        if not 200 <= status_code < 300:
+            body_text = response.text
             body: Any = body_text
             try:
                 body = json.loads(body_text)
             except Exception:
                 pass
-            self._log_codex_response_failure(path, error.code, error.headers, payload, body)
-            retry_after_header = error.headers.get("Retry-After") if error.headers else None
+            self._log_codex_response_failure(path, status_code, response.headers, payload, body)
+            retry_after_header = response.headers.get("Retry-After") if response.headers else None
             retry_after = int(retry_after_header) if str(retry_after_header or "").isdigit() else None
-            raise UpstreamHTTPError(path, error.code, body, retry_after=retry_after) from error
+            raise UpstreamHTTPError(path, status_code, body, retry_after=retry_after)
+        yield from self._iter_codex_response_events(response)
 
     def _prepare_image_conversation(self, prompt: str, requirements: ChatRequirements, model: str) -> str:
         """为图片生成准备 conduit token。"""

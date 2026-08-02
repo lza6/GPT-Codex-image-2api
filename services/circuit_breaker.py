@@ -94,15 +94,28 @@ class CircuitBreaker:
 
 
 class CircuitBreakerRegistry:
-    """按账号管理熔断器实例。"""
+    """按账号管理熔断器实例。
 
-    def __init__(self, **kwargs: Any) -> None:
+    生命周期（D4）：账号删除/轮换时经 remove() 显式清理；
+    孤儿熔断器（对应账号已不存在的）经 prune_orphans() 惰性 TTL 淘汰，
+    防注册表随运行时间无界增长。
+    """
+
+    def __init__(self, orphan_ttl_seconds: float = 86400.0, **kwargs: Any) -> None:
         self._kwargs = kwargs
         self._breakers: dict[str, CircuitBreaker] = {}
+        self._last_seen: dict[str, float] = {}
+        try:
+            ttl = float(orphan_ttl_seconds)
+        except (TypeError, ValueError):
+            ttl = 86400.0
+        # 允许亚秒级取值（测试与极端运维场景）；非正数回退默认 24h
+        self._orphan_ttl = ttl if ttl > 0 else 86400.0
         self._lock = Lock()
 
     def get(self, key: str) -> CircuitBreaker:
         with self._lock:
+            self._last_seen[key] = time.monotonic()
             breaker = self._breakers.get(key)
             if breaker is None:
                 breaker = CircuitBreaker(**self._kwargs)
@@ -112,6 +125,17 @@ class CircuitBreakerRegistry:
     def remove(self, key: str) -> None:
         with self._lock:
             self._breakers.pop(key, None)
+            self._last_seen.pop(key, None)
+
+    def prune_orphans(self) -> int:
+        """惰性淘汰超过 TTL 未被访问的熔断器（monotonic 时钟）。返回淘汰数量。"""
+        cutoff = time.monotonic() - self._orphan_ttl
+        with self._lock:
+            expired = [key for key, seen in self._last_seen.items() if seen < cutoff]
+            for key in expired:
+                self._breakers.pop(key, None)
+                self._last_seen.pop(key, None)
+            return len(expired)
 
     def all_status(self) -> dict[str, dict[str, Any]]:
         with self._lock:

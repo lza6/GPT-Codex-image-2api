@@ -1,0 +1,18 @@
+[
+  {
+    "id": "bug-001",
+    "timestamp": "2026-08-03T00:50:16.192179",
+    "error_message": "AttributeError: AccountService object has no attribute _accounts（24 failed 大面积回归）",
+    "file": "services/account_service.py",
+    "root_cause": "Edit 插入 set_circuit_breaker_registry 方法时，把 __init__ 后续的 _load_accounts 等 6 行初始化语句缩进吞进了方法体内，导致实例永远缺少 _accounts/_token_refresh_lock 等属性",
+    "fix": "把 6 行初始化语句移回 __init__ 方法体，set_circuit_breaker_registry 只保留单行赋值",
+    "tags": [
+      "edit-indentation",
+      "init-order",
+      "regression"
+    ],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-08-03T00:50:16.192198"
+  }
+]
