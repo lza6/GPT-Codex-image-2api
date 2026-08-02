@@ -120,11 +120,11 @@
 | # | 短板 | 本轮状态 | 验收证据 |
 |---|------|---------|---------|
 | S1 | 多 Worker 状态不共享（Redis 未实现） | 🟡 登记 v2.1 | 工作流评估：三处现状功能正确仅多Worker公平性受损；pyproject 已预留 redis marker |
-| S2 | 熔断器/连接池是孤儿组件（未接入 conversation.py） | ✅ **熔断已接线** / 🟡 池化登记 | conversation.py text_backend/stream_text_deltas/图片路径接入熔断；test_circuit_breaker.py 6 测试 |
+| S2 | 熔断器/连接池是孤儿组件（未接入 conversation.py） | ✅ **全部接线闭环** | 熔断已接入 text_backend/stream_text_deltas/图片路径；池化第六轮接入 OpenAIBackendAPI+OAuth（key 含 token 末8位防串号） |
 | S3 | 安全默认值偏弱（CORS=*/无请求体限制/无安全头/metrics裸奔/弱口令） | ✅ 闭环 | 5 项 SecurityHardeningTests 全过；413/安全头/metrics鉴权实测 |
 | S4 | 巨型文件维护性差（2763/1850/1644 行） | 🟡 登记 v2.1 | 指南建议 v2.1 温和拆分；本轮优先核心 P0/P1 |
 | S5 | 无 CI/CD 质量门 | ✅ 闭环 | .github/workflows/ci.yml 四道门 + 前端 job；YAML 验证有效 |
-| S6 | 前端体验未闭环 | 🟡 核验中 | SSE 已补全看板数据(ops/usage/metrics)；前端 UX 核验工作流进行中 |
+| S6 | 前端体验未闭环 | ✅ 闭环 | 拦截器401/429/5xx+request-id、SSE可见性暂停、账号页熔断列+驱逐失效token；tsc 0 错误 |
 | S7 | 测试标记缺失 | ✅ 闭环 | 11 文件 pytest.mark.live；默认排除 30 live，-m live 选中 |
 | S8 | 文档/产物未清理 | ✅ 闭环 | 删 4 旧报告保留 v4；删 js-yaml 临时文件；README 内部定制化清理 |
 
@@ -186,3 +186,43 @@
 - 端点实测：8 关键端点 200；/metrics 无鉴权 401；安全头就位；413 正确
 - lint：78→27（余项全既有债）；前端 tsc 0 错误
 - 红队复验：Approve
+
+
+---
+
+# 终局闭环总审计（2026-08-02 第六轮 · 阶段3韧性接线+阶段5前端+阶段7发版）
+
+> 本轮以权威需求源 `计划书/下一步改进指南.md` 阶段 3/5/7 为准，核验后发现**熔断接线此前已完成**（任务描述"孤儿"判断过时），真实缺口为池化接线、重试预算、上游指标埋点、熔断状态可视化、驱逐失效 token、SSE 可见性暂停。
+
+## 本轮新增节点
+
+| 节点 | 任务 | 状态 | 验收证据 |
+|------|------|------|---------|
+| N22 | TLS 连接池接入主流量 | ✅ 闭环 | OpenAIBackendAPI+OAuth 走池化；close 转 release 不拆连接；test_session_pool.py 8 测试 |
+| N23 | 统一重试预算 | ✅ 闭环 | services/retry_budget.py；幂等 GET 退避≤2/流式首字节前换号≤1/流式开始后绝不重试；test_retry_budget.py 8 测试 |
+| N24 | 上游指标埋点 | ✅ 闭环 | record_upstream_request 接入文本/图片路径，/metrics 实测导出 counter+duration |
+| N25 | 熔断状态可视化 | ✅ 闭环 | GET /api/dashboard/circuit_breakers（token末8位）+ 账号页熔断列（15s轮询） |
+| N26 | 驱逐失效 token | ✅ 闭环 | POST /api/accounts/evict_stale + 账号页按钮（loading+toast） |
+| N27 | SSE 可见性暂停 | ✅ 闭环 | visibilitychange 隐藏暂停连接/轮询、可见拉取重建 |
+| N28 | v2.0.0 发版 | ✅ 闭环 | VERSION/CHANGELOG/README 升级章节/workflow_status；本地 git tag |
+
+## 本轮修复的隐藏 bug
+
+| 问题 | 级别 | 根因 | 修复 |
+|------|------|------|------|
+| 池化形同虚设 | P0 | OAuth 刷新从池取 Session 后 finally 直接 close()，每次都拆掉池化连接 | 池化 Session 加 _chatgpt2api_pooled 标记，close/release 不拆连接 |
+| Session 池化指纹串扰（第五轮登记） | P0 | 池 key 仅 (代理,impersonate,verify)，同代理多账号共享 Session 覆盖 Authorization 串号 | 池 key 加 token 末 8 位账号标识 |
+| record_upstream_request 零调用 | P1 | 上游指标定义了但所有路径无埋点，/metrics 无该指标 | conversation 文本/图片路径接 record_upstream_request |
+
+## 最终验证
+
+- 测试：**182 passed / 0 failed**（161→182，新增 21 测试；30 live 排除）
+- 启动：create_app() 无报错，circuit_breakers/evict_stale 端点注册成功
+- 前端：tsc 0 错误；webpack 构建成功；web_dist 已同步
+- 压测：用户已全链路真实验证（阶段 7.5），本轮不重复
+
+## 当前 git 状态
+
+- 提交链：7dc0054(阶段3韧性接线) → 8de017b(阶段5前端闭环) → 本轮文档+发版
+- remote：无（纯本地，不发 GitHub）
+- 发版：本地 git tag v2.0.0

@@ -1,14 +1,27 @@
-## Unreleased - 2026-08-02 (生产级增强)
+## 2.0.0 - 2026-08-02 (生产级增强 + 韧性闭环)
 
+**Breaking changes（升级必读，见 README「升级到 2.0」章节）：**
+- CORS 默认收紧：`config.cors_origins` 原默认 `["*"]`，生产环境需显式配置域名白名单
+- `/metrics` Prometheus 端点需鉴权（Authorization header 或 `?token=`），防公网暴露账号规模
+- 活测试标记：需真实上游/活服务的测试打 `pytest.mark.live`，本地跑全量需 `pytest -m live`（默认排除）
+
+本轮新增：
 + [新增] 生产级可观测性：/metrics Prometheus 指标端点、X-Request-ID 请求追踪、X-Response-Time-Ms 延迟头、/api/dashboard/latency 延迟统计
-+ [新增] 上游熔断器：连续失败 5 次自动熔断，30s 冷却半开恢复，防止上游抖动雪崩（接入账号调度）
-+ [新增] TLS 连接池复用：Session 池跨请求复用，按代理配置缓存，避免每次 TLS 握手，降低延迟尾巴
-+ [新增] SSE 实时推送：/api/dashboard/stream 看板数据 3s 推送，前端 EventSource 实时更新
++ [新增] 上游熔断器：连续失败 5 次自动熔断，30s 冷却半开恢复，防止上游抖动雪崩（接入账号调度 + 上游调用链路）
++ [新增] TLS 连接池复用接入主流量：OpenAIBackendAPI 与账号 OAuth 刷新走池化 Session（按账号+代理+impersonate 缓存，key 含 token 末8位防同代理串号），close() 转 release 不拆底层连接
++ [新增] 统一重试预算（services/retry_budget.py）：幂等 GET 指数退避≤2 次、流式首字节前换账号≤1 次、流式开始后绝不重试（防重复扣费/出图）
++ [新增] 上游指标埋点：chatgpt2api_upstream_requests_total{model,result} 在文本/图片路径接入，/metrics 真实导出
++ [新增] 熔断状态 API + 账号页熔断列：GET /api/dashboard/circuit_breakers（token末8位上报），前端 15s 轮询标注熔断中/半开账号
++ [新增] 驱逐失效 token：POST /api/accounts/evict_stale 批量处理异常账号，账号页「驱逐失效token」按钮（loading+toast）
++ [新增] SSE 实时推送：/api/dashboard/stream 看板数据 3s 推送，前端 EventSource 实时更新；页面隐藏时暂停连接与轮询（visibilitychange），可见时立即拉取重建
++ [新增] 统一错误反馈拦截器：401 跳登录、429 提示限流、5xx 错误 toast 带 request-id 后 8 位（web/src/lib/request.ts）
 + [新增] IP 池管理 UI：代理增删改查、权重调度（轮询/加权/最少连接）、健康状态、出口 IP 探测
 + [新增] 连接池并发看板：实时显示使用中账号（在途）、配额用完账号、延迟按路径分布
 + [新增] 日志自动清理：日志超 5000 条自动裁剪到 3000 条，惰性触发防高频 I/O
 + [新增] config.json schema 校验：启动时校验配置类型，错误给出清晰行号报错
 + [新增] API 契约文档：OpenAPI 3.0 规范、多语言 SDK 示例（Python/Node/Go/curl）、图片任务轮询代码、错误码表
++ [新增] 请求体大小限制中间件（/v1/images/* 50MB、其余 10MB，413/411）+ 安全响应头中间件（nosniff/DENY/Referrer-Policy）
++ [新增] CI 质量门：GitHub Actions（backend ruff/mypy/pytest/pip-audit + frontend tsc/build）
 + [修复] 去除 GitHub 链接，品牌内部定制化
 + [变更] 端口从 8000 改为冷门端口 23456
 

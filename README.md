@@ -31,6 +31,24 @@
 | Windows 一键启动 | ✅ | 启动/停止 bat 脚本，自动检测环境 |
 | 存储后端 | ✅ | JSON / SQLite / PostgreSQL / Git |
 
+## 升级到 2.0
+
+v2.0.0 引入生产级安全默认值收紧与韧性闭环，**含 breaking changes**，升级前必读：
+
+| 变更 | 影响 | 迁移动作 |
+|------|------|---------|
+| **CORS 默认收紧** | `config.cors_origins` 原默认 `["*"]`，生产环境（`CHATGPT2API_ENV=production`）下 `*` 启动告警 | 显式配置域名白名单，如 `"cors_origins": ["https://your-domain.com"]` |
+| **`/metrics` 需鉴权** | Prometheus 端点不再公网匿名可访问 | 抓取时带 `Authorization: Bearer <auth-key>` 或 `?token=<auth-key>` |
+| **活测试标记** | 需真实上游/活服务的测试默认排除 | 本地跑全量测试用 `pytest -m live` |
+| **弱口令检测** | production 下 auth-key 为常见弱口令或 <12 位拒绝启动 | 设置强 auth-key |
+
+**v2.0.0 新能力：**
+- **TLS 连接池接入主流量**：上游调用与账号 OAuth 刷新复用池化 Session，消除每请求 TLS 握手
+- **统一重试预算**：幂等 GET 指数退避、流式首字节前换号、流式开始后绝不重试（防重复扣费/出图）
+- **上游熔断 + 熔断状态可视化**：账号页熔断列实时标注熔断中/半开账号，支持一键驱逐失效 token
+- **统一错误反馈**：401 跳登录、429 限流提示、5xx 错误带 request-id，SSE 页面隐藏自动暂停
+- **CI 质量门**：GitHub Actions 后端（ruff/mypy/pytest/pip-audit）+ 前端（tsc/build）
+
 ## 架构图
 
 ```
