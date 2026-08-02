@@ -176,3 +176,22 @@ P8 HTML 报告（R4）+ workflow_status 收尾 + git 提交
 | 7 | 测试补强（D13 关键路径 ≥70%） | 🔲 待做 | — |
 | 追加 | D14 live-only mock 化 / D16 Redis 共享态 / D17 时间统一 / D12 导出 UTC / D1 密钥治理 / D19 docs 归档 | 🔲 待做 | — |
 | 8 | 收尾发版 v2.1.0 | 🔲 待做 | — |
+
+## v2.1.0 全量闭环总结（2026-08-03）
+
+| 阶段 | 内容 | 状态 | 证据 |
+|------|------|------|------|
+| 1 | D8 SQLite WAL | ✅ | be5d2b3 前提交；PRAGMA 每连接重放；stress 并发写 PASS |
+| 2 | D5 进度字典 TTL | ✅ | monotonic 惰性淘汰；11 测试 |
+| 3 | D2/D3/D10/D11 安全收口 | ✅ | be5d2b3；38 安全测试 |
+| 4 | D4/D6/D7 韧性收口 | ✅ | 727a552；熔断生命周期+搜索熔断+codex 池化 |
+| 5 | D9/D15 可观测性 | ✅ | 047c2f3；备份可见+优雅停机 |
+| 6 | D18 告警 webhook | ✅ | 5f8eb17；10 测试+4 接入点 |
+| 7 | D13 测试补强 | ✅ | 1401acb；调度/池/熔断边界+变异 6/6 caught |
+| 追加 | D19/D12/D17/D1 | ✅ | 8e3b73d；归档+UTC+密钥治理 |
+| 追加 | D16 共享状态 | ✅ | caca241；Local/Redis+限流共享+docker profile |
+| 追加 | D14 离线等价物 | ✅ | c5a24d1；4 链路 mock 化 |
+| 8 | 收尾发版 v2.1.0 | 🟡 进行中 | VERSION 2.1.0；README/CHANGELOG Upgrade 章节 |
+
+**最终指标**：295 passed / 0 failed；五道防线 5/5 PASS；关键路径覆盖率 circuit_breaker 95%/session_pool 86%/retry_budget 100%
+**19 项债务**：D1-D19 全部闭环（无登记遗留）

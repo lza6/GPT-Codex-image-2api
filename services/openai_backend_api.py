@@ -761,8 +761,12 @@ class OpenAIBackendAPI:
     @staticmethod
     def _iter_codex_response_events(raw: Any) -> Iterator[dict[str, Any]]:
         content_type = str(raw.headers.get("content-type") or "").lower()
-        text = raw.read().decode("utf-8", "replace")
-        status_code = getattr(raw, "status", None)
+        # curl_cffi Response 无 read()，用 .text（str）；兼容旧 urllib（有 read()）防御性回退
+        if hasattr(raw, "text"):
+            text = str(raw.text)
+        else:
+            text = raw.read().decode("utf-8", "replace")
+        status_code = getattr(raw, "status_code", None) or getattr(raw, "status", None)
         parse_errors: list[str] = []
         events: list[dict[str, Any]] = []
         if "application/json" in content_type:

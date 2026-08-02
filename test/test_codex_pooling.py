@@ -29,11 +29,12 @@ def test_codex_uses_pooled_session_not_urllib(monkeypatch):
     backend = _backend_with_fake_session(monkeypatch)
 
     # 池化 session 返回 200 + SSE 空事件流
-    resp = MagicMock()
+    # mock 只暴露 curl_cffi 真实接口（status_code/text/headers），不给 read()——
+    # curl_cffi Response 无 read()，mock 凭空创造该方法会放过生产路径 AttributeError（红队 Critical 1）
+    resp = MagicMock(spec=["status_code", "headers", "text", "content"])
     resp.status_code = 200
     resp.headers = {"content-type": "text/event-stream"}
     resp.text = "data: [DONE]\n\n"
-    resp.read.return_value = b"data: [DONE]\n\n"
     backend.session.post.return_value = resp
 
     import services.openai_backend_api as mod
@@ -53,7 +54,7 @@ def test_codex_5xx_raises_upstream_http_error(monkeypatch):
     from utils.helper import UpstreamHTTPError
 
     backend = _backend_with_fake_session(monkeypatch)
-    resp = MagicMock()
+    resp = MagicMock(spec=["status_code", "headers", "text", "content"])
     resp.status_code = 502
     resp.headers = {"content-type": "application/json", "Retry-After": "5"}
     resp.text = '{"error": "bad gateway"}'

@@ -40,9 +40,10 @@ class AlertService:
         return bool(self.webhook_url)
 
     def _fingerprint(self, event: str, payload: dict) -> str:
-        # 同事件 + 关键字段一致视为重复（如熔断同一账号、备份同一错误）
+        # 同事件 + 语义字段一致视为重复（如熔断同一账号、备份同一错误、账号同一失效原因）。
+        # 字段不全会导致不同语义的告警互相误抑制（红队 R2：account_invalid 的 reason 必须入指纹）。
         key_parts = [event]
-        for field in ("token_suffix", "account", "error", "model"):
+        for field in ("token_suffix", "account", "error", "model", "reason", "trigger", "plan_type", "source_type"):
             value = payload.get(field)
             if value:
                 key_parts.append(str(value)[:64])

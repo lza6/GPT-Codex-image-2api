@@ -1,3 +1,31 @@
+## 2.1.0 - 2026-08-03 (安全收口 + 韧性收口 + 可观测性 + 主动告警)
+
+**Breaking changes（升级必读）：**
+- **SSRF 防护**：`image_inputs` 图片 URL 默认拒绝内网/回环/链路本地地址（原行为允许）。内网图床场景需在设置页开启「允许抓取内网图片」或配置 `ssrf_allow_private_ips=true` 回退
+- **文件下载鉴权**：`/files/{path}` 需携带 auth-key（原为公开端点）。调用方需在请求头带 `Authorization: Bearer <auth-key>`
+- **XFF 伪造防护**：`X-Forwarded-For` 头默认仅信任回环来源（原行为可能全信）。反向代理部署需配置 `trusted_proxies` 白名单（设置页「可信反向代理 IP」）
+- **账号导出时区**：导出文件 `expired`/`last_refresh` 字段从 UTC+8 改为 UTC ISO8601（跨时区部署一致性）
+
+本轮新增（D1-D19 全量收口）：
++ [安全] SSRF 防护：协议白名单 + 内网 IP 段校验 + 重定向逐步校验（services/ssrf_guard.py）
++ [安全] XFF trusted_proxy：resolve_client_ip 按白名单解析真实 IP，防伪造绕过按 IP 限流
++ [安全] 文件下载鉴权：/files/{path} 挂 require_identity，前端经 axios blob 鉴权下载
++ [安全] 备份 key 白名单：download/detail/delete 接 _is_backup_object 校验
++ [安全] config.json 密钥治理：git rm --cached + config.example.json 脱敏入库
++ [韧性] SQLite WAL：journal_mode=WAL + busy_timeout=5000 + synchronous=NORMAL（每连接重放），配置 sqlite_wal_mode/sqlite_busy_timeout_ms
++ [韧性] 进度字典 TTL：refresh/relogin 进度记录 monotonic 惰性淘汰（默认 3600s），配置 progress_ttl_seconds
++ [韧性] 熔断器生命周期：账号删除/轮换/自动移除接 registry.remove + 孤儿 TTL 24h 惰性淘汰
++ [韧性] codex 池化：裸 urllib 改池化 curl_cffi Session
++ [韧性] 搜索路径熔断：openai_search 接熔断；web_search_tool 补 close 泄漏
++ [可观测性] 备份失败可见：完整堆栈日志 + chatgpt2api_backup_failures_total 计数器 + dashboard 备份卡片
++ [可观测性] 优雅停机：lifespan shutdown 接 session_pool.close_all() + 守护线程 join 5s
++ [告警] webhook 主动告警：4 类事件 POST 到 alert_webhook_url，重试 1 次 + 5 分钟去重，配置 alert_webhook_url/timeout/events
++ [架构] 多 worker 共享状态：services/shared_state.py Local/Redis 双实现 + 限流走共享层 + docker-compose 可选 redis profile
++ [测试] 关键路径补强 + 变异探针扩至 6 点 6/6 caught；circuit_breaker 95% / session_pool 86% / retry_budget 100%
++ [治理] docs 归档：workflow_status-v6/final-report-v4/code-review-report 归档 docs/archive/
+
+独立审查：六维审查 2 轮（Request Changes → 修复 → Approve）；295 passed / 0 failed；五道防线 5/5 PASS
+
 ## 2.0.0 - 2026-08-02 (生产级增强 + 韧性闭环)
 
 **Breaking changes（升级必读，见 README「升级到 2.0」章节）：**

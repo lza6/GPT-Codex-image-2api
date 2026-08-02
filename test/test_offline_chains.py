@@ -50,16 +50,32 @@ class TestSearchChainOffline:
 
 
 class TestCodexChainOffline:
-    def test_codex_uses_pooled_session_chain(self):
-        """codex：池化 session.post（D6 接线，复用 test_codex_pooling 范式）。"""
-        backend = MagicMock()
-        resp = MagicMock(status_code=200, headers={"content-type": "text/event-stream"}, text="data: [DONE]\n\n")
-        resp.read.return_value = b"data: [DONE]\n\n"
-        backend.post.return_value = resp
-        # 断言池化 session 被调用而非 urllib（D6 核心验证）
-        backend.post.assert_not_called()  # 未调用前
-        backend.post("https://chatgpt.com/backend-api/codex/responses", data=b"{}")
-        backend.post.assert_called_once()
+    def test_codex_uses_pooled_session_chain(self, monkeypatch):
+        """codex：池化 session.post 走通且响应经 curl_cffi 真实接口解析（红队 R4：mock 逼近真实接口）。"""
+        from services.openai_backend_api import OpenAIBackendAPI
+
+        monkeypatch.setattr(
+            "services.account_service.account_service.get_account",
+            lambda token: {"source_type": "codex", "email": "codex@example.com"},
+        )
+        backend = OpenAIBackendAPI.__new__(OpenAIBackendAPI)
+        backend.base_url = "https://chatgpt.com"
+        backend.access_token = "codex-token"
+        backend.session = MagicMock()
+        monkeypatch.setattr(backend, "_ensure_codex_source_account", lambda: None)
+        monkeypatch.setattr(backend, "_log_codex_response_failure", lambda *a, **k: None)
+
+        # mock 只暴露 curl_cffi 真实接口（无 read()）——若生产代码误用 read() 会 AttributeError
+        resp = MagicMock(spec=["status_code", "headers", "text", "content"])
+        resp.status_code = 200
+        resp.headers = {"content-type": "text/event-stream"}
+        resp.text = 'data: {"type": "response.completed"}\n\ndata: [DONE]\n\n'
+        backend.session.post.return_value = resp
+
+        events = list(backend.iter_codex_image_response_events("a cat", images=None))
+        assert backend.session.post.called
+        assert "/backend-api/codex/responses" in backend.session.post.call_args[0][0]
+        assert isinstance(events, list)
 
 
 class TestImageChainOffline:

@@ -53,7 +53,12 @@ class SlidingWindowLimiter:
             return True
 
     def _check_shared(self, key: str) -> bool:
-        """共享层固定窗口近似（incr + TTL）：多 worker 下误差 <5%（D16 验收口径）。"""
+        """共享层固定窗口近似（incr + TTL）：跨 worker 计数一致。
+
+        与 LocalBackend 滑窗语义不同：窗口切换瞬间前一窗口计数清零，
+        边界允许最多 2×max_requests 突刺（固定窗口近似固有取舍，非精确滑窗）。
+        需要精确限流时改用 Redis ZSET 滑窗日志（登记后续迭代）。
+        """
         from services.shared_state import get_shared_state
 
         window_slot = int(time.time() // self.window_seconds)

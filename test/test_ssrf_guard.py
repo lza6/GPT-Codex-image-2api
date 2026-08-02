@@ -130,3 +130,14 @@ def test_download_image_url_rejects_redirect_to_private(monkeypatch):
     with pytest.raises(HTTPException) as exc_info:
         image_inputs._download_image_url("http://93.184.216.34/redirect")
     assert exc_info.value.status_code == 400
+
+
+def test_rejects_ipv4_mapped_ipv6_loopback():
+    """::ffff:127.0.0.1 是 IPv4 回环的 IPv6 映射，必须拦截（防绕过）。"""
+    with pytest.raises(ValueError):
+        validate_image_url("http://[::ffff:127.0.0.1]/admin")
+
+
+def test_rejects_ipv4_mapped_ipv6_private():
+    with pytest.raises(ValueError):
+        validate_image_url("http://[::ffff:192.168.1.1]/config")

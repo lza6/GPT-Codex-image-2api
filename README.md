@@ -31,6 +31,27 @@
 | Windows 一键启动 | ✅ | 启动/停止 bat 脚本，自动检测环境 |
 | 存储后端 | ✅ | JSON / SQLite / PostgreSQL / Git |
 
+## 升级到 2.1
+
+v2.1.0 引入安全边界收紧（SSRF/文件下载/XFF）与韧性收口，**含 breaking changes**，升级前必读：
+
+| 变更 | 影响 | 迁移动作 |
+|------|------|---------|
+| **SSRF 防护** | `image_inputs` 图片 URL 默认拒绝内网/回环/链路本地地址（原允许） | 内网图床场景：设置页开启「允许抓取内网图片」或配置 `"ssrf_allow_private_ips": true` |
+| **文件下载鉴权** | `/files/{path}` 需 auth-key（原公开端点） | 调用方请求头带 `Authorization: Bearer <auth-key>`；前端已改 axios blob 鉴权下载 |
+| **XFF 伪造防护** | `X-Forwarded-For` 默认仅信任回环（原可能全信） | 反向代理部署：设置页「可信反向代理 IP」填代理 IP 或配置 `"trusted_proxies": ["10.0.0.1"]` |
+| **账号导出时区** | 导出文件 `expired`/`last_refresh` 从 UTC+8 改 UTC ISO8601 | 解析导出文件方按 UTC 处理 |
+
+**v2.1.0 新能力：**
+- **SQLite WAL**：多 worker 并发写安全（journal_mode=WAL + busy_timeout=5000），设置页可配
+- **进度字典 TTL**：批量刷新/重登进度 1 小时自动清理，防内存膨胀，设置页可配
+- **熔断器生命周期**：账号删除/轮换自动清理熔断器，注册表 24h 孤儿淘汰
+- **codex 池化 + 搜索熔断**：codex 从裸 urllib 改池化 curl_cffi；搜索路径接熔断 + 补 close 泄漏
+- **备份失败可见**：完整堆栈日志 + Prometheus 计数器 + 看板备份状态卡片（失败红条告警）
+- **优雅停机**：SIGTERM/SIGINT 后关闭池化 TLS 连接 + 守护线程 5s 内退出
+- **告警 webhook**：熔断开启/备份失败/账号失效/配额耗尽 4 类事件主动 POST 通知，5 分钟去重防风暴
+- **多 worker 共享状态**：可选 Redis 共享限流计数（`docker compose --profile redis up -d` + 配置 `redis_url`），单 worker 默认 Local 无感
+
 ## 升级到 2.0
 
 v2.0.0 引入生产级安全默认值收紧与韧性闭环，**含 breaking changes**，升级前必读：
@@ -87,6 +108,13 @@ v2.0.0 引入生产级安全默认值收紧与韧性闭环，**含 breaking chan
 
 ### Windows 一键启动（推荐）
 
+首次运行先初始化配置（v2.1.0 起 `config.json` 不再入库，只有脱敏的 `config.example.json`）：
+
+```bash
+cp config.example.json config.json
+# 编辑 config.json，把 auth-key 改为强随机值（≥24 位）
+```
+
 双击 `启动chatgpt2api.bat` 即可启动（自动检测 Python/uv、清理残留进程、崩溃自动重启）。
 停止用 `停止chatgpt2api.bat`，或直接关闭启动窗口（自动清理进程与端口）。
 
@@ -98,7 +126,7 @@ cd chatgpt2api
 docker compose up -d
 ```
 
-启动前请先在 `config.json` 中设置强随机 `auth-key`（≥24 位，生产环境弱口令会拒绝启动），
+启动前先 `cp config.example.json config.json` 并设置强随机 `auth-key`（≥24 位，生产环境弱口令会拒绝启动），
 也可以通过环境变量 `CHATGPT2API_AUTH_KEY` 覆盖。
 
 - Web 面板：`http://localhost:23456`

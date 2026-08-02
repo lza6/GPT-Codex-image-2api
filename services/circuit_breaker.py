@@ -83,6 +83,9 @@ class CircuitBreaker:
         self._opened_at = time.monotonic()
         self._failure_count = 0
         # D18：熔断 OPEN 触发告警（token 末 8 位，不泄露完整 token）
+        # 直接构造（非经注册表，key=""）时跳过告警——无账号上下文，告警无意义
+        if not self._key:
+            return
         try:
             from services.alert_service import send_alert
 

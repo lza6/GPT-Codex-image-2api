@@ -53,7 +53,8 @@ def test_unbounded_growth_capped_by_ttl(tmp_path):
     for i in range(200):
         svc.init_refresh_progress(f"bulk-{i}", total=1)
     time.sleep(0.08)
-    # 触发一次惰性淘汰（任意读写均可）
+    # 绕过节流窗口（>100 条时 60s 内只 prune 一次），强制下次 get 触发淘汰
+    svc._last_prune_at.clear()
     assert svc.get_refresh_progress("trigger") is None
     assert len(svc._refresh_progress) == 0
 

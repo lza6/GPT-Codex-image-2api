@@ -56,6 +56,8 @@ class AccountService:
         self._relogin_progress_lock = Lock()
         # 熔断器注册表引用（默认全局单例；测试可注入独立注册表验证生命周期清理 D4）
         self._breaker_registry = circuit_breaker_registry
+        # prune 节流：距上次清理 <60s 跳过（防 SSE 高频轮询 get 路径 O(n) 全扫退化，红队 R5）
+        self._last_prune_at: dict[int, float] = {}
         self._lock = Lock()
         self._token_refresh_lock = Lock()
         self._image_slot_condition = Condition(self._lock)
@@ -1566,8 +1568,16 @@ class AccountService:
         仅在 init/get 路径顺带清理（update/finish 不触发，完成后由 get 轮询清理），
         不引入后台线程，长期运行内存有界。
         使用 monotonic 时钟避免系统时间跳变/NTP 校时影响 TTL 判定。
+        节流（红队 R5）：记录数超阈值（>100）时，同一字典距上次清理 <60s 跳过，
+        防 SSE 高频轮询下大 dict O(n) 全扫退化；少量记录全扫成本低不节流，
+        保证 TTL 语义在小规模下精确（测试与常见运维场景）。
         """
-        cutoff = time.monotonic() - self.progress_ttl_seconds
+        store_id = id(store)
+        now = time.monotonic()
+        if len(store) > 100 and now - self._last_prune_at.get(store_id, 0.0) < 60.0:
+            return
+        self._last_prune_at[store_id] = now
+        cutoff = now - self.progress_ttl_seconds
         expired = [pid for pid, item in store.items() if float(item.get("created_at") or 0) < cutoff]
         for pid in expired:
             store.pop(pid, None)
