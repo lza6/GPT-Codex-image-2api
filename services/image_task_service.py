@@ -487,7 +487,10 @@ class ImageTaskService:
             from services.openai_backend_api import OpenAIBackendAPI
             from services.protocol.conversation import format_image_result
 
-            backend = OpenAIBackendAPI(proxy_url=config.proxy_url or None)
+            # 第七轮 B7 修复：OpenAIBackendAPI 无 proxy_url 形参（此前调用即 TypeError，
+            # resume-poll 路径必崩且零测试）。代理经 proxy_settings 全局配置在
+            # session_pool 内生效，backend 无需显式传代理。
+            backend = OpenAIBackendAPI()
             file_ids, sediment_ids = backend._poll_image_results(
                 conversation_id,
                 extra_timeout_secs,

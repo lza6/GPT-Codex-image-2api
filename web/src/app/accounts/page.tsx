@@ -205,6 +205,12 @@ function AccountsPageContent() {
   const [isUpdating, setIsUpdating] = useState(false);
   const [isRelogining, setIsRelogining] = useState(false);
   const [isEvicting, setIsEvicting] = useState(false);
+  // 危险操作二次确认（第七轮 F1：删除/驱逐/清理异常与 image-manager/logs 确认模式对齐）
+  const [confirmAction, setConfirmAction] = useState<{
+    title: string;
+    description: string;
+    run: () => Promise<void>;
+  } | null>(null);
   // 熔断状态：token 末 8 位 -> {state, recover_in_seconds}（仅含非 closed 账号）
   const [circuitBreakers, setCircuitBreakers] = useState<Record<string, { state: string; recover_in_seconds: number }>>({});
   const [progress, setProgress] = useState<{
@@ -352,41 +358,52 @@ function AccountsPageContent() {
     return items;
   }, [pageCount, safePage]);
 
-  const handleEvictStale = async () => {
-    setIsEvicting(true);
-    try {
-      const data = await evictStaleAccounts();
-      if (data.stale === 0) {
-        toast.info("当前没有失效（异常）账号");
-      } else {
-        toast.success(`已处理 ${data.stale} 个失效账号，驱逐 ${data.evicted} 个`);
-      }
-      await loadAccounts(true);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "驱逐失效账号失败");
-    } finally {
-      setIsEvicting(false);
-    }
+  const handleEvictStale = () => {
+    setConfirmAction({
+      title: "驱逐失效 Token？",
+      description: "将从号池移除所有已失效（异常）账号的 token，此操作不可恢复。",
+      run: async () => {
+        setIsEvicting(true);
+        try {
+          const data = await evictStaleAccounts();
+          if (data.stale === 0) {
+            toast.info("当前没有失效（异常）账号");
+          } else {
+            toast.success(`已处理 ${data.stale} 个失效账号，驱逐 ${data.evicted} 个`);
+          }
+          await loadAccounts(true);
+        } catch (error) {
+          toast.error(error instanceof Error ? error.message : "驱逐失效账号失败");
+        } finally {
+          setIsEvicting(false);
+        }
+      },
+    });
   };
 
-  const handleDeleteTokens = async (tokens: string[]) => {
+  const handleDeleteTokens = (tokens: string[]) => {
     if (tokens.length === 0) {
       toast.error("请先选择要删除的账户");
       return;
     }
-
-    setIsDeleting(true);
-    try {
-      const data = await deleteAccounts(tokens);
-      setAccounts(data.items);
-      setSelectedIds((prev) => prev.filter((id) => data.items.some((item) => item.access_token === id)));
-      toast.success(`删除 ${data.removed ?? 0} 个账户`);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "删除账户失败";
-      toast.error(message);
-    } finally {
-      setIsDeleting(false);
-    }
+    setConfirmAction({
+      title: `删除 ${tokens.length} 个账户？`,
+      description: "将从号池永久移除这些账号的 token，此操作不可恢复。",
+      run: async () => {
+        setIsDeleting(true);
+        try {
+          const data = await deleteAccounts(tokens);
+          setAccounts(data.items);
+          setSelectedIds((prev) => prev.filter((id) => data.items.some((item) => item.access_token === id)));
+          toast.success(`删除 ${data.removed ?? 0} 个账户`);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "删除账户失败";
+          toast.error(message);
+        } finally {
+          setIsDeleting(false);
+        }
+      },
+    });
   };
 
   const handleRefreshAccounts = async (accessTokens: string[]) => {
@@ -501,37 +518,18 @@ function AccountsPageContent() {
 
       const relogined = data.relogined ?? 0;
 
-      // 显示重新登录进度
+      // 刷新完成后的结果展示（第七轮修复假进度条：此前此处是 150ms 机械 +1 的
+      // 模拟动画 + 固定 2s 兜底，不反映任何后端状态。relogin 在服务端已同步完成，
+      // 数据即最终结果，直接展示完成态，无中间进度可报）
       if (relogined > 0) {
         setProgress({
           visible: true,
-          current: 0,
+          current: relogined,
           total: relogined,
-          message: `正在尝试对 ${relogined} 个账号进行移除异常状态`,
+          message: `已对 ${relogined} 个账号完成异常状态处理`,
           email: "",
         });
-        // 模拟重新登录进度
-        let reCount = 0;
-        await new Promise<void>((resolve) => {
-          const timer = setInterval(() => {
-            reCount += 1;
-            if (reCount >= relogined) {
-              clearInterval(timer);
-              setProgress({
-                visible: true,
-                current: relogined,
-                total: relogined,
-                message: "移除异常状态完成",
-                email: "",
-              });
-              setTimeout(() => setProgress({ visible: false, current: 0, total: 0, message: "", email: "" }), 800);
-              resolve();
-            } else {
-              setProgress((prev) => ({ ...prev, current: reCount }));
-            }
-          }, 150);
-          setTimeout(resolve, 2000);
-        });
+        setTimeout(() => setProgress({ visible: false, current: 0, total: 0, message: "", email: "" }), 1500);
       } else {
         setProgress({
           visible: true,
@@ -1248,7 +1246,7 @@ function AccountsPageContent() {
                         </td>
                         <td className="px-4 py-3 text-xs leading-5 text-stone-500">
                           {(() => {
-                            const raw = (account as any).created_at;
+                            const raw = account.created_at;
                             if (!raw) return "—";
                             try {
                               const d = new Date(raw + "Z");
@@ -1415,6 +1413,38 @@ function AccountsPageContent() {
           </CardContent>
         </Card>
       </section>
+
+      {/* 危险操作二次确认（删除/驱逐失效 token）——与 image-manager/logs 确认模式对齐 */}
+      <Dialog open={confirmAction !== null} onOpenChange={(open) => { if (!open) setConfirmAction(null); }}>
+        <DialogContent className="rounded-2xl">
+          <DialogHeader>
+            <DialogTitle>{confirmAction?.title}</DialogTitle>
+            <DialogDescription>{confirmAction?.description}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              className="rounded-xl"
+              onClick={() => setConfirmAction(null)}
+              disabled={isDeleting || isEvicting}
+            >
+              取消
+            </Button>
+            <Button
+              className="rounded-xl bg-rose-600 text-white hover:bg-rose-700"
+              disabled={isDeleting || isEvicting}
+              onClick={() => {
+                const action = confirmAction;
+                setConfirmAction(null);
+                if (action) void action.run();
+              }}
+            >
+              {(isDeleting || isEvicting) ? <LoaderCircle className="size-4 animate-spin" /> : null}
+              确认执行
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

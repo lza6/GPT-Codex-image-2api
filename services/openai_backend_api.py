@@ -15,13 +15,13 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
+from uuid import NAMESPACE_URL, uuid5
 
 from curl_cffi import requests
 from PIL import Image
 
 from services.account_service import account_service
 from services.config import config
-from services.proxy_service import proxy_settings
 from services.retry_budget import retry_idempotent_get
 from services.session_pool import session_pool
 from utils.helper import UpstreamHTTPError, ensure_ok, iter_sse_payloads, new_uuid, split_image_model
@@ -182,14 +182,24 @@ class OpenAIBackendAPI:
         self.pow_script_sources: list[str] = []
         self.pow_data_build = ""
         self.progress_callback: Callable[[str], None] | None = None
-        # 连接池接线：复用池化 Session（按账号+代理+impersonate 缓存），
-        # 避免每次请求新建 Session 导致的重复 TLS 握手；close() 转为 release 不拆连接。
+        # 连接池接线：复用池化 Session（key 含账号标识+指纹，防跨账号/跨实例串扰）。
+        # 第七轮 B1 修复：池化 Session 是共享对象，禁止再往 session.headers 写
+        # 实例级数据（曾导致 Authorization 被后构造实例覆盖串号）：
+        # - UA/Sec-Ch-UA 等指纹头经 fp_key 入池 key，同 key 必然同指纹；
+        # - Authorization 为请求级覆盖（curl_cffi 支持 headers= 逐请求传参）；
+        # - 池上只允许写会话级身份头（OAI-Device-Id/OAI-Session-Id，与 key 绑定）。
         self.session = session_pool.get(
             account=self.account,
             impersonate=self.fp["impersonate"],
             verify=True,
+            fp_key=self.fp.get("oai-device-id", ""),
         )
         self.session.headers.update({
+            "OAI-Device-Id": self.device_id,
+            "OAI-Session-Id": self.session_id,
+        })
+        # 实例级请求头（本实例的指纹与客户端版本），每个请求经 _request_headers 合并
+        self._instance_headers = {
             "User-Agent": self.user_agent,
             "Origin": self.base_url,
             "Referer": self.base_url + "/",
@@ -209,14 +219,10 @@ class OpenAIBackendAPI:
             "Sec-Fetch-Dest": "empty",
             "Sec-Fetch-Mode": "cors",
             "Sec-Fetch-Site": "same-origin",
-            "OAI-Device-Id": self.device_id,
-            "OAI-Session-Id": self.session_id,
             "OAI-Language": "zh-CN",
             "OAI-Client-Version": self.client_version,
             "OAI-Client-Build-Number": self.client_build_number,
-        })
-        if self.access_token:
-            self.session.headers["Authorization"] = f"Bearer {self.access_token}"
+        }
 
     def close(self) -> None:
         if getattr(self, "_closed", False):
@@ -269,16 +275,32 @@ class OpenAIBackendAPI:
             "(KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0",
         )
         fp.setdefault("impersonate", "chrome110")
-        fp.setdefault("oai-device-id", new_uuid())
-        fp.setdefault("oai-session-id", new_uuid())
+        # 第七轮 B1：fp 需对同账号稳定（池 key 含指纹标识）。
+        # 账号未存 fp 时从 access_token 确定性派生 device/session id——同账号每次
+        # 实例化得到同一指纹，池化复用生效且不再出现"同账号每次新建 Session"；
+        # 无 token（匿名链路）保留随机（无池化复用意义）。
+        if self.access_token:
+            derived = uuid5(NAMESPACE_URL, f"chatgpt2api-fp:{self.access_token}").hex
+            fp.setdefault("oai-device-id", derived)
+            fp.setdefault("oai-session-id", derived[::-1])
+        else:
+            fp.setdefault("oai-device-id", new_uuid())
+            fp.setdefault("oai-session-id", new_uuid())
         fp.setdefault("sec-ch-ua", '"Microsoft Edge";v="143", "Chromium";v="143", "Not A(Brand";v="24"')
         fp.setdefault("sec-ch-ua-mobile", "?0")
         fp.setdefault("sec-ch-ua-platform", '"Windows"')
         return fp
 
     def _headers(self, path: str, extra: dict[str, str] | None = None) -> dict[str, str]:
-        """构造请求头，并补上 web 端要求的 target path/route。"""
+        """构造请求头：池上会话级头 + 本实例指纹头 + 请求级 Authorization（第七轮 B1）。
+
+        Authorization 永不写入共享的 session.headers，只在每个请求的头字典里出现——
+        池化 Session 被同 key 实例共享，实例间 Authorization 不可能再互相覆盖。
+        """
         headers = dict(self.session.headers)
+        headers.update(self._instance_headers)
+        if self.access_token:
+            headers["Authorization"] = f"Bearer {self.access_token}"
         headers["X-OpenAI-Target-Path"] = path
         headers["X-OpenAI-Target-Route"] = path
         # 透传 request-id 到上游自定义头，便于日志对账
@@ -405,9 +427,9 @@ class OpenAIBackendAPI:
             "User-Agent": self.user_agent,
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
             "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-            "Sec-Ch-Ua": self.session.headers["Sec-Ch-Ua"],
-            "Sec-Ch-Ua-Mobile": self.session.headers["Sec-Ch-Ua-Mobile"],
-            "Sec-Ch-Ua-Platform": self.session.headers["Sec-Ch-Ua-Platform"],
+            "Sec-Ch-Ua": self._instance_headers["Sec-Ch-Ua"],
+            "Sec-Ch-Ua-Mobile": self._instance_headers["Sec-Ch-Ua-Mobile"],
+            "Sec-Ch-Ua-Platform": self._instance_headers["Sec-Ch-Ua-Platform"],
             "Sec-Fetch-Dest": "document",
             "Sec-Fetch-Mode": "navigate",
             "Sec-Fetch-Site": "none",
@@ -1261,8 +1283,10 @@ class OpenAIBackendAPI:
             raise RuntimeError("access_token is required for editable file export")
         self.client_version = EDITABLE_FILE_CLIENT_VERSION
         self.client_build_number = EDITABLE_FILE_CLIENT_BUILD_NUMBER
-        self.session.headers["OAI-Client-Version"] = EDITABLE_FILE_CLIENT_VERSION
-        self.session.headers["OAI-Client-Build-Number"] = EDITABLE_FILE_CLIENT_BUILD_NUMBER
+        # 第七轮 B1：版本头只写实例级头表，不再永久改写共享池 Session——
+        # 否则该 Session 后续所有请求（含其他实例）都会带 editable-file 版本头
+        self._instance_headers["OAI-Client-Version"] = EDITABLE_FILE_CLIENT_VERSION
+        self._instance_headers["OAI-Client-Build-Number"] = EDITABLE_FILE_CLIENT_BUILD_NUMBER
         output_path = Path(output_dir).expanduser().resolve()
         output_path.mkdir(parents=True, exist_ok=True)
         uploaded = [self._upload_editable_base64_image(item, index) for index, item in enumerate(base64_images, start=1)]

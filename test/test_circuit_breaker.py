@@ -65,6 +65,31 @@ class CircuitBreakerStateMachineTests(unittest.TestCase):
         self.assertFalse(b.allow_request(), "half_open 再失败应立即重新熔断")
 
 
+class CircuitBreakerDefaultThresholdTests(unittest.TestCase):
+    """默认阈值回归：生产默认 5 次熔断是调度/熔断契约的一部分，改动必须显式。
+
+    由变异探针（scripts/mutation_probe.py）驱动补全：failure_threshold 5→6
+    变异曾逃逸（全部测试仍绿），说明默认值无人看守。
+    """
+
+    def test_default_failure_threshold_is_five(self):
+        import sys
+        sys.path.insert(0, str(ROOT_DIR))
+        from services.circuit_breaker import CircuitBreaker
+        b = CircuitBreaker()
+        self.assertEqual(b.failure_threshold, 5, "默认熔断阈值被改动——若为有意调整，请同步更新本测试与文档")
+
+    def test_registry_default_threshold_is_five(self):
+        import sys
+        sys.path.insert(0, str(ROOT_DIR))
+        from services.circuit_breaker import circuit_breaker_registry
+        b = circuit_breaker_registry.get("mutation-probe-threshold-check")
+        try:
+            self.assertEqual(b.failure_threshold, 5, "全局注册表默认阈值被改动")
+        finally:
+            circuit_breaker_registry.remove("mutation-probe-threshold-check")
+
+
 class TextStreamCircuitBreakerWiringTests(unittest.TestCase):
     """文本流式链路熔断接线：stream_text_deltas 应检查熔断并记录成败。"""
 

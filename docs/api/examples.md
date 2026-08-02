@@ -291,8 +291,8 @@ def call_with_retry(func, max_retries=3):
 
 ```python
 resp = requests.post(url, headers=headers, json=payload)
-request_id = resp.headers.get("X-Request-ID")
-duration = resp.headers.get("X-Response-Time-Ms")
+request_id = resp.headers.get("x-request-id")
+duration = resp.headers.get("x-response-time-ms")
 print(f"请求 {request_id} 耗时 {duration}ms")
 # 出现错误时，把 request_id 提供给运维，可在日志中串联整个调用链
 ```

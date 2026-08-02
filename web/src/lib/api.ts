@@ -24,6 +24,8 @@ export type Account = {
   quota: number;
   email?: string | null;
   user_id?: string | null;
+  /** 账号创建时间（后端 list_accounts 实际返回，第七轮 F8 补声明，消灭 as any）。 */
+  created_at?: string | null;
   limits_progress?: Array<{
     feature_name?: string;
     remaining?: number;
@@ -920,16 +922,9 @@ export type ClearanceTestResult = {
   runtime: ProxyRuntimeStatus;
 };
 
-export async function fetchProxy() {
-  return httpRequest<{ proxy: ProxySettings }>("/api/proxy");
-}
-
-export async function updateProxy(updates: { enabled?: boolean; url?: string }) {
-  return httpRequest<{ proxy: ProxySettings }>("/api/proxy", {
-    method: "POST",
-    body: updates,
-  });
-}
+// 注意：历史上曾存在 GET/POST /api/proxy（fetchProxy/updateProxy），后端从未注册该路由——
+// 属断链死代码，已随孤儿组件 proxy-settings.tsx 一并移除（第七轮审计）。
+// 代理配置真实链路：config-card 的 proxy 字段走 POST /api/settings；运行时走 /api/proxy/runtime。
 
 export async function testProxy(url?: string) {
   return httpRequest<{ result: ProxyTestResult }>("/api/proxy/test", {

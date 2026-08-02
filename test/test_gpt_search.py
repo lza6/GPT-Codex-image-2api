@@ -6,9 +6,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from services.openai_backend_api import OpenAIBackendAPI
-
 import pytest
+
+from services.openai_backend_api import OpenAIBackendAPI
 
 # 需真实上游/活服务(localhost:23456)的测试，CI 默认排除（pytest -m live 本地手动跑）
 pytestmark = pytest.mark.live

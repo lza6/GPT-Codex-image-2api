@@ -426,7 +426,10 @@ class ConfigStore:
             raise ValueError("❌ config.json 配置校验失败：\n" + "\n".join(f"   - {e}" for e in errors))
 
     def _save(self) -> None:
-        self.path.write_text(json.dumps(self.data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        # 原子写（第七轮 B9）：复用 json_storage 的 _atomic_write_text，
+        # 防写入中途断电/杀进程导致 config.json 截断损坏
+        from services.storage.json_storage import _atomic_write_text
+        _atomic_write_text(self.path, json.dumps(self.data, ensure_ascii=False, indent=2) + "\n")
 
     @property
     def auth_key(self) -> str:

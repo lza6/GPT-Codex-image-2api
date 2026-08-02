@@ -33,7 +33,7 @@ git --version
 适合不需要 WARP / FlareSolverr 清障的场景。
 
 ```bash
-git clone git@github.com:basketikun/chatgpt2api.git
+git clone <内部仓库地址> chatgpt2api  # 内部 fork 分发，勿克隆上游作者仓库
 cd chatgpt2api
 ```
 
@@ -53,13 +53,13 @@ docker compose up -d
 访问：
 
 ```text
-http://localhost:3000
+http://localhost:23456
 ```
 
 API 基础地址：
 
 ```text
-http://localhost:3000/v1
+http://localhost:23456/v1
 ```
 
 查看日志：
@@ -105,7 +105,7 @@ docker compose -f docker-compose.warp.yml up -d --build
 访问：
 
 ```text
-http://localhost:3000
+http://localhost:23456
 ```
 
 FlareSolverr 相关配置可以在后台设置页的 `FlareSolverr` tab 中查看和测试。
@@ -136,7 +136,7 @@ docker compose -f docker-compose.warp.yml down
 后端：
 
 ```bash
-git clone git@github.com:basketikun/chatgpt2api.git
+git clone <内部仓库地址> chatgpt2api  # 内部 fork 分发，勿克隆上游作者仓库
 cd chatgpt2api
 uv sync
 uv run main.py
@@ -146,8 +146,8 @@ uv run main.py
 
 ```bash
 cd web
-bun install
-bun run dev
+npm install
+npm run dev
 ```
 
 源码方式运行时，后端默认读取项目根目录的 `config.json` 和 `data/`。
@@ -273,8 +273,8 @@ uv sync
 
 ```bash
 cd web
-bun install
-bun run build
+npm install
+npm run build
 ```
 
 然后按你的进程管理方式重启后端服务。

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """只读契约探测脚本：用 TestClient 调用看板/代理端点，打印实际 JSON 键与类型。
 
 不修改任何数据；仅 GET 请求。运行: uv run python scripts/contract_probe.py

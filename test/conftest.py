@@ -10,8 +10,6 @@
 
 from __future__ import annotations
 
-import os
-
 import pytest
 
 _TEST_AUTH_KEY = "chatgpt2api"

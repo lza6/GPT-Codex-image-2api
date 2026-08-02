@@ -36,4 +36,7 @@ test_batch_output/
 
 # graft's local graph cache — regenerable, not committed (run `graft build`).
 graft/
+
+# 五道防线等工具的运行报告（regenerable，不入库）
+reports/
 $HOME/

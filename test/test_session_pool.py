@@ -68,7 +68,8 @@ class SessionPoolCoreTests(unittest.TestCase):
         with patch("services.session_pool.proxy_settings") as ps:
             ps.get_profile.return_value = type("P", (), {"proxy_url": ""})()
             ps.build_session_kwargs.return_value = {}
-            sessions = [pool.get(account=_fake_account(f"tok-{i}")) for i in range(3)]
+            for i in range(3):
+                pool.get(account=_fake_account(f"tok-{i}"))
             # 第 4 个触发逐出最老的 tok-0
             pool.get(account=_fake_account("tok-3"))
             self.assertLessEqual(len(pool._sessions), 3, "超过 max_entries 应逐出最老条目")
@@ -120,8 +121,8 @@ class BackendPoolingWiringTests(unittest.TestCase):
         sys.path.insert(0, str(ROOT_DIR))
 
     def test_backend_reuses_pooled_session(self):
-        from services.session_pool import session_pool
         from services.openai_backend_api import OpenAIBackendAPI
+        from services.session_pool import session_pool
 
         token = "pool-wiring-test-token"
         account = {"access_token": token, "email": "pool@x.com"}
@@ -137,6 +138,39 @@ class BackendPoolingWiringTests(unittest.TestCase):
             self.assertIs(b1.session, b2.session,
                           "同账号两次实例化应复用同一池化 Session（TLS 只握手一次）")
             session_pool.invalidate(account=account)
+
+    def test_authorization_never_on_shared_session(self):
+        """第七轮 B1 回归：Authorization 永不写入共享池 Session，只在请求级头出现。"""
+        from services.openai_backend_api import OpenAIBackendAPI
+        from services.session_pool import session_pool
+
+        token_a = "pool-authz-token-AAAA"
+        token_b = "pool-authz-token-BBBB"
+        acct_a = {"access_token": token_a, "email": "a@x.com"}
+        acct_b = {"access_token": token_b, "email": "b@x.com"}
+        with patch("services.openai_backend_api.account_service") as acct, \
+             patch("services.session_pool.proxy_settings") as ps:
+            acct.get_account.side_effect = lambda t: acct_a if t == token_a else acct_b
+            ps.get_profile.return_value = type("P", (), {"proxy_url": ""})()
+            ps.build_session_kwargs.return_value = {}
+            session_pool.invalidate(account=acct_a)
+            session_pool.invalidate(account=acct_b)
+            b1 = OpenAIBackendAPI(access_token=token_a)
+            b2 = OpenAIBackendAPI(access_token=token_b)
+            # 共享池 Session 不得携带任何实例的 Authorization/UA
+            self.assertNotIn("Authorization", b1.session.headers)
+            self.assertNotIn("Authorization", b2.session.headers)
+            self.assertNotIn("User-Agent", b1.session.headers)
+            # 请求级头各自携带正确 token（构造顺序不影响）
+            h1 = b1._headers("/x")
+            h2 = b2._headers("/x")
+            self.assertIn(token_a, h1["Authorization"])
+            self.assertIn(token_b, h2["Authorization"])
+            # 再构造一次 A，A 的请求头仍必须是 A（曾被 B 覆盖的串号场景）
+            b3 = OpenAIBackendAPI(access_token=token_a)
+            self.assertIn(token_a, b3._headers("/x")["Authorization"])
+            session_pool.invalidate(account=acct_a)
+            session_pool.invalidate(account=acct_b)
 
 
 if __name__ == "__main__":

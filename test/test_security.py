@@ -42,12 +42,13 @@ class SecurityTests(unittest.TestCase):
                     self.fail(f"发现硬编码密钥: {py_file} 匹配 {match[:20]}...")
 
     def test_no_bare_except(self):
-        """检查是否有裸露的 except: 吞掉所有错误。"""
+        """裸露的 except: 必须为零——发现即 fail（原为只 print 不 fail 的假测试）。"""
+        offenders: list[str] = []
         for py_file in Path(ROOT_DIR).rglob("*.py"):
-            if ".venv" in str(py_file) or "graft" in str(py_file):
+            path_str = str(py_file)
+            if ".venv" in path_str or "graft" in path_str or "node_modules" in path_str:
                 continue
             content = py_file.read_text(encoding="utf-8", errors="ignore")
-            # 查找 except: 但没有 except Exception: 或 except BaseException:
             lines = content.split("\n")
             for i, line in enumerate(lines, 1):
                 stripped = line.strip()
@@ -55,36 +56,49 @@ class SecurityTests(unittest.TestCase):
                     # 排除 __init__.py 和明确注释
                     if "pragma: no cover" in line:
                         continue
-                    print(f"  WARN: {py_file}:{i} 裸露的 except: 可能吞掉所有错误")
-
-    def test_config_no_password_in_plaintext(self):
-        """config.json 不应包含明文密码。"""
-        sensitive_keys = ["password", "secret", "token", "key"]
-        json.dumps(self.config)
-        for key in sensitive_keys:
-            # 检查值是否像密码
-            pass
+                    offenders.append(f"{py_file}:{i}")
+        self.assertEqual(offenders, [],
+                         f"发现 {len(offenders)} 处裸露 except: 吞错——必须改为具体异常类型：\n" + "\n".join(offenders[:10]))
 
     def test_rate_limit_middleware_coverage(self):
-        """限流中间件覆盖所有 API 端点。"""
-        # 验证中间件配置
-        self.assertTrue(True)  # 中间件已在 app.py 中全局注册
-
-    def test_auth_required_on_api(self):
-        """关键 API 端点需要鉴权。"""
+        """限流中间件真实注册且行为生效：超限返回 429。"""
+        import sys
+        sys.path.insert(0, str(ROOT_DIR))
+        from api.rate_limit import SlidingWindowLimiter
+        # 行为断言：窗口内 max_requests+1 个请求必须被拒绝
+        limiter = SlidingWindowLimiter(window_seconds=60.0, max_requests=3)
+        for _ in range(3):
+            self.assertTrue(limiter.check("k"))
+        self.assertFalse(limiter.check("k"), "超限请求未被拒绝——限流失效")
+        # 中间件确实挂载在 app 上
         from api.app import create_app
         app = create_app()
-        routes = [r for r in app.routes if hasattr(r, "path") and "/api/" in r.path]
-        # 排除公开端点
-        public_prefixes = ["/api/logs", "/api/images/"]
-        for route in routes:
-            path = route.path
-            if any(path.startswith(p) for p in public_prefixes):
-                continue
-            # 至少需要登录
-            # 注意：实际鉴权在 handler 内部用 require_identity 控制
-            # 路由注册本身不包含鉴权信息，这里只做结构检查
-            self.assertIsNotNone(path)
+        middleware_names = [getattr(m.cls, "__name__", "") for m in app.user_middleware]
+        self.assertIn("RateLimitMiddleware", middleware_names,
+                      f"限流中间件未注册到 app：{middleware_names}")
+
+    def test_auth_required_on_api(self):
+        """关键管理端点无鉴权必须 401（真实行为断言，非结构检查）。"""
+        import sys
+        sys.path.insert(0, str(ROOT_DIR))
+        from fastapi.testclient import TestClient
+
+        from api.app import create_app
+        client = TestClient(create_app())
+        protected = [
+            "/api/settings",
+            "/api/accounts",
+            "/api/dashboard/scheduler",
+            "/api/proxies",
+            "/api/backups",
+        ]
+        for path in protected:
+            resp = client.get(path)
+            self.assertEqual(resp.status_code, 401,
+                             f"{path} 无鉴权访问返回 {resp.status_code} 而非 401——鉴权失守")
+        # 错误密钥也必须 401
+        resp = client.get("/api/settings", headers={"Authorization": "Bearer definitely-wrong-key-xyz"})
+        self.assertEqual(resp.status_code, 401, "错误密钥未返回 401——鉴权可被绕过")
 
 
 class SecurityHardeningTests(unittest.TestCase):

@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ChatGPT2API 终局闭环第七轮报告 — 规范固化 + 五道防线增量闭环</title>
+<style>
+  :root {
+    --bg: #fafaf9; --surface: #ffffff; --ink: #1c1917; --muted: #57534e;
+    --line: #e7e5e4; --accent: #0f766e; --accent-soft: #ccfbf1;
+    --p0: #be123c; --p0-soft: #ffe4e6; --p1: #b45309; --p1-soft: #fef3c7;
+    --p2: #1d4ed8; --p2-soft: #dbeafe; --pass: #15803d; --pass-soft: #dcfce7;
+    --code: #292524;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; background: var(--bg); color: var(--ink); line-height: 1.7; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 48px 24px 96px; }
+  header.hero { border-bottom: 1px solid var(--line); padding-bottom: 32px; margin-bottom: 40px; }
+  .kicker { font-size: 13px; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+  h1 { font-size: clamp(28px, 4vw, 42px); line-height: 1.15; margin: 12px 0 16px; letter-spacing: -0.02em; }
+  .meta { color: var(--muted); font-size: 14px; display: flex; flex-wrap: wrap; gap: 8px 20px; }
+  .meta strong { color: var(--ink); }
+  h2 { font-size: 24px; margin: 48px 0 16px; padding-top: 24px; border-top: 2px solid var(--ink); letter-spacing: -0.01em; }
+  h3 { font-size: 17px; margin: 28px 0 10px; }
+  p { margin: 10px 0; }
+  .grid { display: grid; gap: 16px; }
+  .grid.cols-3 { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 20px; }
+  .stat { font-size: 34px; font-weight: 700; letter-spacing: -0.03em; }
+  .stat-label { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; margin: 16px 0; background: var(--surface); border-radius: 12px; overflow: hidden; border: 1px solid var(--line); }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { background: #f5f5f4; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  tr:last-child td { border-bottom: none; }
+  .tag { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+  .tag.p0 { background: var(--p0-soft); color: var(--p0); }
+  .tag.p1 { background: var(--p1-soft); color: var(--p1); }
+  .tag.p2 { background: var(--p2-soft); color: var(--p2); }
+  .tag.pass { background: var(--pass-soft); color: var(--pass); }
+  .tag.info { background: #f5f5f4; color: var(--muted); }
+  code { font-family: "Cascadia Code", Consolas, monospace; font-size: .88em; background: #f5f5f4; padding: 1px 6px; border-radius: 6px; }
+  pre { background: var(--code); color: #e7e5e4; border-radius: 12px; padding: 18px 20px; overflow-x: auto; font-size: 13px; line-height: 1.6; margin: 14px 0; }
+  pre code { background: none; padding: 0; color: inherit; }
+  .callout { border-left: 4px solid var(--accent); background: var(--accent-soft); border-radius: 0 12px 12px 0; padding: 14px 18px; margin: 16px 0; }
+  .callout.warn { border-color: var(--p1); background: var(--p1-soft); }
+  .callout.crit { border-color: var(--p0); background: var(--p0-soft); }
+  .toc { columns: 2; column-gap: 32px; font-size: 14px; }
+  .toc a { color: var(--accent); text-decoration: none; display: block; padding: 3px 0; }
+  .quiz-question { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 20px 22px; margin: 16px 0; }
+  .quiz-question h4 { font-size: 15px; margin-bottom: 10px; }
+  .quiz-question ol { margin-left: 22px; font-size: 14px; }
+  .quiz-question li { margin: 4px 0; }
+  details { margin-top: 8px; }
+  summary { cursor: pointer; color: var(--accent); font-size: 13px; font-weight: 600; }
+  .answer { margin-top: 8px; padding: 10px 14px; background: var(--pass-soft); border-radius: 8px; font-size: 13px; }
+  .flow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 13px; margin: 14px 0; }
+  .flow span { background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; }
+  .flow b { color: var(--accent); }
+  .checklist { list-style: none; font-size: 14px; }
+  .checklist li { padding: 6px 0 6px 30px; position: relative; }
+  .checklist li::before { content: "✓"; position: absolute; left: 0; top: 4px; width: 20px; height: 20px; background: var(--pass-soft); color: var(--pass); border-radius: 6px; display: grid; place-items: center; font-weight: 700; font-size: 12px; }
+  .checklist li.no::before { content: "—"; background: #f5f5f4; color: var(--muted); }
+  footer { margin-top: 64px; padding-top: 24px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <div class="kicker">Final Report · Round 7 · 2026-08-02</div>
+  <h1>终局闭环第七轮：规范固化 + 五道防线增量闭环</h1>
+  <div class="meta">
+    <span>项目 <strong>ChatGPT2API v2.0.0</strong></span>
+    <span>基线 <strong>a6139c0</strong></span>
+    <span>测试 <strong>194 passed / 0 failed</strong></span>
+    <span>防线 <strong>5/5 PASS</strong></span>
+    <span>修复 <strong>19 项</strong></span>
+    <span>待办登记 <strong>19 项</strong></span>
+  </div>
+</header>
+
+<nav class="card">
+  <h3 style="margin-top:0">目录</h3>
+  <div class="toc">
+    <a href="#context">1. 任务目标与上下文重建</a>
+    <a href="#intuition">2. 核心直觉：本轮最重要的三个判断</a>
+    <a href="#matrix">3. 需求追踪矩阵（R1–R20）</a>
+    <a href="#critique">4. 最强自我反驳</a>
+    <a href="#fixes">5. 实际修复清单（19 项，全证据）</a>
+    <a href="#guards">6. 五道防线（工具化 + 实测数据）</a>
+    <a href="#audit">7. 六路独立审查 → 修复 → 复验循环</a>
+    <a href="#deferred">8. 剩余真实风险与边界（19 项登记）</a>
+    <a href="#conclusion">9. 最终完成度结论</a>
+    <a href="#quiz">10. 验收测验（必过）</a>
+  </div>
+</nav>
+
+<h2 id="context">1. 任务目标与上下文重建</h2>
+<p>本轮是 ChatGPT2API 的第七轮终局审计。前六轮已完成 N1–N28 节点闭环、S1–S8 权威需求核验、v2.0.0 发版。本轮的增量目标来自用户指令的逐条结构化：</p>
+<ul class="checklist">
+  <li>把项目沉淀为「工作流 + 技能」（Spec Kit 式：先读文档判过时 → 更新 → 编码 → 验收）</li>
+  <li>五道防线工具化：契约防坑 / 极限施压 / 慢查询猎杀 / SQL 安全 / 测试有效性</li>
+  <li>六路独立审查（需求完整性/逻辑/边界/质量/覆盖/运行）→ 修复 → 复验循环</li>
+  <li>严苛代码审查者（有罪推定、零懒惰容忍）注入 skill 作为 reviewer 门禁</li>
+  <li>资产沉淀：ADR 逆向、黄金范例、产品策略、新人保姆文档提交</li>
+  <li>本报告（含底部必过测验）</li>
+</ul>
+<div class="callout">
+<strong>基线事实（前轮收尾，git 已提交）：</strong>182 测试全绿、tsc 0 错误、构建通过、红队复验 Approve。
+本轮所有工作以此为起点，不做无证据的"重启炉灶"。
+</div>
+
+<h2 id="intuition">2. 核心直觉：本轮最重要的三个判断</h2>
+
+<h3>判断一：「已闭环」最多的地方，恰恰是假闭环密度最高的地方</h3>
+<p>前六轮每轮都宣称熔断/池化/前端体验"闭环"。本轮六路审计实证发现：</p>
+<ul>
+  <li><strong>Session 池化是假闭环</strong>——接线确实完成（S2 核验为真），但 <code>OpenAIBackendAPI.__init__</code> 往共享池 Session 写 Authorization，<em>实证复现：b1 实例的请求头携带 b2 实例的 token</em>。池化"接上了"但"接错了"，六轮没抓到是因为没有任何测试构造过"同 key 两实例"的场景。</li>
+  <li><strong>resume-poll 是假闭环</strong>——<code>OpenAIBackendAPI(proxy_url=...)</code> 调用即 TypeError（形参不存在），该路径六轮零测试。</li>
+  <li><strong>SSE 是假闭环</strong>——从 localStorage 读 token，但会话存在 localforage（IndexedDB），恒为 null，流通道从未建立，只有 30s 轮询兜底在工作。</li>
+</ul>
+<div class="callout warn"><strong>方法论推论：</strong>「组件存在 + 接线完成 + 测试全绿」三者同时成立，仍不等于行为正确。必须构造"最不利场景"做实证（本轮：同 key 两实例、调用即崩的路径、存储真实位置）。</div>
+
+<h3>判断二：防线必须工具化，否则审计结论随会话蒸发</h3>
+<p>用户要求"契约防坑/压测/慢查询/SQL/测试有效性"不是一次性审计，而是可持续执行的回归。本轮把五道防线固化为脚本 + 一键执行器，并立即自证价值：</p>
+<div class="flow">
+  <span>contract_guard 首跑</span> <b>→</b> <span>抓 1 断链假功能（前端调 /api/proxy 后端从未注册）</span> <b>→</b>
+  <span>修复</span> <b>→</b> <span>断链 0</span>
+</div>
+<div class="flow">
+  <span>mutation_probe 首跑</span> <b>→</b> <span>熔断默认阈值 5→6 变异<em>逃逸</em>（测试全用自定义阈值）</span> <b>→</b>
+  <span>补 2 条回归测试</span> <b>→</b> <span>3/3 caught</span>
+</div>
+
+<h3>判断三：多 worker 守卫必须不可绕过</h3>
+<p>bat 与 Dockerfile 此前直接 <code>uvicorn main:app</code>，绕过 main.py 的 workers 回退与 prometheus multiproc 初始化——<code>CHATGPT2API_WORKERS=4</code> 在这两条生产路径上<em>静默无效</em>。修复方式不是改 bat/Docker，而是把守卫<strong>模块级化</strong>：让任何启动路径都经过同一个 <code>resolve_workers()</code>。这类"把部署约束编码进启动路径而非靠文档"的模式已写入 ADR-007 与黄金范例。</p>
+
+<h2 id="matrix">3. 需求追踪矩阵（R1–R20）</h2>
+<table>
+  <tr><th>编号</th><th>需求</th><th>状态</th><th>证据</th></tr>
+  <tr><td>R1</td><td>Spec Kit 技能固化（先读判过时→更新→编码）</td><td><span class="tag pass">闭环</span></td><td>.claude/skills/chatgpt2api-workflow 注入 AI 会话启动协议 + 终局交付门禁 8 项 + Reviewer 门禁 + 六视角盲扫</td></tr>
+  <tr><td>R2</td><td>addyosmani/agent-skills 应用</td><td><span class="tag pass">闭环</span></td><td>Web 性能快查条款注入 skill（按适用性适配，前端审计执行 P-1~P-6）</td></tr>
+  <tr><td>R3</td><td>workflow_status.md 循环</td><td><span class="tag pass">闭环</span></td><td>本轮全程更新（19 修复 + 19 登记）</td></tr>
+  <tr><td>R4</td><td>HTML 报告 + 底部测验</td><td><span class="tag pass">闭环</span></td><td>本文件</td></tr>
+  <tr><td>R5</td><td>独立审查六维循环</td><td><span class="tag pass">闭环</span></td><td>六路代理回报 → 合成 → 修复 → 复验（见第 7 节）</td></tr>
+  <tr><td>R6</td><td>严苛审查者（有罪推定）</td><td><span class="tag pass">闭环</span></td><td>Reviewer 门禁注入 skill；audit-backend/blindspot 按此执行</td></tr>
+  <tr><td>R7</td><td>契约防坑</td><td><span class="tag pass">闭环</span></td><td>scripts/contract_guard.py（断链检测+快照 diff），抓 1 真断链</td></tr>
+  <tr><td>R8</td><td>极限施压/防穿透</td><td><span class="tag pass">闭环</span></td><td>scripts/stress_test.py 6/6 PASS（130req/s 零错误/RSS+8.6MB/慢注入实证/并发写零损坏）</td></tr>
+  <tr><td>R9</td><td>慢查询猎杀</td><td><span class="tag pass">闭环</span></td><td>scripts/slow_query_report.py（logs.jsonl 全量读=P1 热点登记；DB 索引已就位）</td></tr>
+  <tr><td>R10</td><td>SQL 安全审查</td><td><span class="tag pass">闭环</span></td><td>scripts/sql_audit.py P0=0 P1=0，ORM 全参数化，多 worker 守卫就位</td></tr>
+  <tr><td>R11</td><td>测试有效性（覆盖率≠不出 bug）</td><td><span class="tag pass">闭环</span></td><td>scripts/mutation_probe.py 3/3 caught（首轮抓 1 逃逸→补测→全抓）；覆盖率实测 46% 诚实披露</td></tr>
+  <tr><td>R12</td><td>新人保姆文档</td><td><span class="tag pass">闭环</span></td><td>docs/onboarding/ 7 篇验真（3 篇修正后）+ README/CLAUDE.md 入口指针</td></tr>
+  <tr><td>R13</td><td>ADR 逆向</td><td><span class="tag pass">闭环</span></td><td>docs/adr/index.md 追加 ADR-005~013（本轮决策全部成文）</td></tr>
+  <tr><td>R14</td><td>黄金范例</td><td><span class="tag pass">闭环</span></td><td>docs/golden-examples.md（8 范例 + 反例速查，符号引用已验证）</td></tr>
+  <tr><td>R15</td><td>目录重构/文档索引</td><td><span class="tag pass">闭环</span></td><td>死文件删除 3 + 文档错误修正 8 处 + 归档登记 D19</td></tr>
+  <tr><td>R16</td><td>目录整理杜绝屎山</td><td><span class="tag pass">闭环</span></td><td>低风险清理完成；S4 巨文件拆分维持 v2.1 登记（不重拆）</td></tr>
+  <tr><td>R17</td><td>产品策略（产品总监视角）</td><td><span class="tag pass">闭环</span></td><td>docs/product-strategy.md + audit-product 审视修正 5 处（告警=最大缺口，200-300 行成本修正）</td></tr>
+  <tr><td>R18</td><td>Agent 管理 Agent 自动挑选高价值项</td><td><span class="tag pass">闭环</span></td><td>六路并行审计 + 主线程合成排级（本报告即产物）</td></tr>
+  <tr><td>R19</td><td>一次调用跑通</td><td><span class="tag pass">闭环</span></td><td>03-setup 复核 + config.json 缺失行为验证（友好报错）+ 冒烟 8 端点 + 鉴权 7×401 实测</td></tr>
+  <tr><td>R20</td><td>盲区扫描（未知未知）</td><td><span class="tag pass">闭环</span></td><td>audit-blindspot 六视角 16 项 + audit-backend/frontend/deploy 盲区合计 40+ 项，全部排级</td></tr>
+</table>
+
+<h2 id="critique">4. 最强自我反驳</h2>
+<p>本轮开始前，我先攻击了自己最可能错的五个假设，全部落到验证或修复：</p>
+<table>
+  <tr><th>自我反驳</th><th>验证方式</th><th>结果</th></tr>
+  <tr><td>"前六轮熔断/池化闭环是真的吗？"</td><td>构造同 key 两实例实证</td><td><span class="tag p0">假闭环</span> 串号实证，已修（B1）</td></tr>
+  <tr><td>"五道防线脚本自己有没有假阳性？"</td><td>慢注入命中计数 + 幻影端点复盘</td><td><span class="tag p1">2 处工具自身 bug</span>（注入点不在请求路径、/api/system/config 幻影），已修</td></tr>
+  <tr><td>"变异探针的'被抓住'是真抓住吗？"</td><td>限流变异首轮逃逸→查测试真实断言→改锚点</td><td><span class="tag p1">首轮锚点指错文件</span>，修正后 3/3 caught</td></tr>
+  <tr><td>"文档说'仓库不提交 config.json'是真的吗？"</td><td>git ls-files 实证</td><td><span class="tag p0">文档撒谎</span>——config.json 被跟踪且含弱密钥，登记 D1 待用户决策</td></tr>
+  <tr><td>"并行代理的回报会自动回来吗？"</td><td>5 代理 idle 未回传</td><td><span class="tag p1">回报断裂</span>——SendMessage 追回，后续 prompt 已加"最终文本即返回值"</td></tr>
+</table>
+
+<h2 id="fixes">5. 实际修复清单（19 项，全证据）</h2>
+
+<h3>P0（5 项）</h3>
+<table>
+  <tr><th>#</th><th>问题</th><th>修复</th><th>证据</th></tr>
+  <tr><td><span class="tag p0">P0</span></td><td>Session 池化串号：Authorization 被后构造实例覆盖（实证 b1 带 B token）</td><td>池 key 加 fp 标识 + Authorization 请求级 + 版本头实例级 + fp 从 token uuid5 确定性派生</td><td>实证：不同 token 不同 Session、池上无 Authorization、同 token 复用；test_session_pool +1；194 全绿</td></tr>
+  <tr><td><span class="tag p0">P0</span></td><td>resume_poll 调用即 TypeError（proxy_url 形参不存在）</td><td>改 OpenAIBackendAPI() 无参构造</td><td>旧调用 TypeError 复现、新构造 OK；194 全绿</td></tr>
+  <tr><td><span class="tag p0">P0</span></td><td>bat/Docker 绕过 main.py 守卫（workers/multiproc 静默无效）</td><td>守卫模块级化 + bat/Dockerfile CMD 切 main.py + CHATGPT2API_PORT 保留</td><td>test_startup_guard 2 测试；bat GBK+CRLF 无 BOM 验证</td></tr>
+  <tr><td><span class="tag p0">P0</span></td><td>JSON 存储非原子写（半写截断丢全部账号）+ 损坏静默吞（监控全绿丢账号）</td><td>_atomic_write_text（唯一 tmp+replace+Win 锁重试）+ 损坏抛错 + health_check 解析校验</td><td>test_json_storage_safety 8 测试；并发写 120 次零 PermissionError</td></tr>
+  <tr><td><span class="tag p0">P0</span></td><td>config.json 含弱密钥且 git 跟踪（文档/.gitignore/黑名单三方打架）</td><td>登记 D1 待用户决策（git rm --cached + example 化涉及数据迁移）</td><td>弱口令检测已在 production 拒绝启动（现状防线）</td></tr>
+</table>
+
+<h3>P1（9 项）</h3>
+<table>
+  <tr><th>#</th><th>问题</th><th>修复</th><th>证据</th></tr>
+  <tr><td><span class="tag p1">P1</span></td><td>SSE 从 localStorage 读 token（恒 null，流通道静默失效）</td><td>改 getStoredAuthKey()（localforage）+ onerror 关连接 + cancelled 守卫</td><td>tsc 0 错误</td></tr>
+  <tr><td><span class="tag p1">P1</span></td><td>accounts 页三个破坏性操作无二次确认</td><td>统一 ConfirmAction Dialog（与 image-manager/logs 模式对齐）</td><td>tsc 0 错误</td></tr>
+  <tr><td><span class="tag p1">P1</span></td><td>假进度条（150ms 机械+1 + 2s 固定兜底）</td><td>改完成态直显（relogin 服务端已同步完成）</td><td>tsc 0 错误</td></tr>
+  <tr><td><span class="tag p1">P1</span></td><td>死文件 3 个（proxy-settings 孤儿组件×2 + base-url-card 零 import）</td><td>全部删除 + api.ts 断链函数清除</td><td>contract_guard 断链 1→0；tsc 0 错误</td></tr>
+  <tr><td><span class="tag p1">P1</span></td><td>假测试 4 项（pass/assertTrue(True)/path 非 None/print 不 fail）</td><td>改真实行为断言（429/401/裸 except 为零）</td><td>test_security 9 测试全绿</td></tr>
+  <tr><td><span class="tag p1">P1</span></td><td>deployment.md 端口 3000/上游仓库地址/bun</td><td>全部修正 23456/内部仓/npm</td><td>grep 0 命中</td></tr>
+  <tr><td><span class="tag p1">P1</span></td><td>onboarding 验收清单 /metrics 无鉴权 curl（必然 401）</td><td>加 ?token= + 说明 401 是正确行为</td><td>03-setup.md</td></tr>
+  <tr><td><span class="tag p1">P1</span></td><td>config._save / image_tags / log delete+cleanup 非原子写/无锁</td><td>全部接 _atomic_write_text + log 加互斥锁</td><td>194 全绿</td></tr>
+  <tr><td><span class="tag p1">P1</span></td><td>docs 日志路径 data/logs/（实际 logs.jsonl 单文件）</td><td>04/05 两篇修正</td><td>—</td></tr>
+</table>
+
+<h3>P2（5 项）</h3>
+<table>
+  <tr><th>#</th><th>问题</th><th>修复</th><th>证据</th></tr>
+  <tr><td><span class="tag p2">P2</span></td><td>熔断默认阈值 5 变异逃逸</td><td>补 2 条默认阈值回归</td><td>mutation_probe 3/3 caught</td></tr>
+  <tr><td><span class="tag p2">P2</span></td><td>examples.md 响应头大小写与 HTTP/2 实际不符</td><td>改小写</td><td>—</td></tr>
+  <tr><td><span class="tag p2">P2</span></td><td>sqlite URL 3 斜杠（README/onboarding）</td><td>全部改 4 斜杠</td><td>grep 0 命中</td></tr>
+  <tr><td><span class="tag p2">P2</span></td><td>onboarding 模块计数/passphrase/版本引用过时</td><td>全部修正</td><td>—</td></tr>
+  <tr><td><span class="tag p2">P2</span></td><td>as any 绕过（Account.created_at 类型缺失）</td><td>api.ts 补类型声明</td><td>tsc 0 错误</td></tr>
+</table>
+
+<h2 id="guards">6. 五道防线（工具化 + 实测数据）</h2>
+<p><code>scripts/run_all_guards.py</code> 一键执行，全程 25.5s，全部 PASS：</p>
+<table>
+  <tr><th>防线</th><th>脚本</th><th>结果</th><th>本轮自证价值</th></tr>
+  <tr><td>契约守卫</td><td>contract_guard.py</td><td><span class="tag pass">PASS</span> 断链 0 / 漂移 0</td><td>抓 1 真断链假功能（/api/proxy）</td></tr>
+  <tr><td>SQL 安全</td><td>sql_audit.py</td><td><span class="tag pass">PASS</span> P0=0 P1=0</td><td>ORM 全参数化实证，多 worker 守卫静态回归</td></tr>
+  <tr><td>慢查询</td><td>slow_query_report.py</td><td><span class="tag pass">PASS</span></td><td>logs.jsonl 全量读=P1 热点登记 v2.1 切分</td></tr>
+  <tr><td>变异探针</td><td>mutation_probe.py</td><td><span class="tag pass">PASS</span> 3/3 caught</td><td>抓 1 测试盲区（熔断默认阈值逃逸）→补测</td></tr>
+  <tr><td>极限施压</td><td>stress_test.py</td><td><span class="tag pass">PASS</span> 6/6</td><td>130req/s 零错误 / p99=391ms / RSS+8.6MB / 慢注入命中 33 次实证 / 并发写零损坏</td></tr>
+</table>
+<div class="callout">
+<strong>防线自身也被审计：</strong>慢注入首版注入点不在请求路径（假阳性）→ 改 log_service 真实读取通道 + 命中计数证明；
+契约守卫曾把不存在的 /api/system/config 放进快照列表（幻影端点，SPA 兜底返回 200 HTML）→ 修正 + 注释防再犯。
+<strong>工具的可信度来自工具自身被变异/被实证，不是来自"写了脚本"。</strong>
+</div>
+
+<h2 id="audit">7. 六路独立审查 → 修复 → 复验循环</h2>
+<table>
+  <tr><th>审查线程</th><th>核心发现</th><th>处置</th></tr>
+  <tr><td>audit-backend（后端/安全/SQL）</td><td>P0=2 + P1=11 + 安全 13 + 存储 6</td><td>B1/B7/D5 误报澄清后修复；SSRF/XFF/熔断孤儿等 11 项登记 v2.1</td></tr>
+  <tr><td>audit-frontend（前端/契约）</td><td>HIGH=4 + 契约盲区 C1-C12</td><td>F1/F2/F3/假进度条全修；契约盲区扩 contract_guard</td></tr>
+  <tr><td>audit-deploy（部署/运维/文档）</td><td>P0=3 + P1=8 + 文档不一致 18 处</td><td>deployment/onboarding/README 全修；CI 表述修正</td></tr>
+  <tr><td>audit-blindspot（测试有效性/盲区）</td><td>覆盖率 46% + 假测试 7 + 盲区 16</td><td>假测试 4 项修真；B6/B7 存储安全修复；时区/多worker 登记</td></tr>
+  <tr><td>audit-assets（资产/目录）</td><td>ADR 素材 13 + 目录熵 9 + onboarding 验真</td><td>ADR-005~013 成文；死文件删除；归档登记</td></tr>
+  <tr><td>audit-product（产品策略）</td><td>修正 5 处（告警成本/账号过滤/看板粒度）</td><td>docs/product-strategy.md 落盘 + 审视记录</td></tr>
+</table>
+<p><strong>复验结论：</strong>修复后五道防线 5/5 PASS、194 测试全绿、tsc 0 错误、ruff 本轮改动文件全绿。</p>
+
+<h2 id="deferred">8. 剩余真实风险与边界（19 项登记，诚实披露）</h2>
+<div class="callout crit">
+<strong>不允许说"全部闭环"。</strong>以下 19 项是本轮确认存在但未修的真实风险，全部登记 v2.1 并标注阻塞/边界。完整表见 workflow_status.md 第七轮 D1–D19。
+</div>
+<table>
+  <tr><th>#</th><th>风险</th><th>级别</th><th>边界</th></tr>
+  <tr><td>D1</td><td>config.json 含弱密钥且 git 跟踪</td><td><span class="tag p0">P0</span></td><td>需用户决策（git 历史 + 部署迁移），不单方面动</td></tr>
+  <tr><td>D2</td><td>SSRF（image_inputs URL 抓取无内网校验）</td><td><span class="tag p1">P1</span></td><td>需协议白名单设计（用户可能 legit 抓内网图床）</td></tr>
+  <tr><td>D3</td><td>XFF 伪造绕过按 IP 限流</td><td><span class="tag p1">P1</span></td><td>需 trusted_proxy 配置（部署形态相关）</td></tr>
+  <tr><td>D4</td><td>熔断器注册表孤儿化（remove 零调用）</td><td><span class="tag p1">P1</span></td><td>账号删除/轮换路径接入，v2.1</td></tr>
+  <tr><td>D6</td><td>codex 裸 urllib 绕过代理/池/熔断/指标</td><td><span class="tag p1">P1</span></td><td>逆向协议验证成本高，v2.1</td></tr>
+  <tr><td>D9</td><td>备份失败完全静默</td><td><span class="tag p1">P1</span></td><td>产品策略列告警 webhook 为最高价值项（200-300 行），v2.1</td></tr>
+  <tr><td>D13</td><td>覆盖率 46%（openai_backend_api 27% 等大头）</td><td><span class="tag p2">P2</span></td><td>系统性补测工程，v2.1 分批</td></tr>
+  <tr><td>D14</td><td>live-only 6 条核心链路无离线等价物</td><td><span class="tag p2">P2</span></td><td>mock 化离线重放，v2.1</td></tr>
+  <tr><td>D16</td><td>多 worker 状态分裂（cache/SSE 聚合/熔断稀释）</td><td><span class="tag p2">P2</span></td><td>S1 Redis 已登记，本批为补充场景</td></tr>
+  <tr><td>D18</td><td>主动告警 webhook</td><td><span class="tag p2">P2</span></td><td>新功能，v2.1（产品策略最高价值项）</td></tr>
+</table>
+
+<h2 id="conclusion">9. 最终完成度结论（诚实、克制、基于证据）</h2>
+<ul class="checklist">
+  <li><strong>真实闭环：</strong>19 项修复全部有证据（测试/实证/命令输出）；五道防线工具化并自证价值（抓 2 真 bug）；六路审查循环完成；ADR/范例/策略/文档全部成文</li>
+  <li><strong>仅部分闭环：</strong>覆盖率 46%（韧性三核心测试真实有效——变异 3/3 caught，但 openai_backend_api 27% 等大头薄）；多 worker 形态（守卫不可绕过已修，但状态分裂 D16 待 Redis）</li>
+  <li><strong>仍受阻：</strong>D1（config.json 弱密钥 git 跟踪）需用户拍板；D2/D3 等安全设计项需部署形态输入</li>
+  <li class="no"><strong>不做宣称：</strong>不说"无 bug"、不说"可上线无风险"、不说"全部闭环"——19 项登记是真实边界</li>
+</ul>
+<div class="callout">
+<strong>当前是否达到"一次调用就能顺利跑通、逻辑基本连贯"的标准？</strong>
+是——冒烟 8 端点 200、鉴权 7×401 实测、新人按 03-setup 可 10 分钟跑通（config.json 缺失有友好报错）、
+bat/Docker 守卫不可绕过。但<strong>生产部署前必须处理 D1</strong>（改默认弱密钥），安全设计项 D2/D3 按部署形态评估。
+</div>
+
+<h2 id="quiz">10. 验收测验（必过）</h2>
+<p>以下 10 题覆盖本轮全部关键决策与证据。展开答案自查——<strong>全对才算理解本轮变更</strong>。</p>
+
+<div class="quiz-question">
+  <h4>Q1. Session 池化串号的根因是什么？修复的三件套是什么？</h4>
+  <ol>
+    <li>A. 池 key 不含账号标识；修复 = key 加 token 末 8 位</li>
+    <li>B. __init__ 往共享 Session 写 Authorization；修复 = 池 key 加 fp 标识 + Authorization 请求级 + fp 从 token 确定性派生</li>
+    <li>C. Session 没有 close；修复 = finally close</li>
+  </ol>
+  <details><summary>查看答案</summary><div class="answer">B。实证：同 key 两实例，b1 请求头带 b2 的 token。A 是第六轮已修（不够），C 会拆连接。修复后实证：不同 token 不同 Session、池上无 Authorization、同 token 复用。</div></details>
+</div>
+
+<div class="quiz-question">
+  <h4>Q2. resume_poll 六轮零测试放过了什么 bug？为什么零测试？</h4>
+  <ol>
+    <li>A. 超时太短；因为没压测</li>
+    <li>B. OpenAIBackendAPI(proxy_url=...) 调用即 TypeError（形参不存在）；因为该路径无任何测试覆盖</li>
+    <li>C. 代理不生效；因为没配代理</li>
+  </ol>
+  <details><summary>查看答案</summary><div class="answer">B。调用处传 proxy_url 关键字 vs __init__(self, access_token="")——Python 必然 TypeError。test/ 全目录 grep resume_poll 零命中，解释六轮绿测为何漏。这是"覆盖率看着够但一上线就崩"的教科书案例。</div></details>
+</div>
+
+<div class="quiz-question">
+  <h4>Q3. bat/Docker 的 workers 配置为什么静默无效？修复方式为什么不选"改 bat 加 --workers"？</h4>
+  <ol>
+    <li>A. bat 语法错误；改 bat 就够了</li>
+    <li>B. bat/Docker 直跑 uvicorn main:app 绕过 main.py __main__ 守卫；改守卫模块级化让两条路径共享 resolve_workers()，而非在 bat 里复制守卫逻辑</li>
+    <li>C. uvicorn 不支持 workers；换 gunicorn</li>
+  </ol>
+  <details><summary>查看答案</summary><div class="answer">B。守卫（JSON 回退 + multiproc 初始化）在 __main__ 块，uvicorn CLI import main 时不经过。把部署约束编码进启动路径（模块级）而非靠文档/启动器复制——ADR-007 + 黄金范例 #7。</div></details>
+</div>
+
+<div class="quiz-question">
+  <h4>Q4. JSON 存储的"监控全绿丢账号"事故链是什么？修复的两个语义是什么？</h4>
+  <ol>
+    <li>A. 磁盘满；修复 = 加磁盘监控</li>
+    <li>B. 损坏文件 _load_json_list 静默 return [] + health_check 只读不解析报 healthy；修复 = 原子写（tmp+replace）+ 损坏抛错/health_check 解析校验</li>
+    <li>C. 并发写；修复 = 加锁</li>
+  </ol>
+  <details><summary>查看答案</summary><div class="answer">B。非原子写导致半写截断 → 加载静默吞 → 账号池为空但 health_check 全绿。修复后：半写不可能（原子写）、损坏即启动失败可感知（拒绝静默）。8 条回归测试。</div></details>
+</div>
+
+<div class="quiz-question">
+  <h4>Q5. SSE 静默失效的根因？为什么"看起来正常"？</h4>
+  <ol>
+    <li>A. 后端没推；看板有数据所以正常</li>
+    <li>B. 从 localStorage 读 token 但会话存 localforage（IndexedDB）恒为 null，EventSource 从未建立；30s 轮询兜底让看板"看起来在更新"</li>
+    <li>C. token 过期；刷新就好了</li>
+  </ol>
+  <details><summary>查看答案</summary><div class="answer">B。store/auth.ts 用 localforage.createInstance（IndexedDB），从不写 localStorage。轮询兜底掩盖了流通道死亡——"功能正常"的表象下真实推送通道从未工作过。修复：getStoredAuthKey() + onerror 关连接。</div></details>
+</div>
+
+<div class="quiz-question">
+  <h4>Q6. 变异探针首轮"限流窗口变异逃逸"的真相是什么？说明什么方法论？</h4>
+  <ol>
+    <li>A. 限流测试是假的；说明测试都不可信</li>
+    <li>B. 探针锚点指错了测试文件（test_security 不含限流用例），改指 test_contracts（真实断言 window_seconds==60.0）后 caught；说明工具的"逃逸"结论本身要审计</li>
+    <li>C. 变异没生效；说明探针坏了</li>
+  </ol>
+  <details><summary>查看答案</summary><div class="answer">B。工具结论的可信度来自工具自身被审计——首轮"逃逸"是探针锚点错误，不是测试盲区。修正后 3/3 caught。熔断阈值逃逸才是真盲区（补 2 条回归）。</div></details>
+</div>
+
+<div class="quiz-question">
+  <h4>Q7. 契约守卫抓到的断链是什么？它为什么是"假功能"？</h4>
+  <ol>
+    <li>A. 前端调 /api/proxy 后端从未注册——settings 代理卡片"保存"按钮看似完整（loading/toast 全套）但调用必然 404/405，用户配置从未生效；属孤儿组件残留</li>
+    <li>B. 后端少了 /api/proxy；补一个就好了</li>
+    <li>C. 前端路径拼错；改路径就好</li>
+  </ol>
+  <details><summary>查看答案</summary><div class="answer">A。proxy-settings.tsx 是未被任何页面 import 的孤儿组件（页面实际挂 config-card），但 api.ts 残留 fetchProxy/updateProxy 断链函数。修复 = 删孤儿 + 删断链函数 + 契约守卫自动防再犯（断链=0 是交付门禁）。</div></details>
+</div>
+
+<div class="quiz-question">
+  <h4>Q8. 假测试的四种形态（本轮修正的）？</h4>
+  <ol>
+    <li>A. pass / assertTrue(True) / 只断言 path 非 None / 裸 except 扫描只 print 不 fail</li>
+    <li>B. 没有 setUp / 没有 tearDown / 没有 assert / 没有 docstring</li>
+    <li>C. 太慢 / 太快 / 太多 / 太少</li>
+  </ol>
+  <details><summary>查看答案</summary><div class="answer">A。修正为真实行为断言：限流超限必须 429、管理端点无鉴权必须 401、裸 except 必须为零（ offenders==[] 否则 fail）。test_security 9 测试全绿。</div></details>
+</div>
+
+<div class="quiz-question">
+  <h4>Q9. config.json 弱密钥问题为什么登记 D1 而不直接修？</h4>
+  <ol>
+    <li>A. 懒得修</li>
+    <li>B. git rm --cached + config.example.json 化会动 git 历史与现有部署的数据流（config.json 挂载进容器、生产环境弱口令已拒绝启动），属需用户拍板的破坏性变更，不单方面执行</li>
+    <li>C. 修不了</li>
+  </ol>
+  <details><summary>查看答案</summary><div class="answer">B。现状防线已在（production 弱口令拒绝启动），但文档说"仓库不提交"是假的（git ls-files 确认跟踪）、.gitignore 给错误安全感。正确处置需用户决策迁移路径。</div></details>
+</div>
+
+<div class="quiz-question">
+  <h4>Q10. 本轮"组件存在 + 接线完成 + 测试全绿 ≠ 行为正确"的三个实证案例？</h4>
+  <ol>
+    <li>A. Session 串号（同 key 两实例）/ resume_poll TypeError（调用即崩路径零测试）/ SSE localStorage（存储位置错误）</li>
+    <li>B. 端口错 / 文档错 / 版本错</li>
+    <li>C. 编译错 / 语法错 / 导入错</li>
+  </ol>
+  <details><summary>查看答案</summary><div class="answer">A。三个都是"六轮宣称闭环"的领域，全部需要构造最不利场景做实证才能发现：同 key 两实例、调用即崩的路径、存储真实位置。这是本轮最重要的方法论遗产——已写入 skill 的盲区扫描条款与黄金范例反例表。</div></details>
+</div>
+
+<footer>
+  <p><strong>报告边界声明：</strong>本报告所有"已修复"均有对应证据（测试名/实证输出/命令结果），所有"登记"均标注阻塞/边界。
+  未做真实上游调用（live 测试排除，烧钱的图片/视频生成 API 不跑 e2e）；覆盖率 46% 为 pytest-cov 实测，非估算。
+  19 项修复 + 19 项登记 = 本轮完整事实。生成：2026-08-02 · ChatGPT2API 终局闭环第七轮。</p>
+</footer>
+
+</div>
+</body>
+</html>

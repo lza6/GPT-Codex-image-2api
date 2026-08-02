@@ -28,12 +28,14 @@ class SessionPool:
         self._sessions: dict[str, tuple[requests.Session, float]] = {}
         self._lock = threading.Lock()
 
-    def _make_key(self, account: dict | None, impersonate: str, verify: bool) -> str:
-        """生成缓存 key：账号标识 + 代理配置 + impersonate + verify。
+    def _make_key(self, account: dict | None, impersonate: str, verify: bool, fp_key: str = "") -> str:
+        """生成缓存 key：账号标识 + 代理配置 + impersonate + verify + 指纹标识。
 
-        必须含账号标识：池化 Session 会被各调用方往 session.headers 注入指纹与
-        Authorization，若同代理多账号共享同一 Session，后注入者覆盖前者造成串号。
+        必须含账号标识：池化 Session 是共享对象，若同代理多账号共享同一 Session，
+        一个实例写入的头部会污染另一个实例（第七轮 B1：Authorization 串号实证）。
         用 token 末 8 位做稳定标识（不泄露完整 token）。
+        fp_key（第七轮新增）：调用方指纹标识（如 oai-device-id），
+        同账号不同指纹的实例不会共享 Session，会话级头与 key 一致。
         """
         proxy = ""
         try:
@@ -43,11 +45,11 @@ class SessionPool:
             proxy = "direct"
         token = str((account or {}).get("access_token") or "")
         acct_id = token[-8:] if token else "anon"
-        return f"{acct_id}|{proxy}|{impersonate}|{int(verify)}"
+        return f"{acct_id}|{proxy}|{impersonate}|{int(verify)}|{fp_key}"
 
-    def get(self, account: dict | None = None, impersonate: str = "chrome110", verify: bool = True) -> requests.Session:
+    def get(self, account: dict | None = None, impersonate: str = "chrome110", verify: bool = True, fp_key: str = "") -> requests.Session:
         """获取（或创建并缓存）一个 Session。"""
-        key = self._make_key(account, impersonate, verify)
+        key = self._make_key(account, impersonate, verify, fp_key)
         now = time.monotonic()
         with self._lock:
             cached = self._sessions.get(key)
@@ -89,16 +91,21 @@ class SessionPool:
         # 池中 Session 无需任何操作；连接复用依赖 curl keep-alive，不做 close。
         return
 
-    def invalidate(self, account: dict | None = None, impersonate: str = "chrome110", verify: bool = True) -> None:
-        """使某配置的 Session 失效（如 token 失效后强制重建）。"""
-        key = self._make_key(account, impersonate, verify)
+    def invalidate(self, account: dict | None = None, impersonate: str = "chrome110", verify: bool = True, fp_key: str = "") -> None:
+        """使某配置的 Session 失效（如 token 失效后强制重建）。
+
+        fp_key 为空时失效该账号全部指纹的 Session（前缀匹配）。
+        """
+        prefix = self._make_key(account, impersonate, verify, "")
         with self._lock:
-            cached = self._sessions.pop(key, None)
-            if cached is not None:
-                try:
-                    cached[0].close()
-                except Exception:
-                    pass
+            keys = [k for k in self._sessions if k == prefix or k.startswith(prefix)]
+            for key in keys:
+                cached = self._sessions.pop(key, None)
+                if cached is not None:
+                    try:
+                        cached[0].close()
+                    except Exception:
+                        pass
 
     def close_all(self) -> None:
         with self._lock:

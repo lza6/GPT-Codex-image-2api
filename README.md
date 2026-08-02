@@ -47,7 +47,7 @@ v2.0.0 引入生产级安全默认值收紧与韧性闭环，**含 breaking chan
 - **统一重试预算**：幂等 GET 指数退避、流式首字节前换号、流式开始后绝不重试（防重复扣费/出图）
 - **上游熔断 + 熔断状态可视化**：账号页熔断列实时标注熔断中/半开账号，支持一键驱逐失效 token
 - **统一错误反馈**：401 跳登录、429 限流提示、5xx 错误带 request-id，SSE 页面隐藏自动暂停
-- **CI 质量门**：GitHub Actions 后端（ruff/mypy/pytest/pip-audit）+ 前端（tsc/build）
+- **CI 质量门**：GitHub Actions 硬门（pytest + 前端 tsc/build）+ 软门提示（ruff/mypy/pip-audit 宽限分期偿还）+ 本地五道防线（`scripts/run_all_guards.py`：契约/SQL/慢查询/变异/压测）
 
 ## 架构图
 
@@ -82,6 +82,8 @@ v2.0.0 引入生产级安全默认值收紧与韧性闭环，**含 breaking chan
 ```
 
 ## 快速开始
+
+> **新加入开发者 / AI 编码助手**：先读 [`docs/onboarding/README.md`](docs/onboarding/README.md)（60 秒速览 + 全套新人文档索引）；AI 助手再读 `.claude/skills/chatgpt2api-workflow/SKILL.md`（工作流与验收门禁）。改完代码跑 `scripts/run_all_guards.py` 做五道防线回归。
 
 ### Windows 一键启动（推荐）
 
@@ -218,7 +220,7 @@ environment:
 # docker-compose.yml 中设置环境变量
 environment:
   - STORAGE_BACKEND=sqlite        # 多 Worker 必须使用共享存储！
-  - DATABASE_URL=sqlite:///app/data/accounts.db
+  - DATABASE_URL=sqlite:////app/data/accounts.db
   - CHATGPT2API_WORKERS=4          # 建议设为 CPU 核心数
 ```
 
@@ -263,7 +265,7 @@ environment:
 
 ### 质量保障（CI/CD）
 
-- **CI 四道门**（`.github/workflows/ci.yml`）：ruff lint / mypy type / pytest unit / pip-audit security + 前端 tsc + build
+- **CI 质量门**（`.github/workflows/ci.yml`）：硬门 pytest + 前端 tsc + build；软门 ruff/mypy/pip-audit（continue-on-error，存量债分期偿还）；本地五道防线 `scripts/run_all_guards.py`（契约守卫/SQL 审查/慢查询猎杀/变异探针/极限施压）
 - **活测试隔离**：需真实上游/活服务的测试打 `pytest.mark.live`，CI 默认排除（稳定不触网）；本地手动 `uv run pytest -m live` 运行
 - **运行测试**：`uv run pytest test/`（默认排除 live/redis）
 

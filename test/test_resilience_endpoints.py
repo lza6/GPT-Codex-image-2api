@@ -15,6 +15,7 @@ def _client():
     import sys
     sys.path.insert(0, str(ROOT_DIR))
     from fastapi.testclient import TestClient
+
     from api.app import create_app
     return TestClient(create_app())
 

@@ -29,6 +29,10 @@ class LogService:
         self.path = path
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._add_count = 0
+        # 读-改-写路径（delete/_auto_cleanup）进程内互斥（第七轮 B16 部分缓解：
+        # append 快路径不加锁，但覆写类操作必须互斥防 lost-update）
+        import threading
+        self._write_lock = threading.Lock()
 
     @staticmethod
     def _legacy_id(raw_line: str, line_number: int) -> str:
@@ -113,17 +117,24 @@ class LogService:
     _AUTO_CLEAN_KEEP = 3000
 
     def _auto_cleanup(self) -> None:
-        """日志条数超限时自动裁剪到保留量，防止无限增长。"""
+        """日志条数超限时自动裁剪到保留量，防止无限增长（互斥+原子写）。
+
+        失败必须可观测（第七轮 review #2：此前 except: pass 静默吞，
+        清理持续失败会磁盘写满而无任何痕迹）。
+        """
         try:
             if not self.path.exists():
                 return
-            lines = self.path.read_text(encoding="utf-8").splitlines()
-            if len(lines) <= self._AUTO_CLEAN_MAX_ENTRIES:
-                return
-            kept = lines[-self._AUTO_CLEAN_KEEP:]
-            self.path.write_text("\n".join(kept) + "\n", encoding="utf-8")
+            with self._write_lock:
+                lines = self.path.read_text(encoding="utf-8").splitlines()
+                if len(lines) <= self._AUTO_CLEAN_MAX_ENTRIES:
+                    return
+                kept = lines[-self._AUTO_CLEAN_KEEP:]
+                from services.storage.json_storage import _atomic_write_text
+                _atomic_write_text(self.path, "\n".join(kept) + "\n")
         except Exception:
-            pass
+            import logging
+            logging.getLogger(__name__).warning("log auto-cleanup failed", exc_info=True)
 
     def list(self, type: str = "", start_date: str = "", end_date: str = "", limit: int = 200) -> list[dict[str, Any]]:
         if not self.path.exists():
@@ -145,22 +156,24 @@ class LogService:
         target_ids = {str(item or "").strip() for item in ids if str(item or "").strip()}
         if not self.path.exists() or not target_ids:
             return {"removed": 0}
-        lines = self.path.read_text(encoding="utf-8").splitlines()
-        kept_lines: list[str] = []
-        removed = 0
-        for line_number, raw_line in enumerate(lines):
-            item = self._parse_line(raw_line, line_number)
-            if item is None:
-                kept_lines.append(raw_line)
-                continue
-            if str(item.get("id") or "") in target_ids:
-                removed += 1
-                continue
-            kept_lines.append(self._serialize_item(item))
-        content = "\n".join(kept_lines)
-        if content:
-            content += "\n"
-        self.path.write_text(content, encoding="utf-8")
+        with self._write_lock:
+            lines = self.path.read_text(encoding="utf-8").splitlines()
+            kept_lines: list[str] = []
+            removed = 0
+            for line_number, raw_line in enumerate(lines):
+                item = self._parse_line(raw_line, line_number)
+                if item is None:
+                    kept_lines.append(raw_line)
+                    continue
+                if str(item.get("id") or "") in target_ids:
+                    removed += 1
+                    continue
+                kept_lines.append(self._serialize_item(item))
+            content = "\n".join(kept_lines)
+            if content:
+                content += "\n"
+            from services.storage.json_storage import _atomic_write_text
+            _atomic_write_text(self.path, content)
         return {"removed": removed}
 
 

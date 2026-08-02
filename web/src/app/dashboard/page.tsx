@@ -22,6 +22,7 @@ import {
   type UsageStats,
 } from "@/lib/api";
 import { useAuthGuard } from "@/lib/use-auth-guard";
+import { getStoredAuthKey } from "@/store/auth";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from "recharts";
 
 const TIER_LABELS: Record<SchedulerTier, string> = {
@@ -101,13 +102,14 @@ function DashboardContent() {
     void load();
 
     // SSE 实时推送：订阅后端 dashboard 流，每 3 秒更新一次
-    const token = typeof window !== "undefined" ? localStorage.getItem("chatgpt2api_auth_key") : null;
-    if (!token) return;
-
-    // 页面隐藏时暂停 SSE + 轮询，避免后台标签页累计积压；重新可见时立即拉一次并重建连接
+    // token 存在 localforage（IndexedDB），不是 localStorage——第七轮 F2 修复：
+    // 此前从 localStorage 读取恒为 null，SSE 通道静默失效只剩 30s 轮询兜底
+    let cancelled = false;
     let source: EventSource | null = null;
-    const connect = () => {
-      if (source) return;
+    const connect = async () => {
+      if (source || cancelled) return;
+      const token = await getStoredAuthKey();
+      if (!token || cancelled) return;
       source = new EventSource(`/api/dashboard/stream?token=${encodeURIComponent(token)}`);
       attachHandlers(source);
     };
@@ -157,11 +159,14 @@ function DashboardContent() {
         }
       };
       src.onerror = () => {
-        // SSE 断连自动重连由浏览器处理
+        // 断连（含 token 失效 401）时主动关闭并允许重连逻辑再次建立；
+        // 轮询兜底独立运行，看板不会因流通道故障而停更（第七轮 F4）
+        source?.close();
+        source = null;
       };
     };
 
-    connect();
+    void connect();
     document.addEventListener("visibilitychange", onVisibility);
 
     // 兜底轮询：SSE 不可用时 30s 轮询（页面隐藏时跳过，避免后台积压）
@@ -172,6 +177,7 @@ function DashboardContent() {
     }, 30000);
 
     return () => {
+      cancelled = true;
       disconnect();
       document.removeEventListener("visibilitychange", onVisibility);
       clearInterval(timer);

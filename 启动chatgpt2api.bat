@@ -4,6 +4,7 @@ cd /d "%~dp0"
 title ChatGPT2API Æô¶¯Æ÷
 
 set "APP_PORT=23456"
+set "CHATGPT2API_PORT=%APP_PORT%"
 
 echo.
 echo ================================================
@@ -154,7 +155,7 @@ echo.
 
 set "RESTART_COUNT=0"
 :service_loop
-"%UV%" run uvicorn main:app --host 0.0.0.0 --port %APP_PORT% --access-log --limit-concurrency 512 --backlog 1024
+"%UV%" run python main.py
 set "EXIT_CODE=%ERRORLEVEL%"
 if "%EXIT_CODE%"=="0" (
     goto :end

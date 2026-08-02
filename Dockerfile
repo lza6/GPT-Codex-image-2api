@@ -53,4 +53,4 @@ COPY --from=web-build /app/web/out ./web_dist
 
 EXPOSE 80
 
-CMD ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "80", "--access-log", "--limit-concurrency", "512", "--backlog", "1024"]
+CMD ["uv", "run", "python", "main.py"]

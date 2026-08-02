@@ -5,12 +5,11 @@ import time
 import unittest
 from pathlib import Path
 
+import pytest
 import requests
 
 from test.utils import save_image
 from utils.log import logger
-
-import pytest
 
 # 需真实上游/活服务(localhost:23456)的测试，CI 默认排除（pytest -m live 本地手动跑）
 pytestmark = pytest.mark.live

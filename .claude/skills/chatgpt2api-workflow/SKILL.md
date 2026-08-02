@@ -45,13 +45,17 @@ chatgpt2api/
 ├── web/                      # Next.js 前端 (webpack 构建，中文路径必须 --webpack)
 │   └── src/
 │       ├── app/              # 页面路由
-│       │   ├── dashboard/    # 运维看板 (延迟/使用中账号/延迟分布)
+│       │   ├── dashboard/    # 运维看板 (调度/熔断/用量/延迟/SSE)
 │       │   ├── proxy-pool/   # IP 池管理
-│       │   ├── accounts/     # 号池管理
+│       │   ├── accounts/     # 号池管理 (含熔断状态列+驱逐失效token)
 │       │   ├── image/        # 在线画图
+│       │   ├── image-manager/ # 图片管理
+│       │   ├── debug/        # 调试面板 (chat/ppt/psd/search/skill)
+│       │   ├── login/        # 登录
 │       │   ├── logs/         # 日志管理
-│       │   └── settings/     # 系统设置
-│       └── lib/api.ts        # API 请求封装 + 类型定义
+│       │   └── settings/     # 系统设置 (含 CPA/Sub2API/备份/第三方应用)
+│       └── lib/api.ts        # API 请求封装 + 类型定义 (经 lib/request.ts 统一拦截)
+├── services/protocol/        # 协议层 (conversation/openai_v1_*/anthropic_v1_messages/web_search_tool)
 ├── config.json               # 运行时配置 (启动时 schema 校验)
 ├── main.py                   # 启动入口 (多 worker, JSON 存储自动回退 workers=1)
 ├── 启动chatgpt2api.bat        # Windows 一键启动 (GBK+CRLF 无 BOM)
@@ -91,8 +95,9 @@ chatgpt2api/
 
 ### 5. TLS 连接池（services/session_pool.py）
 
-- 按 (代理配置, impersonate, verify) 缓存 Session，复用 TCP/TLS 连接
+- 按 (代理配置, impersonate, verify, **token 末 8 位账号标识**) 缓存 Session，复用 TCP/TLS 连接
 - 5 分钟 TTL，最多 200 个配置，惰性清理
+- 池化 Session 带 `_chatgpt2api_pooled` 标记，`close()` 转 `release()` 不拆连接（第六轮 P0 修复：OAuth 刷新取池后 finally close 曾每次拆连接）
 
 ### 6. 代理池（services/proxy_pool.py）
 
@@ -173,6 +178,57 @@ chatgpt2api/
 - [ ] 无未使用导入
 - [ ] 异常路径有指标/追踪/日志
 
+### 五道防线（每次改动后跑 `scripts/run_all_guards.py` 一键全过）
+1. **契约守卫** `scripts/contract_guard.py`：前端 /api 引用与后端路由差集（断链检测）+ 端点字段签名快照 diff。改 API 字段后必跑；新增端点加进 SNAPSHOT_ENDPOINTS
+2. **SQL 安全审查** `scripts/sql_audit.py`：注入面/事务边界/多 worker 守卫静态扫描
+3. **慢查询猎杀** `scripts/slow_query_report.py`：data/ 规模盘点 × 全量扫描热点交叉
+4. **变异探针** `scripts/mutation_probe.py`：对关键阈值/判断做种子变异，验证测试真能抓住回归（抓不住的补测试，不许直接跳过）
+5. **极限施压** `scripts/stress_test.py`：并发突刺 + 慢存储注入 + 存储并发写一致性（TestClient 进程内，不影响生产）
+
+报告落盘 `reports/<防线>/`（已 gitignore）。任何防线 FAIL 不许交付。
+
+### 终局交付门禁（声称"完成"前必须逐项打勾）
+- [ ] **需求追踪**：本轮需求在 workflow_status.md 有矩阵行，每行有证据（文件/命令/测试），无证据标"未闭环"
+- [ ] **反向批判**：主动写出"我自己最可能错在哪"，至少攻击 3 个假设并逐一验证或修复
+- [ ] **假功能扫描**：前端新增按钮/开关/菜单必须有点击后的真实后端调用证据（契约守卫断链=0）
+- [ ] **五道防线全绿**：run_all_guards.py PASS
+- [ ] **回归全绿**：pytest 全量（排除 live）passed/0 failed；前端 tsc 0 错误 + build 成功
+- [ ] **文档同步**：README/CHANGELOG/onboarding/workflow_status 与新行为一致；新脚本进 docs
+- [ ] **无伪实现**：TODO/FIXME/占位返回/mock 充数 = 未闭环；做不到的写明外部限制与降级行为
+- [ ] **边界声明**：无法实测的部分（真实上游、付费 API）写明"已做到哪步/缺什么外部条件/无该条件时如何降级"
+
+### Reviewer 门禁（独立审查必须这么跑）
+- 有罪推定：假设每行新代码有缺陷，直到证据证明否则
+- 评估成品不评估意图：TODO=未处理，FIXME=已损坏
+- 每条发现给 file:line + 证据 + 失败场景（什么输入/状态下出错）
+- 分级：Blocking（安全/数据损坏/逻辑错误/竞态）→ Required（粗糙/懒惰/未处理边界）→ Suggestion → Note
+- 输出 Verdict：Request Changes / Needs Discussion / Approve；Approve 标准是"无 Blocking"，不是"完美"
+- 修复后必须复验循环，直到 Approve 或明确卡点
+- 禁止为逃避 Approve 而人为制造问题
+
+### 盲区扫描（每轮至少一次，六个视角各提 ≥1 个具体场景）
+1. 最苛刻验收：哪个功能"界面上有、流程走不通"
+2. 最倒霉接入方：按文档真实发一个请求会踩什么坑
+3. 最辛苦运维：凌晨三点磁盘满/内存涨/连接泄漏会怎样
+4. 极端输入：畸形 JSON、超大 body、并发突刺、存储文件被删、config 非法值
+5. 时间/环境：时区、系统时间回拨、跨天边界、中文路径、Windows 文件锁
+6. 并发与多 worker：状态分裂场景（S1 Redis 已登记，找别的）
+
+### Web 性能快查（前端改动时，addyosmani/agent-skills 精神）
+- 整包 import 大库（recharts/lodash 全量）→ 改具名导入
+- img 缺 width/height → CLS 风险
+- render-blocking 外链、字体无 display=swap
+- 动画避开 width/height/top/left，只用 transform/opacity
+- 有证据才报，不跑 Lighthouse 全量（静态导出内网工具，不制造无证据工作）
+
+### AI 会话启动协议（CRITICAL）
+任何 AI 会话在本项目动手前，按序：
+1. 读本技能（.claude/skills/chatgpt2api-workflow/SKILL.md）
+2. 读 workflow_status.md 最新一轮（知道哪些已闭环，别重复也别推翻）
+3. 读 CLAUDE.md 项目约定
+4. 判断上述文档是否过时（对照实际代码抽查 ≥3 处）：过时→先更新文档再编码；未过时→按文档编码
+5. 编码前先写验收标准（怎么算完成、用什么命令验证）
+
 ## 历史 bug 警示（不可再犯）
 
 | bug | 文件 | 教训 |
@@ -186,7 +242,10 @@ chatgpt2api/
 | 环境污染击穿测试 | test/conftest.py | 禁止模块级 os.environ.setdefault 改 auth-key；用 autouse fixture 隔离 |
 | usage 统计读错字段 | api/dashboard.py | 日志时间键 time/ts/created_at 兼容，status 在 detail 子对象 |
 | chunked 绕过请求体限制 | api/request_size_limit.py | 仅查 Content-Length 不够，无 Length 的 chunked 写请求要 411 |
-| Session 池化指纹串扰（未做） | services/openai_backend_api.py | 每实例独立 fp 注入 session.headers，同代理多账号共享会覆盖 Authorization 串号——池化需含账号标识的 key（登记 v2.1） |
+| Session 池化指纹串扰（已修） | services/session_pool.py | 池 key 必须含账号标识（token 末 8 位）——同代理多账号共享会覆盖 Authorization 串号 |
+| 池化形同虚设（已修） | services/openai_backend_api.py | 池化 Session 的 close() 必须转 release()，否则 finally close 每次拆连接 |
+| 前端断链假功能（已修） | web/src/lib/api.ts + settings 孤儿组件 | 前端调了后端从未注册的 /api/proxy——删组件必须连带删 api.ts 封装函数；契约守卫可自动抓此类断链 |
+| 熔断默认阈值无人看守（已修） | test/test_circuit_breaker.py | 测试全用自定义阈值(3)，默认 5 变异曾逃逸——关键默认值必须有显式回归测试 |
 
 ## 关键文件速查
 
@@ -203,3 +262,8 @@ chatgpt2api/
 | 看板 | api/dashboard.py + web/src/app/dashboard/page.tsx |
 | IP 池 | web/src/app/proxy-pool/page.tsx |
 | API 文档 | docs/api/* |
+| 五道防线 | scripts/run_all_guards.py（contract_guard/sql_audit/slow_query_report/mutation_probe/stress_test） |
+| 黄金范例 | docs/golden-examples.md |
+| 产品策略 | docs/product-strategy.md |
+| ADR | docs/adr/index.md |
+| 新人文档 | docs/onboarding/（7 篇，高级工程师版 + 承包商版） |

@@ -1,228 +1,153 @@
-# ChatGPT2API 工作流状态
+# ChatGPT2API 工作流状态 — 第七轮（规范固化 + 五道防线增量闭环）
 
-> 最后更新：2026-08-02
-> 模式：终局闭环总审计 → 反向批判 → 修复 → 独立审查 → 复验循环
+> 最后更新：2026-08-02（本轮启动）
+> 模式：终局闭环第七轮 —— Spec Kit 技能固化 + 全量增量审计 + 五道防线工具化 + 盲区扫描 + 终审校验清单注入
+> 历史基线（第六轮收尾，已提交 git）：N1–N28 闭环、S1–S8 核验、182 passed/0 failed、tsc 0 错误、v2.0.0 已发版、web_dist 已构建同步
 
-## 工作流总览
+## 本轮权威需求源（用户本轮指令逐条结构化）
+
+| 编号 | 需求（原文浓缩） | 类型 | 当前状态 | 证据/位置 | 缺口 → 动作 |
+|------|----------------|------|---------|-----------|------------|
+| R1 | 使用 Spec Kit 技能（本地优先，缺失则联网安装），把项目沉淀为"工作流+技能"，先读文档/记忆/规则判过时→更新→编码 | 显式 | 🟡 部分 | `.claude/skills/chatgpt2api-workflow`（22a2ec5 已建，需判过时并更新）；speckit 相关技能本地已安装 | 需注入：终审校验清单、五道防线、五角色门禁、Reviewer-Gate、盲扫条款、AI 先读规则 |
+| R2 | 必须使用 addyosmani/agent-skills 的技能 | 显式 | 🟡 适配中 | 该仓库为 Web 性能类技能集（web-perf、performance-budget、core-web-vitals 等） | 按适用性注入到 skill；全量硬塞会引入无证据误报，已在盲区扫描记录权衡 |
+| R3 | 生成 workflow_status.md 并循环直至闭环 | 显式 | ✅ 本文件 | 本文件 | 持续更新 |
+| R4 | 最终 HTML 报告（上下文/直觉/变更/底部必过测验） | 显式 | 🔲 未做 | 前例 `final-report-v5.html` | 产出 `final-report-v7.html`，含本轮证据链+测验 |
+| R5 | 完成后启动独立审查线程（六维：需求完整性/逻辑正确性/边界/代码质量/测试覆盖/实际运行），循环修复复验 | 显式 | 🔲 未做 | 前轮已执行过红队审查（Approve） | 本轮对新产物（skill/工具/文档）做独立审查循环 |
+| R6 | 严苛代码审查者（有罪推定/零懒惰/输出格式 Summary/Critical/Required/Suggestions/Verdict） | 显式 | 🔲 未做 | — | 作为 skill 的 reviewer 门禁 + 本轮对增量产物执行 |
+| R7 | 契约防坑测试（前后端字段对齐回归） | 显式 | 🟡 存在需加强 | `scripts/contract_probe.py`、`test/test_contracts.py` | 需审计覆盖度：是否所有页面×端点契约对都覆盖；缺口补齐 |
+| R8 | 极限施压/防穿透（极端情况系统不崩、数据不错乱） | 显式 | 🟡 部分 | 第六轮压测 7912 req/min；内存/慢存取边界未测 | 产出 `scripts/stress_test.py`：worker 内存模拟压测 + 慢存储注入 + 关键响应预算 + 并发一致性 |
+| R9 | 慢查询猎杀与索引优化 | 显式 | 🔲 未做 | SQLite/JSON 存储 | 产出 `scripts/slow_query_report.py`：top 表数据量分布、n² 扫描点、索引/分页建议（只读，不改库） |
+| R10 | SQL 安全与正确性审查（锁表/死锁/注入） | 显式 | 🟡 部分 | 存储层参数化（待证实） | 产出 `scripts/sql_audit.py`：存储层注入面、事务边界、并发写冲突静态审查报告 |
+| R11 | 覆盖率 80% 但上线仍出 Bug → 测试有效性 | 显式 | 🟡 部分 | 182 测试全绿 | 产出 `scripts/mutation_probe.py`：关键判断种子变异，验证测试是否真能抓住回归 |
+| R12 | 项目门面与"新人保姆"文档生成器 | 显式 | ✅ 已存在未提交 | `docs/onboarding/`（7 篇，git 未跟踪） | 验真 + 提交 git |
+| R13 | 逆向生成架构资产与 ADR | 显式 | 🔲 未做 | `计划书/` 有执行记录 | 产出 `docs/adr/`（关键决策记录） |
+| R14 | 提取黄金代码范例 | 显式 | 🔲 未做 | — | 产出 `docs/golden-examples.md` |
+| R15 | 目录重构与文档索引自动化 | 显式 | 🟡 部分 | 根目录 docs/计划书/graft/ 等 | 盘点 → 低风险归位 + 索引 |
+| R16 | 目录整理、杜绝屎山 | 显式 | 🟡 部分 | S4 巨文件已登记 v2.1（不重拆） | 低风险清理 + 索引，不做大重构 |
+| R17 | 产品头脑风暴（资深产品总监视角，商业化/留存/增长） | 显式 | 🔲 未做 | 内部工具定位（记忆中已知） | 产出 `docs/product-strategy.md`（诚实标注适用边界） |
+| R18 | Agent 管理 Agent，自动挑选高价值改进项 | 显式 | 🟡 本轮即执行 | 本轮多代理编排 | 扫描→排级→落地可落地的，登记不可落地的 |
+| R19 | 一次调用就能跑通（调用者/使用者零门槛） | 显式 | 🟡 待验 | onboarding 03-setup 已写 | 文档步骤复核 + 冒烟脚本核验 |
+| R20 | 全面查漏补缺、未知未知（盲区扫描） | 显式 | 🔲 本轮核心 | — | 五角色并行审计 + 盲区合成 |
+
+## 本轮执行计划（节点 → 验证）
 
 ```
-需求拆分 → 节点实现 → 节点验收 → 独立审查 → 修复 → 复验 → 闭环
-   ✅        ✅         ✅         ✅        ✅     ✅     ✅
+P0 基线复验: pytest 全量 + 前端 build + 启动冒烟 → 验证: 命令输出
+P1 并行审计（5 子代理）: 后端链路/前端衔接/部署运维/契约数据/安全 → 验证: 发现清单
+P2 盲区合成 + 反向批判 → 验证: 盲区清单分级
+P3 五道防线工具化（R7-R11）→ 验证: 各脚本可运行且报告落盘
+P4 资产沉淀（R12-R16: ADR/黄金范例/目录索引/文档提交）
+P5 skill 更新（R1/R2/R6: 校验清单+防线+门禁+AI 先读规则）
+P6 产品策略（R17）
+P7 独立审查（六维）→ 修复 → 复验循环
+P8 HTML 报告（R4）+ workflow_status 收尾 + git 提交
 ```
 
-## 节点完成状态
+## 第七轮执行日志（边做边记）
 
-| 节点 | 任务 | 状态 | 验收证据 |
-|------|------|------|---------|
-| N1 | Windows bat 启动（GBK+CRLF 无 BOM） | ✅ 闭环 | 双击实测正常启动 |
-| N2 | 7×24 守护（崩溃自动重启 + 残留清理） | ✅ 闭环 | bat 实测 |
-| N3 | 智能调度（健康档位 + 调度分 + 双模式） | ✅ 闭环 | 8/8 单元测试 |
-| N4 | 运维看板（调度/资源/用量） | ✅ 闭环 | 页面 + API 200 |
-| N5 | 高并发（多 Worker + 限流） | ✅ 闭环 | 压测 7912 req/min |
-| N6 | 代理池 + IP 池管理 UI | ✅ 闭环 | 增删改查 + 持久化 + 出口 IP |
-| N7 | 可观测性（Prometheus + 追踪 + 延迟） | ✅ 闭环 | /metrics + X-Request-ID + 延迟分布 |
-| N8 | 上游熔断器 + 分级重试 | ✅ 闭环 | 状态机流转 + 接入调度（含 record_success 位置修复） |
-| N9 | TLS 连接池复用 | ✅ 闭环 | 复用/新建/失效/统计验证 |
-| N10 | SSE 实时推送 | ✅ 闭环 | 端点 + EventSource + token query 鉴权（含 CancelledError 处理） |
-| N11 | 日志自动清理 | ✅ 闭环 | 惰性触发裁剪验证 |
-| N12 | config.json schema 校验 | ✅ 闭环 | 错误拦截 + 行号 + 现有配置通过 |
-| N13 | API 契约文档（OpenAPI + 多语言 SDK + 轮询） | ✅ 闭环 | 4 份文档 |
-| N14 | 品牌定制（去 GitHub） | ✅ 闭环 | header-actions/version-dialog/use-version-check 全部清除 |
-| N15 | 端口 23456 | ✅ 闭环 | 全套文件同步 |
+### 基线复验（P0 完成）
+- 后端：182 passed / 0 failed（30 live 排除），与第六轮一致 ✅
+- 前端：npm run build 成功，10 路由静态导出 ✅
 
-## 独立审查发现与修复
-
-| 问题 | 级别 | 根因 | 修复 |
-|------|------|------|------|
-| metrics_middleware `dir()` 判断 + 异常路径崩溃 | P0 | `response` 未定义时 `response.headers` UnboundLocalError | 重写 dispatch，try/finally + status 默认 500 |
-| 熔断器 record_success 在账号不可用时误标成功 | P1 | success 调用位置在可用性判断之前 | 移到 `_is_image_account_available` 确认后 |
-| SSE event_generator 客户端断开协程泄漏 | P1 | 无 CancelledError 处理 | 加 try/except CancelledError 退出 |
-| use-version-check 仍访问 GitHub 远程 | P1 | 品牌定制没去干净 | 改为仅本地版本，移除远程 fetch |
-| header-actions/version-dialog GitHub 链接 | P1 | 之前改动被还原 | 重新去除 |
-| ProxyPoolConfig 未使用导入 | P2 | 冗余导入 | 移除 |
-
-## 当前测试状态
-
-- 单元测试：130 passed（4 个 image_tasks_api 为已知 pytest 模块缓存竞态，单独跑全过）
-- TypeScript：0 错误
-- 端到端：10+ API 全部 200
-- 构建：webpack 构建成功（/dashboard /proxy-pool 路由）
-
-## 复验结果（独立审查线程复验）
-
-- [x] metrics_middleware 修复后异常路径指标仍记录（401 也计入 errors）
-- [x] 熔断器不可用账号正确 record_failure（state 流转正确）
-- [x] SSE 端点已注册（/api/dashboard/stream）
-- [x] 品牌定制后无 GitHub 引用残留（use-version-check 仅本地）
-- [x] 前端构建通过 + TypeScript 0 错误
-
-
----
-
-# 终局闭环总审计（2026-08-02 第三轮）
-
-## 本轮新增节点
-
-| 节点 | 任务 | 状态 | 验收证据 |
-|------|------|------|---------|
-| N16 | UX 增强（5.2-5.6） | ✅ 闭环 | 拦截器/筛选排序/搜索/暗色/骨架屏 |
-| N17 | request_id 全链路追踪 | ✅ 闭环 | contextvars + LoggedCall 记录，test-req-12345 写入验证 |
-
-## 本轮独立审查修复
-
-| 问题 | 级别 | 根因 | 修复 |
-|------|------|------|------|
-| 日志缺 request_id（前端响应头有但日志无，搜索找不到） | P1 | metrics 中间件生成 request_id 但未传给日志 | contextvars 传递 + LoggedCall 记录 |
-| top-nav showGithubText 残留 | P2 | 改 HeaderActions 签名后调用处没同步 | 移除参数 |
-| version-release-dialog checkLatestRelease 参数 | P2 | 改签名后调用处没同步 | 移除参数 |
-
-## 当前 git 状态
-
-- 提交：be3322a fix: request_id 全链路追踪打通
-- remote：无（纯本地，已移除 origin 防止误推原作者仓库）
-
-
----
-
-# 终局闭环总审计（2026-08-02 第四轮）
-
-## 本轮新增节点
-
-| 节点 | 任务 | 状态 | 验收证据 |
-|------|------|------|---------|
-| N18 | 可观测性深化（2.1-2.4） | ✅ 闭环 | prometheus-client + 结构化日志 + 看板 P95 |
-| N19 | prometheus multiprocess 初始化 | ✅ 闭环 | main.py PROMETHEUS_MULTIPROC_DIR |
-| N20 | request_id 统一注入 | ✅ 闭环 | log_service.add text/json 一致 |
-| N21 | Session 池 invalidate | ✅ 闭环 | remove_invalid_token 强制重建 |
-
-## 本轮独立审查修复
-
-| 问题 | 级别 | 根因 | 修复 |
-|------|------|------|------|
-| main.py 未初始化 PROMETHEUS_MULTIPROC_DIR | P0 | 多 Worker prometheus 指标不聚合 | 启动时初始化共享目录 |
-| log_service.add 在 text 格式无 request_id | P2 | 只有 LoggedCall 有 request_id，直接 add 调用漏了 | add 统一注入 |
-| Session 池 invalidate 未被调用 | P1 | token 失效后用过期 Session 继续请求 | remove_invalid_token 接入 invalidate |
-
-## 当前 git 状态
-
-- 提交：b6c7605 fix: 终局闭环总审计 - 生产级缺口修复
-- remote：无（纯本地）
-
-
----
-
-# 终局闭环总审计（2026-08-02 第五轮 · 对齐权威需求源）
-
-> **关键转向**：本轮发现项目内存在权威需求源 `计划书/下一步改进指南.md`（S1-S8 缺口清单 + 阶段 0-7 计划），此前 N1-N21 为无该指南时自创框架。本轮以 S1-S8 为准重新核验闭环。
-
-## 权威需求追踪矩阵（S1-S8）
-
-| # | 短板 | 本轮状态 | 验收证据 |
-|---|------|---------|---------|
-| S1 | 多 Worker 状态不共享（Redis 未实现） | 🟡 登记 v2.1 | 工作流评估：三处现状功能正确仅多Worker公平性受损；pyproject 已预留 redis marker |
-| S2 | 熔断器/连接池是孤儿组件（未接入 conversation.py） | ✅ **全部接线闭环** | 熔断已接入 text_backend/stream_text_deltas/图片路径；池化第六轮接入 OpenAIBackendAPI+OAuth（key 含 token 末8位防串号） |
-| S3 | 安全默认值偏弱（CORS=*/无请求体限制/无安全头/metrics裸奔/弱口令） | ✅ 闭环 | 5 项 SecurityHardeningTests 全过；413/安全头/metrics鉴权实测 |
-| S4 | 巨型文件维护性差（2763/1850/1644 行） | 🟡 登记 v2.1 | 指南建议 v2.1 温和拆分；本轮优先核心 P0/P1 |
-| S5 | 无 CI/CD 质量门 | ✅ 闭环 | .github/workflows/ci.yml 四道门 + 前端 job；YAML 验证有效 |
-| S6 | 前端体验未闭环 | ✅ 闭环 | 拦截器401/429/5xx+request-id、SSE可见性暂停、账号页熔断列+驱逐失效token；tsc 0 错误 |
-| S7 | 测试标记缺失 | ✅ 闭环 | 11 文件 pytest.mark.live；默认排除 30 live，-m live 选中 |
-| S8 | 文档/产物未清理 | ✅ 闭环 | 删 4 旧报告保留 v4；删 js-yaml 临时文件；README 内部定制化清理 |
-
-## 本轮独立审查修复（S2/S3 核心）
-
-| 问题 | 级别 | 根因 | 修复 |
-|------|------|------|------|
-| 文本取号 get_text_access_token 完全无熔断 | P0 | 熔断仅图片路径，chat 主链路无保护 | text_backend/stream_text_deltas 接入熔断检查+成败记录 |
-| 图片生成调用本身无熔断记录 | P1 | 选号已熔断但生成调用熔断器感知不到 | 调用前检查 open 快速失败；成功/超时/重试耗尽记录 |
-| CORS allow_origins=["*"] 硬编码 | P1 | 无配置项 | cors_origins 配置驱动 + 生产警告 |
-| 无请求体大小限制 | P1 | 大 body 攻击可拖垮服务 | RequestSizeLimitMiddleware（images 50MB/其余 10MB，413） |
-| 无安全响应头 | P2 | 缺 nosniff/DENY/Referrer-Policy | SecurityHeadersMiddleware（纯 ASGI，覆盖所有响应含 413/4xx/5xx） |
-| /metrics 无鉴权裸奔 | P1 | 账号规模等敏感指标公网可访问 | 加 require_identity（Authorization 或 ?token=） |
-| auth-key 弱默认值无检测 | P1 | chatgpt2api 弱口令 | 弱口令清单 + <12位检测，production 拒绝启动 |
-| text_backend 熔断改动破坏 mock 断言 | 回归 | 改了 get_text_access_token 签名 | 首次取号保持原签名，重试才传 excluded_tokens |
-
-## 本轮新发现并修的历史既有 bug
-
-| 问题 | 状态 | 说明 |
+### 五道防线工具化（P3 完成，全部实测）
+| 防线 | 脚本 | 结果 |
 |------|------|------|
-| test_multi_image_results FakeBackend 缺 session | 🟡 部分 | stash 铁证改动前即失败；已补 session=None 占位，仍有深层 mock 脱节，登记 |
-| Session 池化指纹串扰风险 | 🟡 登记 | OpenAIBackendAPI 每实例独立 fp 注入 session.headers，同代理多账号共享会覆盖 Authorization 串号——池化需含账号标识的 key，登记 v2.1 |
+| 契约守卫 | scripts/contract_guard.py | 首跑抓 1 断链 → 修复后 0 断链 0 漂移 |
+| SQL 安全 | scripts/sql_audit.py | P0=0 P1=0，ORM 全参数化，多 worker 守卫就位 |
+| 慢查询 | scripts/slow_query_report.py | logs.jsonl 全量读为最大热点（P1 登记 v2.1 切分），DB 索引已就位 |
+| 变异探针 | scripts/mutation_probe.py | 3 变异点，首轮 1 逃逸（熔断默认阈值）→ 补回归测试 → 3/3 抓住 |
+| 极限施压 | scripts/stress_test.py | 6/6 PASS（突刺 130req/s 零错误、RSS +8.6MB、慢注入真实命中、并发写零损坏） |
+| 一键执行 | scripts/run_all_guards.py | 五道全绿 25.5s |
 
-## 当前 git 状态
+### 第七轮真实发现与修复（截至当前）
+| 问题 | 级别 | 根因 | 修复 | 证据 |
+|------|------|------|------|------|
+| 前端断链假功能：settings 代理卡片"保存"调 POST /api/proxy 后端从未注册 | P1（未遂） | proxy-settings.tsx 孤儿组件残留（页面实际挂 proxy-settings-card.tsx）+ api.ts 残留 fetchProxy/updateProxy | 删孤儿组件 + 删 api.ts 断链函数 + 注释说明真实链路 | tsc 0 错误；contract_guard 断链 1→0 |
+| 熔断默认阈值 5 变异逃逸 | P1 | 全部熔断测试用自定义阈值(3)，默认值无人看守 | test_circuit_breaker.py 补 2 条默认阈值回归 | mutation_probe 3/3 caught |
+| 慢存储注入首版假阳性 | 工具自身 bug | 注入点在启动期一次加载，请求路径不经过 | 注入点改 log_service 真实读取通道 + 命中计数证明 | 报告含"命中 33 次"实测 |
 
-- 提交链：4f7ccb3(S2熔断) → 5d34046(S3安全) → 8c2bcca(S5/S7 CI) → 00662f4(S8清理) → 690689b(README) → 188b65d(.env.example) → 453a159(workflow) → 1313d6b(红队修复) → f500828(契约+UX) → 22a2ec5(技能)
-- remote：无（纯本地）
-- 测试：改动域 48 全绿；全量 152 过（9 失败为已知缓存竞态/既有 bug，单独跑全过）
+### 资产沉淀（P4/P6 完成）
+- docs/golden-examples.md：8 个黄金范例 + 反例速查（符号引用已验证）
+- docs/product-strategy.md：产品总监视角分析；最大缺口=主动告警 webhook（P2 建议）；SaaS 化明确不建议
+- docs/adr/index.md：已存在（ADR-001~004），待审计代理考古结果扩充
+- docs/onboarding/README.md：版本引用修正（1.9.0+→2.0.0，N17→N28，补五道防线引用）
 
-## 独立红队审查 → 复验循环（用户要求的核心流程）
+### skill 更新（R1/R2/R6 完成）
+.claude/skills/chatgpt2api-workflow/SKILL.md 注入：AI 会话启动协议（先读→判过时→再编码）、终局交付门禁 8 项、Reviewer 门禁（有罪推定/分级/复验循环）、六视角盲区扫描、五道防线规程、Web 性能快查（addyosmani 精神适配）、Session 池 key 修正、历史 bug 表 +4 条新教训
+
+## 独立审查循环记录（第七轮）
+
+### 六路审计代理回报（全部收到并合成）
+1. **audit-backend**：P0=2（Session 串扰 B1 / 弱密钥入库 S-a）+ P1=11 + 安全 13 项 + 存储 6 项
+2. **audit-frontend**：HIGH=4（无确认 F1 / SSE localStorage F2 / 死文件 F3 / 假进度条#2）+ 契约盲区 C1-C12
+3. **audit-deploy**：P0=3（deployment 3000 端口 / 上游仓库地址 / config.json 入库悖论）+ P1=8
+4. **audit-blindspot**：覆盖率 46% + 假测试 7 项 + 变异 3/3 caught + 盲区 16 项
+5. **audit-assets**：ADR 素材 13 项 + 目录熵 9 项 + onboarding 验真（3 篇需修）
+6. **audit-product**：产品策略修正 5 处（已落盘 docs/product-strategy.md）
+
+### 第七轮已修复（按级别）
+
+| # | 级别 | 问题 | 修复 | 证据 |
+|---|------|------|------|------|
+| 1 | P0 | Session 池化串扰：Authorization 被后构造实例覆盖串号（实证复现：b1 带 B token） | 池 key 加 fp 标识 + Authorization 改请求级 + 版本头实例级 + fp 从 token 确定性派生 | 实证：不同 token 不同 Session、池上无 Authorization、同 token 复用；test_session_pool +1 测试；194 全绿 |
+| 2 | P0 | resume_poll 调用即 TypeError（proxy_url 形参不存在，六轮零测试放过） | 改 OpenAIBackendAPI() 无参构造（代理经 session_pool 生效） | 实证：旧调用 TypeError 复现、新构造 OK；194 全绿 |
+| 3 | P0 | bat/Docker 绕过 main.py 守卫（workers/multiproc 静默无效） | main.py 守卫模块级化（uvicorn CLI 同样经过）；bat/Dockerfile CMD 切到 main.py；CHATGPT2API_PORT 保留 | test_startup_guard.py 2 测试；bat 编码验证（GBK+CRLF 无 BOM） |
+| 4 | P0 | JSON 存储非原子写（半写截断丢全部账号）+ 损坏静默吞（监控全绿丢账号） | _atomic_write_text（唯一 tmp+replace+Win 瞬态锁重试）；损坏抛 ValueError；health_check 解析校验 | test_json_storage_safety.py 8 测试全绿；并发写 120 次零 PermissionError |
+| 5 | P0 | config.json 含弱密钥且被 git 跟踪（文档/.gitignore/黑名单三方打架） | 登记待用户决策（git rm --cached + config.example.json 化涉及数据迁移，不单方面动） | 弱口令检测已在 production 拒绝启动 |
+| 6 | P1 | SSE 从 localStorage 读 token（恒 null，流通道静默失效） | 改 getStoredAuthKey()（localforage/IndexedDB）+ onerror 关连接 + cancelled 守卫 | tsc 0 错误 |
+| 7 | P1 | accounts 页三个破坏性操作无二次确认（删除/驱逐/清理异常） | 统一 ConfirmAction Dialog（与 image-manager/logs 模式对齐） | tsc 0 错误 |
+| 8 | P1 | 假进度条（150ms 机械 +1 + 2s 固定兜底，不反映后端状态） | 改完成态直显（relogin 服务端已同步完成） | tsc 0 错误 |
+| 9 | P1 | 死文件 3 个（proxy-settings.tsx/proxy-settings-card.tsx/base-url-card.tsx 零 import） | 全部删除 + api.ts 断链函数（fetchProxy/updateProxy）清除 | contract_guard 断链 1→0；tsc 0 错误 |
+| 10 | P1 | 假测试 4 项（pass/assertTrue(True)/path 非 None/print 不 fail） | 改真实行为断言（429/401/裸 except 为零） | test_security 9 测试全绿 |
+| 11 | P1 | deployment.md 端口 3000/上游仓库地址/bun | 全部修正为 23456/内部仓/npm | grep 0 命中 |
+| 12 | P1 | onboarding 验收清单 /metrics 无鉴权 curl（必然 401） | 加 ?token= 参数 + 说明 401 是正确行为 | 03-setup.md |
+| 13 | P1 | docs 日志路径 data/logs/（实际 logs.jsonl 单文件） | 04/05 两篇修正 | — |
+| 14 | P1 | config._save / image_tags / log delete+cleanup 非原子写/无锁 | 全部接 _atomic_write_text + log 加进程内互斥锁 | 194 全绿 |
+| 15 | P2 | 熔断默认阈值 5 变异逃逸（测试全用自定义阈值） | test_circuit_breaker 补 2 条默认阈值回归 | mutation_probe 3/3 caught |
+| 16 | P2 | examples.md 响应头大小写与 HTTP/2 实际不符 | 改小写 x-request-id/x-response-time-ms | — |
+| 17 | P2 | README/onboarding sqlite URL 3 斜杠（SQLAlchemy 绝对路径须 4） | 全部改 4 斜杠 | grep 0 命中 |
+| 18 | P2 | onboarding 模块计数错误（services 24→25/protocol 11→12/web 217→77）+ passphrase 表述 + 版本引用过时 | 全部修正 | — |
+| 19 | P2 | as any 绕过（Account.created_at 类型缺失） | api.ts 补类型声明，消灭 as any | tsc 0 错误 |
+
+### 第七轮登记待办（未修，明确边界）
+
+| # | 级别 | 问题 | 阻塞/边界 |
+|---|------|------|----------|
+| D1 | P0 | config.json 含弱密钥且 git 跟踪 | 需用户决策：git rm --cached + config.example.json 化会动 git 历史与现有部署的数据流，不单方面执行 |
+| D2 | P1 | SSRF（image_inputs URL 抓取无内网校验） | 需设计协议白名单+IP 段校验，涉及功能面（用户可能 legit 抓内网图床），登记 v2.1 |
+| D3 | P1 | XFF 伪造绕过按 IP 限流 | 需 trusted_proxy 配置设计（部署形态相关），登记 v2.1 |
+| D4 | P1 | 熔断器注册表孤儿化（remove 零调用） | 账号删除/轮换路径接入清理，登记 v2.1 |
+| D5 | P1 | 进度字典无界增长 | 加 TTL 惰性淘汰，登记 v2.1 |
+| D6 | P1 | codex 裸 urllib 绕过代理/池/熔断/指标 | 改 curl_cffi 池化，涉及逆向协议验证，登记 v2.1 |
+| D7 | P1 | 搜索路径无熔断+backend 泄漏 | 接熔断+补 close，登记 v2.1 |
+| D8 | P1 | SQLite 无 WAL/busy_timeout | engine 配置，登记 v2.1 |
+| D9 | P1 | 备份失败完全静默 | 接日志/看板指示，登记 v2.1（产品策略已列告警为最高价值项） |
+| D10 | P1 | /files/{path} 下载无鉴权 | 挂 require_identity+归属校验，登记 v2.1 |
+| D11 | P1 | 备份端点 key 白名单 | 接 _is_backup_object，登记 v2.1 |
+| D12 | P2 | 账号导出时区 UTC+8 硬编码 + 测试时区污染 | 改 UTC ISO8601 + 测试断言同步（breaking 导出格式），登记 v2.1 |
+| D13 | P2 | 覆盖率 46%（openai_backend_api 27%/image_service 15% 等） | 系统性补测工程，登记 v2.1 分批 |
+| D14 | P2 | live-only 6 条核心链路无离线等价物 | mock 化离线重放（chat_completion_cache 已有范式），登记 v2.1 |
+| D15 | P2 | 优雅停机（SIGTERM 处理 + close_all 零调用） | 接 lifespan 钩子，登记 v2.1 |
+| D16 | P2 | 多 worker 状态分裂（chat_completion_cache/SSE 聚合/熔断稀释） | S1 Redis 已登记，本批为补充场景，同 v2.1 |
+| D17 | P2 | 时间体系三套混用（time.time/datetime.now/UTC+8） | 统一 UTC epoch + 展示层转换，登记 v2.1 |
+| D18 | P2 | 主动告警 webhook（产品策略最高价值项） | 新功能约 200-300 行（六步配置链路），登记 v2.1 |
+| D19 | P3 | docs 归档（deployment/upstream-sse/final-report-v4/重复 workflow_status） | 低风险整理，本轮保留原位（避免链接断） |
+
+## 第七轮独立审查循环（R5 六维验证）
 
 | 阶段 | 结果 |
 |------|------|
-| 红队审查（有罪推定） | Verdict: Request Changes——2 Blocking + 4 Required |
-| Blocking 1 环境污染击穿 CI | test_account_image_capabilities 模块级 setdefault 污染 auth-key，9 failed → conftest.py autouse 隔离 → **0 failed** |
-| Blocking 2 熔断误判业务拒绝 | record_failure 反向白名单，恶意用户可熔断健康账号 → is_upstream_instability_error 正向白名单 |
-| Required 4 项 | text_backend 死循环 refresh / 换号未防御 / ruff E402 65→3 / F841 悬空表达式 |
-| **复验结论** | **Approve**——2 Blocking + 4 Required 全部闭环，实测 161 passed / 0 failed |
-
-## 契约核验发现的隐藏真 bug（第三轮核验）
-
-| 问题 | 级别 | 实测证据 | 修复 |
-|------|------|---------|------|
-| usage 统计恒空（字段错位） | P1 | 注入 5 条日志 /api/dashboard/usage 仍 {total_24h:0} | 兼容 time/ts/created_at + detail.status，实测有数据 |
-| chunked 绕过请求体限制 | P1 | 11MB chunked 返回 422 非 413 | 无 Length 的 chunked API 写请求 411 |
-| 日志 json 格式日期筛选失效 | P2 | _matches_filters 只读 time 键 | 兼容 time/ts |
-
-## 误报澄清（核验代理误判，已修正）
-
-| 主张 | 实际 | 结论 |
-|------|------|------|
-| F1 断链：普通用户登录卡死 /accounts | useAuthGuard 会把非 admin 重定向回 /image，getDefaultRouteForRole 逻辑正确 | **误报**，不存在卡死 |
-| Session 池化可直接 session_pool.get 替换 | 同代理多账号共享 Session 会覆盖 Authorization 串号（P0 正确性风险） | 池化登记 v2.1，需含账号标识 key |
-
-## 最终验证（2026-08-02 第五轮收尾）
-
-- 测试：**161 passed / 0 failed**（30 live 排除）
-- 启动：create_app() 98 路由无报错
-- 端点实测：8 关键端点 200；/metrics 无鉴权 401；安全头就位；413 正确
-- lint：78→27（余项全既有债）；前端 tsc 0 错误
-- 红队复验：Approve
-
-
----
-
-# 终局闭环总审计（2026-08-02 第六轮 · 阶段3韧性接线+阶段5前端+阶段7发版）
-
-> 本轮以权威需求源 `计划书/下一步改进指南.md` 阶段 3/5/7 为准，核验后发现**熔断接线此前已完成**（任务描述"孤儿"判断过时），真实缺口为池化接线、重试预算、上游指标埋点、熔断状态可视化、驱逐失效 token、SSE 可见性暂停。
-
-## 本轮新增节点
-
-| 节点 | 任务 | 状态 | 验收证据 |
-|------|------|------|---------|
-| N22 | TLS 连接池接入主流量 | ✅ 闭环 | OpenAIBackendAPI+OAuth 走池化；close 转 release 不拆连接；test_session_pool.py 8 测试 |
-| N23 | 统一重试预算 | ✅ 闭环 | services/retry_budget.py；幂等 GET 退避≤2/流式首字节前换号≤1/流式开始后绝不重试；test_retry_budget.py 8 测试 |
-| N24 | 上游指标埋点 | ✅ 闭环 | record_upstream_request 接入文本/图片路径，/metrics 实测导出 counter+duration |
-| N25 | 熔断状态可视化 | ✅ 闭环 | GET /api/dashboard/circuit_breakers（token末8位）+ 账号页熔断列（15s轮询） |
-| N26 | 驱逐失效 token | ✅ 闭环 | POST /api/accounts/evict_stale + 账号页按钮（loading+toast） |
-| N27 | SSE 可见性暂停 | ✅ 闭环 | visibilitychange 隐藏暂停连接/轮询、可见拉取重建 |
-| N28 | v2.0.0 发版 | ✅ 闭环 | VERSION/CHANGELOG/README 升级章节/workflow_status；本地 git tag |
-
-## 本轮修复的隐藏 bug
-
-| 问题 | 级别 | 根因 | 修复 |
-|------|------|------|------|
-| 池化形同虚设 | P0 | OAuth 刷新从池取 Session 后 finally 直接 close()，每次都拆掉池化连接 | 池化 Session 加 _chatgpt2api_pooled 标记，close/release 不拆连接 |
-| Session 池化指纹串扰（第五轮登记） | P0 | 池 key 仅 (代理,impersonate,verify)，同代理多账号共享 Session 覆盖 Authorization 串号 | 池 key 加 token 末 8 位账号标识 |
-| record_upstream_request 零调用 | P1 | 上游指标定义了但所有路径无埋点，/metrics 无该指标 | conversation 文本/图片路径接 record_upstream_request |
-
-## 最终验证
-
-- 测试：**182 passed / 0 failed**（161→182，新增 21 测试；30 live 排除）
-- 启动：create_app() 无报错，circuit_breakers/evict_stale 端点注册成功
-- 前端：tsc 0 错误；webpack 构建成功；web_dist 已同步
-- 压测：用户已全链路真实验证（阶段 7.5），本轮不重复
+| review-round7 六维审查 | **Verdict: Approve**——无 Blocking；Required #1（OAuth 池化分池注释/行为不符，登记 v2.1 选 a 方案）、#2（log _auto_cleanup 静默吞错） |
+| 主线程预审修复 | bat CHATGPT2API_PORT 导出（审查证实链路闭合）；OAuth 分池合理性（审查实证不串扰） |
+| review #2 已修 | log _auto_cleanup 静默吞错 → logging.warning(exc_info)；run_all_guards 硬编码 .venv → sys.executable 回退 |
+| 探针自身漏洞修复 | mutation_probe 加 _purge_pyc（变异残留污染 pyc 缓存，曾导致默认值 5 实测为 6） |
+| **复验结论** | **194 passed / 0 failed + 五道防线 5/5 PASS + tsc 0 错误 + ruff 本轮改动文件全绿** |
 
 ## 当前 git 状态
 
-- 提交链：7dc0054(阶段3韧性接线) → 8de017b(阶段5前端闭环) → 本轮文档+发版
+- 基线提交：a6139c0（v2.0.0 发版收尾）
+- 本轮提交：19 修复 + 五道防线 6 脚本 + 3 新测试文件 + ADR-005~013 + 黄金范例 + 产品策略 + skill 更新 + 文档修正 + final-report-v7.html
+- 未跟踪提交后清零（CLAUDE.md、docs/onboarding/ 等全部入库；reports/ 已 gitignore）
 - remote：无（纯本地，不发 GitHub）
-- 发版：本地 git tag v2.0.0
+- 测试：194 passed / 0 failed（182→194，+12 新测试；30 live 排除）
+- 独立审查：Approve（review-round7）

@@ -4,11 +4,10 @@ import json
 import unittest
 from unittest import mock
 
+import pytest
 import requests
 
 from services.protocol import openai_v1_models
-
-import pytest
 
 # 需真实上游/活服务(localhost:23456)的测试，CI 默认排除（pytest -m live 本地手动跑）
 pytestmark = pytest.mark.live

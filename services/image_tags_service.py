@@ -24,7 +24,9 @@ def load_tags() -> dict[str, list[str]]:
 
 def save_tags(data: dict[str, list[str]]) -> None:
     _ensure_file()
-    TAGS_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    # 原子写（第七轮 B10）：防并发/中断导致 tags 文件截断
+    from services.storage.json_storage import _atomic_write_text
+    _atomic_write_text(TAGS_FILE, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
 
 
 def get_tags(image_rel: str) -> list[str]:
