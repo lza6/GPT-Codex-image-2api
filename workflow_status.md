@@ -107,3 +107,49 @@
 
 - 提交：b6c7605 fix: 终局闭环总审计 - 生产级缺口修复
 - remote：无（纯本地）
+
+
+---
+
+# 终局闭环总审计（2026-08-02 第五轮 · 对齐权威需求源）
+
+> **关键转向**：本轮发现项目内存在权威需求源 `计划书/下一步改进指南.md`（S1-S8 缺口清单 + 阶段 0-7 计划），此前 N1-N21 为无该指南时自创框架。本轮以 S1-S8 为准重新核验闭环。
+
+## 权威需求追踪矩阵（S1-S8）
+
+| # | 短板 | 本轮状态 | 验收证据 |
+|---|------|---------|---------|
+| S1 | 多 Worker 状态不共享（Redis 未实现） | 🟡 登记 v2.1 | 工作流评估：三处现状功能正确仅多Worker公平性受损；pyproject 已预留 redis marker |
+| S2 | 熔断器/连接池是孤儿组件（未接入 conversation.py） | ✅ **熔断已接线** / 🟡 池化登记 | conversation.py text_backend/stream_text_deltas/图片路径接入熔断；test_circuit_breaker.py 6 测试 |
+| S3 | 安全默认值偏弱（CORS=*/无请求体限制/无安全头/metrics裸奔/弱口令） | ✅ 闭环 | 5 项 SecurityHardeningTests 全过；413/安全头/metrics鉴权实测 |
+| S4 | 巨型文件维护性差（2763/1850/1644 行） | 🟡 登记 v2.1 | 指南建议 v2.1 温和拆分；本轮优先核心 P0/P1 |
+| S5 | 无 CI/CD 质量门 | ✅ 闭环 | .github/workflows/ci.yml 四道门 + 前端 job；YAML 验证有效 |
+| S6 | 前端体验未闭环 | 🟡 核验中 | SSE 已补全看板数据(ops/usage/metrics)；前端 UX 核验工作流进行中 |
+| S7 | 测试标记缺失 | ✅ 闭环 | 11 文件 pytest.mark.live；默认排除 30 live，-m live 选中 |
+| S8 | 文档/产物未清理 | ✅ 闭环 | 删 4 旧报告保留 v4；删 js-yaml 临时文件；README 内部定制化清理 |
+
+## 本轮独立审查修复（S2/S3 核心）
+
+| 问题 | 级别 | 根因 | 修复 |
+|------|------|------|------|
+| 文本取号 get_text_access_token 完全无熔断 | P0 | 熔断仅图片路径，chat 主链路无保护 | text_backend/stream_text_deltas 接入熔断检查+成败记录 |
+| 图片生成调用本身无熔断记录 | P1 | 选号已熔断但生成调用熔断器感知不到 | 调用前检查 open 快速失败；成功/超时/重试耗尽记录 |
+| CORS allow_origins=["*"] 硬编码 | P1 | 无配置项 | cors_origins 配置驱动 + 生产警告 |
+| 无请求体大小限制 | P1 | 大 body 攻击可拖垮服务 | RequestSizeLimitMiddleware（images 50MB/其余 10MB，413） |
+| 无安全响应头 | P2 | 缺 nosniff/DENY/Referrer-Policy | SecurityHeadersMiddleware（纯 ASGI，覆盖所有响应含 413/4xx/5xx） |
+| /metrics 无鉴权裸奔 | P1 | 账号规模等敏感指标公网可访问 | 加 require_identity（Authorization 或 ?token=） |
+| auth-key 弱默认值无检测 | P1 | chatgpt2api 弱口令 | 弱口令清单 + <12位检测，production 拒绝启动 |
+| text_backend 熔断改动破坏 mock 断言 | 回归 | 改了 get_text_access_token 签名 | 首次取号保持原签名，重试才传 excluded_tokens |
+
+## 本轮新发现并修的历史既有 bug
+
+| 问题 | 状态 | 说明 |
+|------|------|------|
+| test_multi_image_results FakeBackend 缺 session | 🟡 部分 | stash 铁证改动前即失败；已补 session=None 占位，仍有深层 mock 脱节，登记 |
+| Session 池化指纹串扰风险 | 🟡 登记 | OpenAIBackendAPI 每实例独立 fp 注入 session.headers，同代理多账号共享会覆盖 Authorization 串号——池化需含账号标识的 key，登记 v2.1 |
+
+## 当前 git 状态
+
+- 提交链：4f7ccb3(S2熔断) → 5d34046(S3安全) → 8c2bcca(S5/S7 CI) → 00662f4(S8清理) → 690689b(README) → 188b65d(.env.example)
+- remote：无（纯本地）
+- 测试：改动域 48 全绿；全量 152 过（9 失败为已知缓存竞态/既有 bug，单独跑全过）
