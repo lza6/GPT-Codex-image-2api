@@ -270,6 +270,14 @@ class OpenAIBackendAPI:
         headers = dict(self.session.headers)
         headers["X-OpenAI-Target-Path"] = path
         headers["X-OpenAI-Target-Route"] = path
+        # 透传 request-id 到上游自定义头，便于日志对账
+        try:
+            from services.metrics_service import get_request_id
+            request_id = get_request_id()
+            if request_id:
+                headers["X-ChatGPT2API-Request-ID"] = request_id
+        except Exception:
+            pass
         if extra:
             headers.update(extra)
         return headers

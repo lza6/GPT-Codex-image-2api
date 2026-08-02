@@ -152,6 +152,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "gitpython" },
     { name = "pillow" },
+    { name = "prometheus-client" },
     { name = "psycopg2-binary" },
     { name = "pybase64" },
     { name = "python-multipart" },
@@ -173,6 +174,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.136.0" },
     { name = "gitpython", specifier = ">=3.1.0" },
     { name = "pillow", specifier = ">=12.2.0" },
+    { name = "prometheus-client", specifier = ">=0.26.0" },
     { name = "psycopg2-binary", specifier = ">=2.9.0" },
     { name = "pybase64", specifier = ">=1.4.3" },
     { name = "python-multipart", specifier = ">=0.0.26" },
@@ -463,6 +465,15 @@ source = { registry = "https://mirrors.aliyun.com/pypi/simple" }
 sdist = { url = "https://mirrors.aliyun.com/pypi/packages/f9/e2/3e91f31a7d2b083fe6ef3fa267035b518369d9511ffab804f839851d2779/pluggy-1.6.0.tar.gz", hash = "sha256:7dcc130b76258d33b90f61b658791dede3486c3e6bfb003ee5c9bfb396dd22f3" }
 wheels = [
     { url = "https://mirrors.aliyun.com/pypi/packages/54/20/4d324d65cc6d9205fabedc306948156824eb9f0ee1633355a8f7ec5c66bf/pluggy-1.6.0-py3-none-any.whl", hash = "sha256:e920276dd6813095e9377c0bc5566d94c932c33b27a3e3945d8389c374dd4746" },
+]
+
+[[package]]
+name = "prometheus-client"
+version = "0.26.0"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple" }
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/52/73/f1334c29c2af4cd9dba6c7817e61b611bd0215e2eb5565c6064a4de18802/prometheus_client-0.26.0.tar.gz", hash = "sha256:04a91bcf94e2cf74a44a1a874d651a2e853ed354b6e822f3b7487751465d5c2b" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/eb/a3/b69efbf4143b5b9859b977770bbbabcc2796b702fa69dc40271e45cd5a56/prometheus_client-0.26.0-py3-none-any.whl", hash = "sha256:fa93d06737aa02bacd05794768508bb97d2fbee28cb3bca04eaae92f0ca953d6" },
 ]
 
 [[package]]

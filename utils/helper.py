@@ -261,6 +261,20 @@ def anonymize_token(token: object) -> str:
     return f"token:{digest}"
 
 
+def anonymize_email(email: object) -> str:
+    """脱敏邮箱：保留域名，用户名部分哈希。
+
+    例：user@example.com -> u***@example.com (hash: abc123)
+    """
+    value = str(email or "").strip()
+    if not value or "@" not in value:
+        return "email:empty"
+    local, _, domain = value.partition("@")
+    digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:6]
+    prefix = local[0] if local else "*"
+    return f"{prefix}***@{domain} (hash:{digest})"
+
+
 def extract_response_prompt(input_value: object) -> str:
     if isinstance(input_value, str):
         return input_value.strip()

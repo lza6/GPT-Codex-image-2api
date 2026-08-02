@@ -1032,3 +1032,16 @@ export type LatencySummary = {
 export function fetchLatencySummary() {
   return httpRequest<LatencySummary>("/api/dashboard/latency");
 }
+
+export type MetricsSummary = {
+  request_rate: number;
+  error_rate: number;
+  p95_latency_ms: number;
+  avg_latency_ms: number;
+  total_requests: number;
+  total_errors: number;
+};
+
+export function fetchMetricsSummary() {
+  return httpRequest<MetricsSummary>("/api/dashboard/metrics_summary");
+}

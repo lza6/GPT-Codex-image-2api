@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import itertools
+import json
+import os
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -61,14 +62,35 @@ class LogService:
             return False
         return True
 
-    def add(self, type: str, summary: str = "", detail: dict[str, Any] | None = None, **data: Any) -> None:
-        item = {
-            "id": uuid4().hex,
-            "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    def _structured_item(self, type: str, summary: str, detail: dict[str, Any]) -> dict[str, Any]:
+        """构造结构化 JSON 日志条目（LOG_FORMAT=json 时使用）。"""
+        try:
+            from services.metrics_service import get_request_id
+            request_id = get_request_id()
+        except Exception:
+            request_id = ""
+        return {
+            "ts": datetime.now().isoformat(timespec="milliseconds"),
+            "level": "info",
+            "logger": "chatgpt2api",
+            "request_id": request_id,
             "type": type,
             "summary": summary,
-            "detail": detail or data,
+            "detail": detail,
         }
+
+    def add(self, type: str, summary: str = "", detail: dict[str, Any] | None = None, **data: Any) -> None:
+        detail = detail or data
+        if os.getenv("LOG_FORMAT", "").strip().lower() == "json":
+            item = self._structured_item(type, summary, detail)
+        else:
+            item = {
+                "id": uuid4().hex,
+                "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "type": type,
+                "summary": summary,
+                "detail": detail,
+            }
         with self.path.open("a", encoding="utf-8") as file:
             file.write(self._serialize_item(item) + "\n")
         # 惰性清理：每 200 条检查一次，避免高频 I/O

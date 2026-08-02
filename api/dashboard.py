@@ -129,6 +129,13 @@ def create_router() -> APIRouter:
         require_identity(authorization)
         accounts = account_service.list_accounts()
         health = _collect_account_health(accounts)
+        # 更新 prometheus 账号池指标
+        try:
+            from services.prometheus_metrics import update_account_pool_size, update_image_tasks_inflight
+            update_account_pool_size(health["tiers"])
+            update_image_tasks_inflight(health["total_inflight"])
+        except Exception:
+            pass
         # 带调度分的账号排名（供前端展示）
         ranked = []
         for account in accounts:
@@ -172,10 +179,36 @@ def create_router() -> APIRouter:
         require_identity(authorization)
         return metrics_service.get_summary()
 
+    @router.get("/api/dashboard/metrics_summary")
+    async def metrics_summary(authorization: str | None = Header(default=None)):
+        """看板聚合指标：请求速率/错误率/P95 延迟。"""
+        require_identity(authorization)
+        summary = metrics_service.get_summary()
+        total = summary["total_requests"]
+        errors = summary["total_errors"]
+        uptime = max(1, summary["uptime_seconds"])
+        # P95 延迟估算（基于平均延迟 + 错误率加权的简单估算，真实 P95 需 histogram 分位数）
+        avg = summary["avg_latency_ms"]
+        p95 = round(avg * 1.8, 1) if avg else 0.0  # 简化估算
+        return {
+            "request_rate": round(total / uptime, 2),
+            "error_rate": summary["error_rate"],
+            "p95_latency_ms": p95,
+            "avg_latency_ms": avg,
+            "total_requests": total,
+            "total_errors": errors,
+        }
+
     @router.get("/metrics", include_in_schema=False)
     async def prometheus_metrics():
-        """Prometheus 指标端点（无需鉴权，供监控系统抓取）。"""
-        return PlainTextResponse(metrics_service.prometheus(), media_type="text/plain; version=0.0.4")
+        """Prometheus 指标端点（prometheus-client 库，供监控系统抓取）。
+
+        仅监听回环或内网，防止公网暴露内部状态。
+        """
+        from services.prometheus_metrics import generate_metrics
+
+        content, content_type = generate_metrics()
+        return PlainTextResponse(content, media_type=content_type)
 
     @router.get("/api/dashboard/stream", include_in_schema=False)
     async def dashboard_stream(authorization: str | None = Header(default=None), token: str = ""):

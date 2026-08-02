@@ -44,6 +44,12 @@ class MetricsMiddleware(BaseHTTPMiddleware):
                 metrics_service.record_inflight(method, path, -1)
                 duration_ms = (time.perf_counter() - start) * 1000
                 metrics_service.record_request(method, path, status, duration_ms)
+                # 同时记录到 prometheus-client 指标
+                try:
+                    from services.prometheus_metrics import record_http_request
+                    record_http_request(path, method, status, duration_ms / 1000.0)
+                except Exception:
+                    pass
             # 注入追踪 ID 头（仅在 response 存在时；异常路径由异常处理器接管）
             if response is not None:
                 response.headers["X-Request-ID"] = request_id

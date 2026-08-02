@@ -8,10 +8,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   fetchLatencySummary,
+  fetchMetricsSummary,
   fetchOpsOverview,
   fetchSchedulerDashboard,
   fetchUsageStats,
   type LatencySummary,
+  type MetricsSummary,
   type OpsOverview,
   type SchedulerAccount,
   type SchedulerDashboard,
@@ -66,20 +68,23 @@ function DashboardContent() {
   const [ops, setOps] = useState<OpsOverview | null>(null);
   const [usage, setUsage] = useState<UsageStats | null>(null);
   const [latency, setLatency] = useState<LatencySummary | null>(null);
+  const [metrics, setMetrics] = useState<MetricsSummary | null>(null);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     try {
-      const [sched, opsData, usageData, latencyData] = await Promise.all([
+      const [sched, opsData, usageData, latencyData, metricsData] = await Promise.all([
         fetchSchedulerDashboard(),
         fetchOpsOverview(),
         fetchUsageStats(),
         fetchLatencySummary(),
+        fetchMetricsSummary(),
       ]);
       setScheduler(sched);
       setOps(opsData);
       setUsage(usageData);
       setLatency(latencyData);
+      setMetrics(metricsData);
     } finally {
       setLoading(false);
     }
@@ -205,6 +210,13 @@ function DashboardContent() {
         <StatCard icon={Activity} label="平均延迟" value={`${latency?.avg_latency_ms ?? 0} ms`} sub={`错误率 ${((latency?.error_rate ?? 0) * 100).toFixed(2)}%`} />
         <StatCard icon={Users} label="使用中账号" value={String(inUseAccounts.length)} sub={`并发在途 ${inUseAccounts.reduce((s, a) => s + a.image_inflight, 0)}`} />
         <StatCard icon={Activity} label="配额用完" value={String(exhaustedAccounts.length)} sub="今日额度已耗尽" />
+      </div>
+
+      {/* 请求速率 / 错误率 / P95 */}
+      <div className="grid grid-cols-3 gap-4">
+        <StatCard icon={Activity} label="请求速率" value={`${metrics?.request_rate ?? 0} req/s`} sub={`总请求 ${metrics?.total_requests ?? 0}`} />
+        <StatCard icon={Activity} label="错误率" value={`${((metrics?.error_rate ?? 0) * 100).toFixed(2)}%`} sub={`总错误 ${metrics?.total_errors ?? 0}`} />
+        <StatCard icon={Timer} label="P95 延迟" value={`${metrics?.p95_latency_ms ?? 0} ms`} sub={`平均 ${metrics?.avg_latency_ms ?? 0} ms`} />
       </div>
 
       {/* 使用中账号实时列表 */}
