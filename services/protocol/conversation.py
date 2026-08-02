@@ -12,6 +12,7 @@ from typing import Any, Iterable, Iterator
 import tiktoken
 
 from services.account_service import account_service
+from services.circuit_breaker import circuit_breaker_registry
 from services.config import config
 from services.image_storage_service import image_storage_service
 from services.openai_backend_api import ImageContentPolicyError, ImagePollTimeoutError, OpenAIBackendAPI
@@ -707,7 +708,18 @@ def conversation_events(
 
 
 def text_backend(model: str = "auto") -> OpenAIBackendAPI:
-    return OpenAIBackendAPI(access_token=account_service.get_text_access_token(model=model))
+    # 熔断接线：取号后检查熔断表，熔断 open 的账号换号重取，避免打到抖动上游雪崩
+    attempted: set[str] = set()
+    max_attempts = 20  # 与 get_available_access_token 一致的防护上限
+    for _ in range(max_attempts):
+        token = account_service.get_text_access_token(excluded_tokens=attempted, model=model)
+        if not token:
+            return OpenAIBackendAPI(access_token=token)  # 匿名链路，无熔断概念
+        breaker = circuit_breaker_registry.get(token)
+        if breaker.allow_request():
+            return OpenAIBackendAPI(access_token=token)
+        attempted.add(token)  # 熔断 open，换号重取
+    raise RuntimeError("no available text account (all candidates circuit-open)")
 
 
 def stream_text_deltas(backend: OpenAIBackendAPI, request: ConversationRequest) -> Iterator[str]:
@@ -717,6 +729,14 @@ def stream_text_deltas(backend: OpenAIBackendAPI, request: ConversationRequest) 
     while True:
         if token and token in attempted_tokens:
             raise RuntimeError("no available text account")
+        # 熔断接线：熔断 open 的账号直接换号，不打到抖动上游
+        if token and not circuit_breaker_registry.get(token).allow_request():
+            attempted_tokens.add(token)
+            token = account_service.get_text_access_token(
+                excluded_tokens=set(attempted_tokens),
+                model=request.model,
+            )
+            continue
         if token:
             attempted_tokens.add(token)
         active_backend = None
@@ -736,6 +756,8 @@ def stream_text_deltas(backend: OpenAIBackendAPI, request: ConversationRequest) 
                     emitted = True
                     yield delta
             account_service.mark_text_used(token)
+            if token:
+                circuit_breaker_registry.get(token).record_success()
             return
         except Exception as exc:
             error_message = str(exc)
@@ -751,6 +773,9 @@ def stream_text_deltas(backend: OpenAIBackendAPI, request: ConversationRequest) 
                     )
                 if token:
                     continue
+            # 上游抖动（5xx/超时/连接错误，非 token 失效）记熔断失败，让熔断器感知
+            if token and not is_token_invalid_error(error_message):
+                circuit_breaker_registry.get(token).record_failure()
             raise
         finally:
             if active_backend is not None:
@@ -1338,6 +1363,15 @@ def _generate_single_image(
             "account_found": bool(account),
             "index": index,
         })
+        # 熔断接线：生成调用前检查熔断表，open 则快速失败换号（由上层重试逻辑换号）
+        if token and not circuit_breaker_registry.get(token).allow_request():
+            raise ImageGenerationError(
+                "account circuit open (upstream unstable)",
+                status_code=503,
+                error_type="upstream_error",
+                code="circuit_open",
+                account_email=account_email,
+            )
         backend = None
         try:
             backend = OpenAIBackendAPI(access_token=token)
@@ -1387,9 +1421,14 @@ def _generate_single_image(
                     )
                 return outputs
             account_service.mark_image_result(token, True)
+            if token:
+                circuit_breaker_registry.get(token).record_success()
             return outputs
         except ImagePollTimeoutError as exc:
             account_service.mark_image_result(token, False)
+            # 上游轮询超时属上游抖动，记熔断失败让熔断器感知
+            if token:
+                circuit_breaker_registry.get(token).record_failure()
             if account_email:
                 setattr(exc, "account_email", account_email)
             # 轮询超时：换账号重试
@@ -1520,6 +1559,9 @@ def _generate_single_image(
                     })
                     time.sleep(wait_secs)
                     continue
+            # 重试耗尽的上游错误（TLS/连接超时等）记熔断失败，让熔断器感知真上游抖动
+            if token and not is_token_invalid_error(last_error):
+                circuit_breaker_registry.get(token).record_failure()
             raise ImageGenerationError(image_stream_error_message(last_error), account_email=account_email, conversation_id="") from exc
         finally:
             if backend is not None:
