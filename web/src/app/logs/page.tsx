@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { deleteSystemLogs, fetchSystemLogs, type SystemLog } from "@/lib/api";
@@ -63,13 +64,35 @@ function LogsContent() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [deletingItems, setDeletingItems] = useState<SystemLog[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [levelFilter, setLevelFilter] = useState<string>("all");
+  const [autoScroll, setAutoScroll] = useState(false);
   const detailUrls = getUrls(detailLog);
   const detailImages = detailUrls.map((url, index) => ({ id: `${index}`, src: url }));
   const isCallLog = type === LogType.Call;
+  // 全文搜索 + 级别筛选
+  const filteredItems = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return items.filter((item) => {
+      // 级别筛选（成功/失败）
+      if (levelFilter !== "all") {
+        const status = item.detail?.status;
+        const isFailed = status === "failed";
+        if (levelFilter === "failed" && !isFailed) return false;
+        if (levelFilter === "success" && isFailed) return false;
+      }
+      // 全文搜索（summary + detail 内容，含 request_id）
+      if (q) {
+        const haystack = `${item.summary ?? ""} ${JSON.stringify(item.detail ?? {})}`.toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [items, searchQuery, levelFilter]);
   const pageSize = 10;
-  const pageCount = Math.max(1, Math.ceil(items.length / pageSize));
+  const pageCount = Math.max(1, Math.ceil(filteredItems.length / pageSize));
   const safePage = Math.min(page, pageCount);
-  const currentRows = items.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const currentRows = filteredItems.slice((safePage - 1) * pageSize, safePage * pageSize);
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const currentPageSelected = currentRows.length > 0 && currentRows.every((item) => selectedSet.has(item.id));
   const allSelected = items.length > 0 && items.every((item) => selectedSet.has(item.id));
@@ -133,6 +156,13 @@ function LogsContent() {
     void loadLogs();
   }, [type, startDate, endDate]);
 
+  // 自动滚动：新日志加载后滚动到顶部
+  useEffect(() => {
+    if (autoScroll && !isLoading && filteredItems.length > 0) {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }, [filteredItems, autoScroll, isLoading]);
+
   return (
     <section className="space-y-5">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -148,7 +178,28 @@ function LogsContent() {
               <SelectItem value={LogType.Account}>账号管理日志</SelectItem>
             </SelectContent>
           </Select>
+          <Select value={levelFilter} onValueChange={(v) => { setLevelFilter(v); setPage(1); }}>
+            <SelectTrigger className="h-10 w-[120px] rounded-xl border-stone-200 bg-white"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">全部级别</SelectItem>
+              <SelectItem value="success">成功</SelectItem>
+              <SelectItem value="failed">失败</SelectItem>
+            </SelectContent>
+          </Select>
+          <div className="relative min-w-[220px]">
+            <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-stone-400" />
+            <Input
+              value={searchQuery}
+              onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
+              placeholder="搜索内容 / request_id"
+              className="h-10 rounded-xl border-stone-200 bg-white pl-10"
+            />
+          </div>
           <DateRangeFilter startDate={startDate} endDate={endDate} onChange={(start, end) => { setStartDate(start); setEndDate(end); }} />
+          <label className="flex h-10 items-center gap-2 rounded-xl border border-stone-200 bg-white px-3 text-sm text-stone-600">
+            <Checkbox checked={autoScroll} onCheckedChange={(c) => setAutoScroll(Boolean(c))} />
+            自动滚动
+          </label>
           <Button variant="outline" onClick={clearFilters} className="h-10 rounded-xl border-stone-200 bg-white px-4 text-stone-700">
             清除筛选条件
           </Button>

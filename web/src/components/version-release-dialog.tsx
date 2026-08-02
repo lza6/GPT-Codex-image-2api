@@ -64,7 +64,7 @@ export function VersionReleaseDialog({ className }: { className?: string }) {
                 <button
                   type="button"
                   className="text-[11px] text-stone-400 underline-offset-2 hover:text-stone-700 hover:underline dark:hover:text-stone-200"
-                  onClick={() => void checkLatestRelease(true)}
+                  onClick={() => void checkLatestRelease()}
                 >
                   {checking ? "检查中..." : "检查更新"}
                 </button>

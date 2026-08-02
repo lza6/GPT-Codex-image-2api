@@ -1,4 +1,5 @@
 import axios, {AxiosError, type AxiosRequestConfig} from "axios";
+import {toast} from "sonner";
 
 import webConfig from "@/constants/common-env";
 import {clearStoredAuthSession, getStoredAuthKey} from "@/store/auth";
@@ -62,12 +63,28 @@ request.interceptors.response.use(
         }
 
         const payload = error.response?.data;
-        const message =
+        let message =
             errorMessageFromValue(payload?.detail) ||
             errorMessageFromValue(payload?.error) ||
             payload?.message ||
             error.message ||
             `请求失败 (${status || 500})`;
+
+        // 统一错误提示：429 限流、5xx 带 request-id 后 8 位
+        if (status === 429) {
+            message = "请求过于频繁（限流），请稍后重试";
+            toast.error(message);
+        } else if (status && status >= 500) {
+            const requestId = error.response?.headers?.["x-request-id"] || error.response?.headers?.["X-Request-ID"];
+            if (requestId) {
+                const shortId = String(requestId).slice(-8);
+                message = `${message} (请求ID: ${shortId})`;
+            }
+            toast.error(message);
+        } else if (status === 400) {
+            toast.error(message);
+        }
+
         return Promise.reject(new Error(message));
     },
 );

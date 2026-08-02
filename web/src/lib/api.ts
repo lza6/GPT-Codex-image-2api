@@ -37,6 +37,10 @@ export type Account = {
   image_inflight?: number;
   last_used_at?: string | null;
   proxy?: string | null;
+  /** 健康档位（healthy/warm/risky）。 */
+  tier?: SchedulerTier;
+  /** 调度分。 */
+  score?: number;
 };
 
 export type AccountImportPayload = {

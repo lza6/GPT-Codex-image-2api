@@ -29,10 +29,10 @@ const TIER_LABELS: Record<SchedulerTier, string> = {
 };
 
 const TIER_COLORS: Record<SchedulerTier, string> = {
-  healthy: "bg-emerald-100 text-emerald-800",
-  warm: "bg-amber-100 text-amber-800",
-  risky: "bg-red-100 text-red-800",
-  banned: "bg-stone-200 text-stone-600",
+  healthy: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300",
+  warm: "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300",
+  risky: "bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-300",
+  banned: "bg-stone-200 text-stone-600 dark:bg-stone-700 dark:text-stone-300",
 };
 
 function formatUptime(seconds: number) {
@@ -146,9 +146,19 @@ function DashboardContent() {
 
   if (loading && !scheduler) {
     return (
-      <div className="flex h-64 items-center justify-center text-stone-400">
-        <RefreshCw className="mr-2 h-5 w-5 animate-spin" />
-        加载中...
+      <div className="space-y-6">
+        <div className="h-8 w-40 animate-pulse rounded-lg bg-stone-200 dark:bg-stone-700" />
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="h-24 animate-pulse rounded-xl bg-stone-100 dark:bg-stone-800" />
+          ))}
+        </div>
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="h-24 animate-pulse rounded-xl bg-stone-100 dark:bg-stone-800" />
+          ))}
+        </div>
+        <div className="h-64 animate-pulse rounded-xl bg-stone-100 dark:bg-stone-800" />
       </div>
     );
   }
@@ -199,14 +209,14 @@ function DashboardContent() {
 
       {/* 使用中账号实时列表 */}
       {inUseAccounts.length > 0 && (
-        <Card className="rounded-xl border-emerald-200 bg-emerald-50/50">
+        <Card className="rounded-xl border-emerald-200 bg-emerald-50/50 dark:border-emerald-800 dark:bg-emerald-950/30">
           <CardHeader className="pb-2">
-            <CardTitle className="text-base text-emerald-900">正在使用的账号（实时）</CardTitle>
+            <CardTitle className="text-base text-emerald-900 dark:text-emerald-300">正在使用的账号（实时）</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex flex-wrap gap-2">
               {inUseAccounts.map((account) => (
-                <Badge key={account.email} className="bg-emerald-100 text-emerald-800">
+                <Badge key={account.email} className="bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
                   {account.email ?? "-"} · 在途 {account.image_inflight}
                 </Badge>
               ))}

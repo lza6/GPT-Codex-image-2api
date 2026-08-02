@@ -158,9 +158,15 @@ function ProxyPoolContent() {
 
   if (loading && !data) {
     return (
-      <div className="flex h-64 items-center justify-center text-stone-400">
-        <RefreshCw className="mr-2 h-5 w-5 animate-spin" />
-        加载中...
+      <div className="space-y-6">
+        <div className="h-8 w-40 animate-pulse rounded-lg bg-stone-200 dark:bg-stone-700" />
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="h-24 animate-pulse rounded-xl bg-stone-100 dark:bg-stone-800" />
+          ))}
+        </div>
+        <div className="h-16 animate-pulse rounded-xl bg-stone-100 dark:bg-stone-800" />
+        <div className="h-64 animate-pulse rounded-xl bg-stone-100 dark:bg-stone-800" />
       </div>
     );
   }
@@ -292,11 +298,11 @@ function ProxyPoolContent() {
                     <TableCell className="max-w-[260px] truncate font-mono text-xs">{proxy.url}</TableCell>
                     <TableCell>
                       {proxy.status === "healthy" ? (
-                        <Badge className="bg-emerald-100 text-emerald-800">健康</Badge>
+                        <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">健康</Badge>
                       ) : proxy.status === "isolated" ? (
-                        <Badge className="bg-amber-100 text-amber-800">已隔离</Badge>
+                        <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">已隔离</Badge>
                       ) : (
-                        <Badge className="bg-rose-100 text-rose-800">不健康</Badge>
+                        <Badge className="bg-rose-100 text-rose-800 dark:bg-rose-950/40 dark:text-rose-300">不健康</Badge>
                       )}
                     </TableCell>
                     <TableCell className="text-right">{proxy.weight}</TableCell>

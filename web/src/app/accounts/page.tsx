@@ -71,6 +71,20 @@ const accountStatusOptions: { label: string; value: AccountStatus | "all" }[] = 
   { label: "禁用", value: "禁用" },
 ];
 
+const tierOptions: { label: string; value: string }[] = [
+  { label: "全部档位", value: "all" },
+  { label: "健康", value: "healthy" },
+  { label: "温存", value: "warm" },
+  { label: "风险", value: "risky" },
+];
+
+const sortOptions: { label: string; value: string }[] = [
+  { label: "默认排序", value: "default" },
+  { label: "调度分（高到低）", value: "score_desc" },
+  { label: "调度分（低到高）", value: "score_asc" },
+  { label: "配额（高到低）", value: "quota_desc" },
+];
+
 const statusMeta: Record<
   AccountStatus,
   {
@@ -173,6 +187,8 @@ function AccountsPageContent() {
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<AccountStatus | "all">("all");
+  const [tierFilter, setTierFilter] = useState("all");
+  const [sortBy, setSortBy] = useState("default");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState("10");
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
@@ -249,14 +265,25 @@ function AccountsPageContent() {
 
   const filteredAccounts = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
-    return accounts.filter((account) => {
+    const filtered = accounts.filter((account) => {
       const searchMatched =
         normalizedQuery.length === 0 || (account.email ?? "").toLowerCase().includes(normalizedQuery);
       const typeMatched = typeFilter === "all" || displayAccountType(account) === typeFilter;
       const statusMatched = statusFilter === "all" || account.status === statusFilter;
-      return searchMatched && typeMatched && statusMatched;
+      const tierMatched = tierFilter === "all" || account.tier === tierFilter;
+      return searchMatched && typeMatched && statusMatched && tierMatched;
     });
-  }, [accounts, query, statusFilter, typeFilter]);
+    // 排序
+    const sorted = [...filtered];
+    if (sortBy === "score_desc") {
+      sorted.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+    } else if (sortBy === "score_asc") {
+      sorted.sort((a, b) => (a.score ?? 0) - (b.score ?? 0));
+    } else if (sortBy === "quota_desc") {
+      sorted.sort((a, b) => b.quota - a.quota);
+    }
+    return sorted;
+  }, [accounts, query, statusFilter, typeFilter, tierFilter, sortBy]);
 
   const pageCount = Math.max(1, Math.ceil(filteredAccounts.length / Number(pageSize)));
   const safePage = Math.min(page, pageCount);
@@ -957,6 +984,42 @@ function AccountsPageContent() {
               </SelectTrigger>
               <SelectContent>
                 {accountStatusOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={tierFilter}
+              onValueChange={(value) => {
+                setTierFilter(value);
+                setPage(1);
+              }}
+            >
+              <SelectTrigger className="h-10 w-full rounded-xl border-stone-200 bg-white/85 lg:w-[130px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {tierOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={sortBy}
+              onValueChange={(value) => {
+                setSortBy(value);
+                setPage(1);
+              }}
+            >
+              <SelectTrigger className="h-10 w-full rounded-xl border-stone-200 bg-white/85 lg:w-[150px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {sortOptions.map((option) => (
                   <SelectItem key={option.value} value={option.value}>
                     {option.label}
                   </SelectItem>

@@ -1213,6 +1213,10 @@ class AccountService:
                 account = dict(item)
                 token = account.get("access_token") or ""
                 account["image_inflight"] = int(self._image_inflight.get(token, 0))
+                # 附加健康档位与调度分，供前端筛选排序
+                tier = self._account_health_tier(account)
+                account["tier"] = tier
+                account["score"] = self._account_dispatch_score(account, tier)
                 result.append(account)
             return result
 
