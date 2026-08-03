@@ -1493,7 +1493,11 @@ def _generate_single_image(
                     if account_email and not output.account_email:
                         output.account_email = account_email
                     if output.kind == "message" and request.message_as_error:
-                        raise ImageGenerationError(
+                        # 轮询超时的 message 不是真正的应用层错误——上游还在异步生成，
+                        # 调用方可携带 conversation_id 后续找回，不应抛出 ImageGenerationError。
+                        is_poll_timeout = "poll_timeout" in output.text or "生图超时" in output.text
+                        if not is_poll_timeout:
+                            raise ImageGenerationError(
                             output.text or "Image generation was rejected by upstream policy.",
                             status_code=400,
                             error_type="invalid_request_error",
@@ -1517,12 +1521,16 @@ def _generate_single_image(
             if not returned_result:
                 account_service.mark_image_result(token, False)
                 if emitted_for_token:
-                    # 检查是否因轮询超时而退出（此时最后一个 output 是 progress 带 conversation_id）
-                    last_output = outputs[-1] if outputs else None
-                    if last_output and last_output.kind == "progress" and "poll_timeout" in last_output.text:
+                    # 检查是否因轮询超时而退出（此时 outputs 包含 progress + message 两个事件）
+                    has_poll_timeout = any(
+                        o.kind == "progress" and "poll_timeout" in o.text
+                        for o in outputs
+                    )
+                    if has_poll_timeout:
+                        conv_id = next((o.conversation_id for o in outputs if o.conversation_id), "")
                         logger.info({
                             "event": "image_poll_timeout_graceful_return",
-                            "conversation_id": last_output.conversation_id,
+                            "conversation_id": conv_id,
                             "index": index,
                         })
                         return outputs

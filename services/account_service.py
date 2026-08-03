@@ -323,8 +323,8 @@ class AccountService:
         if normalized["quota"] is not None:
             try:
                 quota_val = int(normalized["quota"])
-                # 保留 -1（无限配额），其余非负
-                normalized["quota"] = quota_val if quota_val == -1 else max(0, quota_val)
+                # 负数表示无限配额（OpenAI 语义，free plan 常见），保留原值
+                normalized["quota"] = quota_val if quota_val < 0 else max(0, quota_val)
             except (TypeError, ValueError):
                 normalized["quota"] = 0
         else:
@@ -1501,8 +1501,8 @@ class AccountService:
             next_item["last_used_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             if success:
                 next_item["success"] = int(next_item.get("success") or 0) + 1
-                # quota=-1 表示无限配额（OpenAI free plan 常见），不应扣减
-                if int(next_item.get("quota") or 0) != -1:
+                # quota < 0 表示无限配额（OpenAI 语义），不应扣减
+                if int(next_item.get("quota") or 0) >= 0:
                     next_item["quota"] = max(0, int(next_item.get("quota") or 0) - 1)
                 if next_item["quota"] == 0:
                     next_item["status"] = "限流"
