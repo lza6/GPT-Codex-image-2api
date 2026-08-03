@@ -25,7 +25,6 @@
 | 号池管理 | ✅ | 导入/刷新/状态机/自动移除/健康档位调度 |
 | 智能调度系统 | ✅ | 健康档位（healthy/warm/risky）+ 调度分 + 双模式 |
 | 运维看板 | ✅ | 调度健康度、资源占用、用量统计、账号排行榜 |
-| 多级限流 | ✅ | 全局 RPM + 单 IP RPM 滑动窗口限流 |
 | 代理池 | ✅ | 多代理管理、健康检查、自动隔离恢复 |
 | 多 Worker 并发 | ✅ | 支持多进程利用多核 CPU（需 SQLite/Postgres） |
 | Windows 一键启动 | ✅ | 启动/停止 bat 脚本，自动检测环境 |
@@ -37,20 +36,14 @@ v2.1.0 引入安全边界收紧（SSRF/文件下载/XFF）与韧性收口，**�
 
 | 变更 | 影响 | 迁移动作 |
 |------|------|---------|
-| **SSRF 防护** | `image_inputs` 图片 URL 默认拒绝内网/回环/链路本地地址（原允许） | 内网图床场景：设置页开启「允许抓取内网图片」或配置 `"ssrf_allow_private_ips": true` |
-| **文件下载鉴权** | `/files/{path}` 需 auth-key（原公开端点） | 调用方请求头带 `Authorization: Bearer <auth-key>`；前端已改 axios blob 鉴权下载 |
-| **XFF 伪造防护** | `X-Forwarded-For` 默认仅信任回环（原可能全信） | 反向代理部署：设置页「可信反向代理 IP」填代理 IP 或配置 `"trusted_proxies": ["10.0.0.1"]` |
+| **SSRF 防护（已移除）** | v2.1.1 起移除 SSRF 防护——企业内网自用，安全由调用方处理 | 无需任何操作 |
+| **文件下载鉴权** | `/files/{path}` 需 auth-key（原公开端点） | 调用方请求头带 `Authorization: Bearer <auth-key>` |
+| **XFF 伪造防护（已移除）** | v2.1.1 起移除限流 + 安全中间件，XFF 不再处理 | 无需任何操作 |
 | **账号导出时区** | 导出文件 `expired`/`last_refresh` 从 UTC+8 改 UTC ISO8601 | 解析导出文件方按 UTC 处理 |
 
-**v2.1.0 新能力：**
-- **SQLite WAL**：多 worker 并发写安全（journal_mode=WAL + busy_timeout=5000），设置页可配
-- **进度字典 TTL**：批量刷新/重登进度 1 小时自动清理，防内存膨胀，设置页可配
-- **熔断器生命周期**：账号删除/轮换自动清理熔断器，注册表 24h 孤儿淘汰
-- **codex 池化 + 搜索熔断**：codex 从裸 urllib 改池化 curl_cffi；搜索路径接熔断 + 补 close 泄漏
-- **备份失败可见**：完整堆栈日志 + Prometheus 计数器 + 看板备份状态卡片（失败红条告警）
-- **优雅停机**：SIGTERM/SIGINT 后关闭池化 TLS 连接 + 守护线程 5s 内退出
-- **告警 webhook**：熔断开启/备份失败/账号失效/配额耗尽 4 类事件主动 POST 通知，5 分钟去重防风暴
-- **多 worker 共享状态**：可选 Redis 共享限流计数（`docker compose --profile redis up -d` + 配置 `redis_url`），单 worker 默认 Local 无感
+**v2.1.1 新变化：**
+- **性能优先**：移除 RateLimitMiddleware/SecurityHeadersMiddleware/RequestSizeLimitMiddleware/MetricsMiddleware/SSRF 防护，每个请求减少 4 层中间件 dispatch
+- **企业内网场景**：安全层由调用方自行处理，降低维护成本
 
 ## 升级到 2.0
 
@@ -82,7 +75,7 @@ v2.0.0 引入生产级安全默认值收紧与韧性闭环，**含 breaking chan
 ┌──────────────────────────────────────────────────┐
 │           FastAPI 网关 (api/)                     │
 │  ┌──────┬──────┬──────┬──────┬──────┬─────────┐ │
-│  │ AI   │账号  │看板  │图片  │系统  │限流中间件│ │
+│  │ AI   │账号  │看板  │图片  │系统  │  CORS   │ │
 │  └──────┴──────┴──────┴──────┴──────┴─────────┘ │
 └──────────────────────┬───────────────────────────┘
                        │
@@ -255,15 +248,10 @@ environment:
 > **⚠️ 重要**：workers > 1 时**必须使用 SQLite 或 Postgres 存储后端**，否则各进程持有独立账号副本导致数据混乱。
 > JSON 存储后端会自动回退到 workers=1 并给出警告。
 
-#### 限流配置
+#### 限流配置（已移除，企业内网不限流）
 
-```json
-{
-  "rate_limit_rpm": 0,             // 全局 RPM，0=不限流，建议生产设为 600+
-  "rate_limit_per_ip_rpm": 0,      // 单 IP RPM，0=不限流
-  "workers": 1                     // 多 Worker 数（需配合 SQLite/Postgres）
-}
-```
+限流中间件已移除，`rate_limit_rpm`/`rate_limit_per_ip_rpm` 配置项保留但无实际效果。
+调用方需自行限流。
 
 #### 环境变量覆盖
 
@@ -282,14 +270,13 @@ environment:
 - 4 Worker + SQLite 存储：约 8000 req/min（实测 7912 req/min，0 崩溃）
 - 多实例 + Postgres + Redis：万级 req/min（需额外部署）
 
-### 安全与韧性（本轮增强）
+### 安全说明（企业内网自用，性能优先）
 
-- **上游熔断**：文本/图片调用链路接入熔断器，账号连续失败 5 次熔断 30s，半开 3 次成功恢复；上游抖动时快速失败换号，避免雪崩
-- **请求体限制**：`/v1/images/*` 默认 50MB、其余 API 默认 10MB，超限返回 413（可配 `max_request_body_mb_chat` / `max_request_body_mb_image`）
-- **安全响应头**：所有响应注入 `X-Content-Type-Options: nosniff`、`X-Frame-Options: DENY`、`Referrer-Policy`
-- **CORS 配置驱动**：`cors_origins` 配置允许来源（默认 `*`，生产环境仍为 `*` 时启动警告）
-- **/metrics 鉴权**：Prometheus 指标端点需 `Authorization: Bearer <auth-key>` 或 `?token=<auth-key>`，防公网暴露账号规模等敏感信息
+本项目面向企业内网部署，安全层由调用方系统自行处理。已移除的中间件和防护：
+- **限流中间件**、**安全响应头**、**请求体大小限制**、**请求指标中间件**、**SSRF 防护**——全部移除以减少延迟
+- **CORS 配置驱动**：`cors_origins` 配置允许来源（默认 `*`，内网无需收紧）
 - **弱口令检测**：auth-key 为常见弱口令或 <12 位时，开发环境警告、`CHATGPT2API_ENV=production` 拒绝启动
+- **上游熔断**：文本/图片调用链路接入熔断器，账号连续失败 5 次熔断 30s，半开 3 次成功恢复；上游抖动时快速失败换号，避免雪崩
 
 ### 质量保障（CI/CD）
 
@@ -506,5 +493,5 @@ curl http://localhost:23456/v1/responses \
 
 ## 说明
 
-本项目为内部定制化部署版本，基于内部需求做了生产级增强（智能调度、熔断、连接池、
-运维看板、安全加固、CI 质量门等）。源码与更新通过内部渠道分发，不对外公开仓库。
+本项目为内部定制化部署版本，基于内部需求做了生产级增强（智能调度、熔断、连接池、运维看板等）。
+源码与更新通过内部渠道分发，不对外公开仓库。

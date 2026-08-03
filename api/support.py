@@ -35,10 +35,6 @@ def require_identity(authorization: str | None) -> dict[str, object]:
     return identity
 
 
-def require_auth_key(authorization: str | None) -> None:
-    require_identity(authorization)
-
-
 def require_admin(authorization: str | None) -> dict[str, object]:
     identity = require_identity(authorization)
     if identity.get("role") != "admin":

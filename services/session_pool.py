@@ -91,6 +91,17 @@ class SessionPool:
         # 池中 Session 无需任何操作；连接复用依赖 curl keep-alive，不做 close。
         return
 
+    def remove(self, session: requests.Session) -> None:
+        """从池中移除一个 Session（不 close），供长轮询等场景独享 Session。
+
+        轮询结束后调用方自行 close() 或归还。
+        """
+        with self._lock:
+            for key, (sess, ts) in list(self._sessions.items()):
+                if sess is session:
+                    del self._sessions[key]
+                    return
+
     def invalidate(self, account: dict | None = None, impersonate: str = "chrome110", verify: bool = True, fp_key: str = "") -> None:
         """使某配置的 Session 失效（如 token 失效后强制重建）。
 

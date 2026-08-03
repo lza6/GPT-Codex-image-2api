@@ -2209,6 +2209,17 @@ class OpenAIBackendAPI:
           (capped at 16s, +jitter) honoring Retry-After when present.
         - All sleeps stay within timeout_secs; on exhaustion raises ImagePollTimeoutError.
         """
+        # 长轮询期间把池化 Session 从池中"偷"出来，避免被 300s TTL 淘汰关闭
+        _pool_session = getattr(self.session, "_chatgpt2api_pooled", False)
+        if _pool_session:
+            from services.session_pool import session_pool
+
+            session_pool.remove(self.session)
+            logger.info({
+                "event": "image_poll_session_stolen_from_pool",
+                "conversation_id": conversation_id,
+                "timeout_secs": timeout_secs,
+            })
         start = time.time()
         attempt = 0
         interval = float(config.image_poll_interval_secs)
@@ -2481,7 +2492,6 @@ class OpenAIBackendAPI:
 
         is_error = metadata.get("is_error", False)
         is_text_only = content.get("content_type") == "text"
-        author.get("role") == "assistant"
 
         # 提取错误文本
         error_msg = ""

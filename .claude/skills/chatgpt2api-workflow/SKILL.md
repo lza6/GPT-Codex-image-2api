@@ -20,16 +20,12 @@ description: ChatGPT2API 项目的完整开发工作流。用于新功能开发�
 ```
 chatgpt2api/
 ├── api/                      # FastAPI 路由层
-│   ├── app.py                # 应用入口 + 中间件(Metrics/RateLimit/CORS) + 路由注册
+│   ├── app.py                # 应用入口 + CORS 中间件 + 路由注册
 │   ├── ai.py                 # OpenAI 兼容 AI 接口 (/v1/*)
 │   ├── accounts.py           # 账号管理 CRUD + 刷新
 │   ├── dashboard.py          # 看板 API (scheduler/ops/usage/latency/stream/metrics)
 │   ├── image_tasks.py        # 图片任务提交/轮询
 │   ├── proxy_pool.py         # 代理池管理 API (proxies/egress-ip/probe-ip)
-│   ├── rate_limit.py         # 滑动窗口限流中间件
-│   ├── request_size_limit.py # 请求体大小限制中间件(chat 10MB/image 50MB, 413/411)
-│   ├── security_headers.py   # 安全响应头中间件(nosniff/DENY/Referrer-Policy, 纯ASGI)
-│   ├── metrics_middleware.py # 请求指标中间件(追踪ID/延迟/inflight)
 │   ├── system.py             # 设置/日志/图片/备份
 │   └── support.py            # 鉴权/工具函数
 ├── services/                 # 业务逻辑层
@@ -105,11 +101,10 @@ chatgpt2api/
 - 三种调度：轮询 / 加权 / 最少连接
 - 健康检查 + 自动隔离恢复
 
-### 7. 安全加固（第五轮新增）
+### 7. 安全策略（企业内网自用，性能优先）
 
-- **请求体限制** `api/request_size_limit.py`：`/v1/images/*` 50MB、其余 API 10MB，超限 413；API 写请求无 Content-Length 且 chunked 返回 411（防绕过）
-- **安全响应头** `api/security_headers.py`：纯 ASGI 中间件，所有响应（含 4xx/5xx/413）注入 nosniff/DENY/Referrer-Policy
-- **CORS 配置驱动**：`config.cors_origins`（默认 `*`，production 下 `*` 启动警告）
+- **安全层由调用方处理**：已移除 RateLimitMiddleware/SecurityHeadersMiddleware/RequestSizeLimitMiddleware/MetricsMiddleware/SSRF 防护
+- **CORS 配置驱动**：`config.cors_origins`（默认 `*`），企业内网场景无需收紧
 - **弱口令检测**：auth-key 常见弱口令或 <12 位，development 警告、production（`CHATGPT2API_ENV=production`）拒绝启动
 
 ### 8. CI/CD 质量门（第五轮新增）
