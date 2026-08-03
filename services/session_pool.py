@@ -79,6 +79,7 @@ class SessionPool:
             # 标记为池化 Session：OpenAIBackendAPI.close() 检测到后转为 release 而非真正 close，
             # 避免每次请求结束拆掉底层 TCP/TLS 连接导致复用失效。
             session._chatgpt2api_pooled = True  # type: ignore[attr-defined]
+            session._pool_key = key  # type: ignore[attr-defined]
             self._sessions[key] = (session, now)
             return session
 
@@ -86,10 +87,19 @@ class SessionPool:
         """归还池化 Session：不关闭底层连接，仅保留在池中供下次复用。
 
         供 OpenAIBackendAPI.close() 在检测到池化 Session 时调用。
+        如果 Session 已被 remove() 提出池外（长轮询暂借），则重新入池；
+        仍在池中则无需操作（连接复用依赖 curl keep-alive）。
         非池化 Session（无标记）由调用方直接 close()。
         """
-        # 池中 Session 无需任何操作；连接复用依赖 curl keep-alive，不做 close。
-        return
+        pool_key = getattr(session, "_pool_key", None)
+        if pool_key is None:
+            return
+        now = time.monotonic()
+        with self._lock:
+            # 如果 key 仍在池中（未被 remove），无需操作
+            if pool_key in self._sessions:
+                return
+            self._sessions[pool_key] = (session, now)
 
     def remove(self, session: requests.Session) -> None:
         """从池中移除一个 Session（不 close），供长轮询等场景独享 Session。
