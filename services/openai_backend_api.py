@@ -2351,8 +2351,8 @@ class OpenAIBackendAPI:
             if file_ids or sediment_ids:
                 if not config.image_check_before_hit_enabled:
                     # 先check再hit 机制关闭：直接返回首次发现的 file_ids
-                    # 如果 sediment_ids 存在，文件可能尚未落地，强制等最小 settle 时间
-                    if sediment_ids:
+                    # 如果 sediment_ids 存在，文件可能尚未落地，强制等 settle 时间
+                    if sediment_ids and not file_ids:
                         settle_secs = min(config.image_settle_secs, max(0.0, _remaining()))
                         if settle_secs > 0:
                             logger.info({
@@ -2549,7 +2549,9 @@ class OpenAIBackendAPI:
         for sediment_id in sediment_ids:
             try:
                 url = self._get_attachment_download_url(conversation_id, sediment_id)
-            except Exception as exc:
+            except UpstreamHTTPError as exc:
+                if exc.status_code == 404:
+                    raise  # 让调用方重试 settle
                 logger.debug({
                     "event": "image_download_url_failed",
                     "source": "sediment",
