@@ -451,6 +451,14 @@ class ConfigStore:
             return 120
 
     @property
+    def image_min_free_mb(self) -> int:
+        """图片磁盘最小剩余空间阈值（MB），低于此值自动清理最旧图片。"""
+        try:
+            return max(50, int(self.data.get("image_min_free_mb", 500)))
+        except (TypeError, ValueError):
+            return 500
+
+    @property
     def image_poll_interval_secs(self) -> float:
         try:
             return max(0.5, float(self.data.get("image_poll_interval_secs", 10.0)))
@@ -796,6 +804,7 @@ class ConfigStore:
         data["refresh_account_interval_minute"] = self.refresh_account_interval_minute
         data["image_retention_days"] = self.image_retention_days
         data["image_poll_timeout_secs"] = self.image_poll_timeout_secs
+        data["image_min_free_mb"] = self.image_min_free_mb
         data["image_poll_interval_secs"] = self.image_poll_interval_secs
         data["image_poll_initial_wait_secs"] = self.image_poll_initial_wait_secs
         data["image_account_concurrency"] = self.image_account_concurrency

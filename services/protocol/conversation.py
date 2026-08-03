@@ -66,6 +66,12 @@ def public_image_error_message(message: str) -> str:
     text = str(message or "").strip()
     lower = text.lower()
     if any(item in lower for item in ("backend-api/", "status=", "body=", "chatgpt.com", "upstreamhttperror")):
+        # 上游原始错误藏在 message 里，截取关键部分透传
+        # 格式类似 "/backend-api/files/xxx/download failed: status=404, body=..."
+        for marker in ("body=", "status=", "upstream_http_"):
+            idx = lower.find(marker)
+            if idx != -1:
+                return f"上游错误: {text[idx:idx+200]}"
         return "The image generation request failed. Please try again later."
     return text or "The image generation request failed. Please try again later."
 
@@ -982,7 +988,7 @@ def stream_image_outputs(
         error_text = detailed_error or message or "Image generation was rejected by upstream policy."
         yield ImageOutput(kind="message", model=request.model, index=index, total=total, text=error_text, conversation_id=conversation_id)
         return
-    should_poll_for_image = bool(request.images) or last.get("turn_use_case") == "image gen"
+    should_poll_for_image = bool(request.images) or last.get("turn_use_case") == "image gen" or is_supported_image_model(request.model)
     if message and not file_ids and not sediment_ids and not should_poll_for_image:
         yield ImageOutput(kind="message", model=request.model, index=index, total=total, text=message, conversation_id=conversation_id)
         return

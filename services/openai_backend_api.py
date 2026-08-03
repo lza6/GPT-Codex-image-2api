@@ -196,7 +196,9 @@ class OpenAIBackendAPI:
             "OAI-Device-Id": self.device_id,
             "OAI-Session-Id": self.session_id,
         })
-        # 实例级请求头（本实例的指纹与客户端版本），每个请求经 _request_headers 合并
+        # 实例级请求头（本实例的指纹与客户端版本），每个请求经 _headers 合并。
+        # 注意：OAI-Device-Id/Session-Id 写池化 Session 是池化 key 的组成部分，
+        # 同 key 实例共享相同指纹，不存在竞态；不可迁移到 _instance_headers 否则会丢失池化 key 匹配。
         self._instance_headers = {
             "User-Agent": self.user_agent,
             "Origin": self.base_url,
