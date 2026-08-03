@@ -123,11 +123,5 @@
   "image_settle_secs": 2,
   "auto_relogin_after_refresh": false,
   "image_timeout_retry_secs": 30,
-  "third_party_apps": {
-    "infinite_canvas": {
-      "enabled": true,
-      "url": "https://canvas.best"
-    }
-  },
   "image_remove_conversation_after_result": true
 }

@@ -2264,6 +2264,7 @@ class OpenAIBackendAPI:
             if error is not None:
                 log_payload["error"] = error
             logger.warning(log_payload)
+            self._report_progress(f"poll_retry:{reason}")
             time.sleep(sleep_for)
             return True
 
@@ -2333,9 +2334,22 @@ class OpenAIBackendAPI:
 
             logger.debug({"event": "image_poll_check", "conversation_id": conversation_id, "attempt": attempt,
                           "file_ids": file_ids, "sediment_ids": sediment_ids})
+            self._report_progress(f"poll_check:{attempt}")
             if file_ids or sediment_ids:
                 if not config.image_check_before_hit_enabled:
                     # 先check再hit 机制关闭：直接返回首次发现的 file_ids
+                    # 如果 sediment_ids 存在，文件可能尚未落地，强制等最小 settle 时间
+                    if sediment_ids:
+                        settle_secs = min(config.image_settle_secs, max(0.0, _remaining()))
+                        if settle_secs > 0:
+                            logger.info({
+                                "event": "image_poll_sediment_forced_settle",
+                                "conversation_id": conversation_id,
+                                "settle_secs": settle_secs,
+                                "file_ids": file_ids,
+                                "sediment_ids": sediment_ids,
+                            })
+                            time.sleep(settle_secs)
                     logger.info({"event": "image_poll_hit_no_settle", "conversation_id": conversation_id,
                                  "file_ids": file_ids, "sediment_ids": sediment_ids})
                     return file_ids, sediment_ids
@@ -2368,14 +2382,14 @@ class OpenAIBackendAPI:
             "conversation_id": conversation_id,
             "timeout_secs": timeout_secs,
             "attempts_made": attempt,
-            # attempts_made == 0 means the initial_wait consumed the entire budget — no HTTP attempted.
             "initial_wait_exhausted_budget": attempt == 0,
             "last_task_error": last_task_error if last_task_error else None,
         })
         exc = ImagePollTimeoutError(
             f"ChatGPT 生图超时（已等待 {timeout_secs} 秒）。"
             f"当前超时阈值可在 config.json 中调大 image_poll_timeout_secs，"
-            f"也可能是账号被限流或生图队列拥堵导致。",
+            f"也可能是账号被限流或生图队列拥堵导致。"
+            f"如有需要，可携带 conversation_id={conversation_id} 重试请求。",
             conversation_id or "",
         )
         if last_task_error:
@@ -2564,7 +2578,9 @@ class OpenAIBackendAPI:
         timeout = poll_timeout_secs if poll_timeout_secs is not None else config.image_poll_timeout_secs
         # 当 check-before-hit 和 settle 均已关闭，且 SSE 已给出 file_ids 时，
         # 跳过轮询直接解析 URL，省去 initial_wait + 轮询耗时。
-        if poll and conversation_id and (file_ids or sediment_ids):
+        # 注意：sediment_ids 必须经过轮询 settle 才能转换成可下载的 file_id，
+        # 只有纯 file_ids 时才能直接解析（sediment 落地需要时间）。
+        if poll and conversation_id and file_ids and not sediment_ids:
             if not config.image_check_before_hit_enabled and not config.image_settle_enabled:
                 logger.info({
                     "event": "image_resolve_skip_poll_direct_resolve",
@@ -2660,9 +2676,10 @@ class OpenAIBackendAPI:
 
     def _report_progress(self, step: str) -> None:
         """Report progress step to the callback if set."""
-        if self.progress_callback:
+        callback = getattr(self, "progress_callback", None)
+        if callback:
             try:
-                self.progress_callback(step)
+                callback(step)
             except Exception:
                 pass
 

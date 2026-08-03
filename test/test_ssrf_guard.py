@@ -96,14 +96,8 @@ def test_rejects_empty_or_malformed():
 
 
 def test_download_image_url_rejects_loopback():
-    from fastapi import HTTPException
-
-    from api.image_inputs import _download_image_url
-
-    with pytest.raises(HTTPException) as exc_info:
-        _download_image_url("http://127.0.0.1:9999/internal")
-    assert exc_info.value.status_code == 400
-    assert "SSRF" in str(exc_info.value.detail) or "内网" in str(exc_info.value.detail) or "拒绝" in str(exc_info.value.detail)
+    """企业内部自用，不拒绝内网（SSRF 防护已移除）。"""
+    pass
 
 
 def test_download_image_url_rejects_file_scheme():

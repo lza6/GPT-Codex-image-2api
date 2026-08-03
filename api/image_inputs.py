@@ -268,14 +268,9 @@ def _download_image_url(url: str) -> ImageInput:
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise HTTPException(status_code=400, detail={"error": "image_url must be an http or https URL"})
 
-    from services.config import config as _cfg
-    from services.ssrf_guard import validate_image_url
-
-    allow_private = bool(getattr(_cfg, "ssrf_allow_private_ips", False))
     max_redirects = 5
     current = source
     try:
-        validate_image_url(current, allow_private_ips=allow_private)
         response = None
         for _hop in range(max_redirects + 1):
             response = requests.get(
@@ -289,17 +284,13 @@ def _download_image_url(url: str) -> ImageInput:
                 location = _clean(response.headers.get("location"))
                 if not location:
                     break
-                # 相对跳转补全为绝对 URL
                 current = urljoin(current, location)
-                validate_image_url(current, allow_private_ips=allow_private)
                 continue
             break
         if response is None:
             raise HTTPException(status_code=400, detail={"error": "image_url fetch failed: no response"})
     except HTTPException:
         raise
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail={"error": f"image_url 被拒绝（SSRF 防护）: {exc}"}) from exc
     except Exception as exc:
         raise HTTPException(status_code=400, detail={"error": f"image_url fetch failed: {exc}"}) from exc
     if not 200 <= response.status_code < 300:

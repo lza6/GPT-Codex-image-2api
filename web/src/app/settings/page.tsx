@@ -15,7 +15,6 @@ import { ImportBrowserDialog } from "./components/import-browser-dialog";
 import { ProxyRuntimeCard } from "./components/proxy-runtime-card";
 import { SettingsHeader } from "./components/settings-header";
 import { Sub2APIConnections } from "./components/sub2api-connections";
-import { ThirdPartyAppsCard } from "./components/third-party-apps-card";
 import { UserKeysCard } from "./components/user-keys-card";
 import { useSettingsStore } from "./store";
 
@@ -24,7 +23,6 @@ const settingsTabs = [
   { value: "backup", title: "备份" },
   { value: "keys", title: "用户密钥" },
   { value: "api-docs", title: "接口接入" },
-  { value: "canvas", title: "画布入口" },
   { value: "proxy", title: "FlareSolverr" },
   { value: "cpa", title: "CPA" },
   { value: "sub2api", title: "Sub2API" },
@@ -100,9 +98,6 @@ function SettingsPageContent() {
         </TabsContent>
         <TabsContent value="keys">
           <UserKeysCard />
-        </TabsContent>
-        <TabsContent value="canvas">
-          <ThirdPartyAppsCard />
         </TabsContent>
         <TabsContent value="api-docs">
           <ApiDocsCard />

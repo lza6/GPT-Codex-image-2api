@@ -9,10 +9,6 @@ from fastapi.responses import FileResponse
 
 from api import accounts, ai, dashboard, image_tasks, proxy_pool, system
 from api.errors import install_exception_handlers
-from api.metrics_middleware import MetricsMiddleware
-from api.rate_limit import RateLimitMiddleware
-from api.request_size_limit import RequestSizeLimitMiddleware
-from api.security_headers import SecurityHeadersMiddleware
 from api.support import resolve_web_asset, start_limited_account_watcher
 from services.backup_service import backup_service
 from services.config import config
@@ -43,18 +39,8 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title="chatgpt2api", version=app_version, lifespan=lifespan)
     install_exception_handlers(app)
-    app.add_middleware(MetricsMiddleware)
-    app.add_middleware(
-        RateLimitMiddleware,
-        global_rpm=config.rate_limit_rpm,
-        per_ip_rpm=config.rate_limit_per_ip_rpm,
-    )
-    # 请求体大小限制：在路由前拦截超限 body，防大 body 攻击
-    app.add_middleware(RequestSizeLimitMiddleware)
-    # CORS：配置驱动。生产环境仍为 ["*"] 时打印警告（应显式收紧）
+    # CORS：配置驱动
     cors_origins = config.cors_origins
-    if config.env == "production" and "*" in cors_origins:
-        print("⚠️  WARNING: 生产环境 CORS 仍为 ['*']，建议配置 cors_origins 收紧来源", flush=True)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=cors_origins,
@@ -62,8 +48,6 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    # 安全响应头：最外层（后注册先执行），确保所有响应含安全头
-    app.add_middleware(SecurityHeadersMiddleware)
     app.include_router(ai.create_router())
     app.include_router(accounts.create_router())
     app.include_router(image_tasks.create_router())

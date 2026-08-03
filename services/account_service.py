@@ -319,7 +319,16 @@ class AccountService:
             normalized.pop("type", None)
         normalized["type"] = normalized.get("type") or "free"
         normalized["status"] = normalized.get("status") or "正常"
-        normalized["quota"] = max(0, int(normalized.get("quota") if normalized.get("quota") is not None else 0))
+        normalized["quota"] = normalized.get("quota")
+        if normalized["quota"] is not None:
+            try:
+                quota_val = int(normalized["quota"])
+                # 保留 -1（无限配额），其余非负
+                normalized["quota"] = quota_val if quota_val == -1 else max(0, quota_val)
+            except (TypeError, ValueError):
+                normalized["quota"] = 0
+        else:
+            normalized["quota"] = 0
         normalized["email"] = normalized.get("email") or None
         normalized["user_id"] = normalized.get("user_id") or None
         normalized["proxy"] = str(normalized.get("proxy") or "").strip()
@@ -1492,7 +1501,9 @@ class AccountService:
             next_item["last_used_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             if success:
                 next_item["success"] = int(next_item.get("success") or 0) + 1
-                next_item["quota"] = max(0, int(next_item.get("quota") or 0) - 1)
+                # quota=-1 表示无限配额（OpenAI free plan 常见），不应扣减
+                if int(next_item.get("quota") or 0) != -1:
+                    next_item["quota"] = max(0, int(next_item.get("quota") or 0) - 1)
                 if next_item["quota"] == 0:
                     next_item["status"] = "限流"
                     next_item["restore_at"] = next_item.get("restore_at") or None

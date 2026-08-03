@@ -1061,7 +1061,37 @@ def stream_image_outputs(
         image_urls = backend.resolve_conversation_image_urls(
             conversation_id, file_ids, sediment_ids, poll_timeout_secs=poll_timeout,
         )
-    except (ImageContentPolicyError, ImagePollTimeoutError) as exc:
+    except ImagePollTimeoutError as exc:
+        # 轮询超时 ≠ 最终失败——上游可能还在异步生成。
+        # 带 conversation_id 返回进度事件，让调用方/客户端可后续重试找回。
+        logger.warning({
+            "event": "image_poll_timeout_streaming",
+            "conversation_id": conversation_id,
+            "timeout_secs": poll_timeout,
+            "error": str(exc),
+        })
+        yield ImageOutput(
+            kind="progress",
+            model=request.model,
+            index=index,
+            total=total,
+            text=f"poll_timeout:已等待{poll_timeout}秒，上游仍在生成中（conversation_id={conversation_id}）",
+            upstream_event_type="poll_timeout",
+            conversation_id=conversation_id,
+        )
+        # 让调用方选择：继续等（客户端可携带 conversation_id 重试）或放弃
+        yield ImageOutput(
+            kind="message",
+            model=request.model,
+            index=index,
+            total=total,
+            text=f"ChatGPT 生图超时（已等待 {poll_timeout} 秒）。"
+                 f"上游可能仍在异步生成，你可携带 conversation_id={conversation_id} 重新查询。"
+                 f"config.json 中 image_poll_timeout_secs 可调大超时阈值。",
+            conversation_id=conversation_id,
+        )
+        return
+    except (ImageContentPolicyError,) as exc:
         # 当检测到文本回复时，task error 不应直接判定为内容策略违规，
         # 因为图片可能仍在后台异步生成中
         if is_text_reply and isinstance(exc, ImageContentPolicyError):
@@ -1487,6 +1517,15 @@ def _generate_single_image(
             if not returned_result:
                 account_service.mark_image_result(token, False)
                 if emitted_for_token:
+                    # 检查是否因轮询超时而退出（此时最后一个 output 是 progress 带 conversation_id）
+                    last_output = outputs[-1] if outputs else None
+                    if last_output and last_output.kind == "progress" and "poll_timeout" in last_output.text:
+                        logger.info({
+                            "event": "image_poll_timeout_graceful_return",
+                            "conversation_id": last_output.conversation_id,
+                            "index": index,
+                        })
+                        return outputs
                     conv_id = outputs[-1].conversation_id if outputs else ""
                     raise ImageGenerationError(
                         "upstream completed without generating images",

@@ -150,13 +150,6 @@ export type ProxyRuntimeResponse = {
   status: ProxyRuntimeStatus;
 };
 
-export type ThirdPartyAppsSettings = {
-  infinite_canvas: {
-    enabled: boolean;
-    url: string;
-  };
-};
-
 export type SettingsConfig = {
   proxy: string;
   base_url?: string;
@@ -205,7 +198,6 @@ export type SettingsConfig = {
   alert_events?: string[];
   image_storage?: ImageStorageSettings;
   proxy_runtime?: ProxyRuntimeSettings;
-  third_party_apps?: ThirdPartyAppsSettings;
   backup?: BackupSettings;
   backup_state?: BackupState;
   [key: string]: unknown;
@@ -566,10 +558,6 @@ export async function updateSettingsConfig(settings: SettingsConfig) {
     method: "POST",
     body: settings,
   });
-}
-
-export async function fetchThirdPartyApps() {
-  return httpRequest<{ third_party_apps: ThirdPartyAppsSettings }>("/api/third-party-apps");
 }
 
 export async function testBackupConnection() {
