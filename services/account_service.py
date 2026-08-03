@@ -1159,8 +1159,8 @@ class AccountService:
             from services.alert_service import send_alert
 
             send_alert("quota_exhausted", {"tried_tokens": len(attempted_tokens), "plan_type": plan_type or "", "source_type": source_type or ""})
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("配额耗尽告警发送失败: %s", exc)
         raise RuntimeError(
             f"no available {plan_type or source_type or ''} image quota (tried {len(attempted_tokens)} tokens)".replace("  ", " ").strip()
             if plan_type or source_type else f"no available image quota (tried {len(attempted_tokens)} tokens)"

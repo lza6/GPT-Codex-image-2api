@@ -269,7 +269,7 @@ def compress_images(quality: int = 60) -> dict:
             else:
                 Path(str(p) + ".tmp").unlink()
         except Exception:
-            pass
+            logger.warning("图片压缩失败: %s", p)
     return {"compressed": count, "saved_bytes": saved, "saved_mb": saved // (1024 * 1024)}
 
 

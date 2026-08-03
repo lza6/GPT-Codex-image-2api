@@ -216,7 +216,8 @@ def create_router() -> APIRouter:
             update_account_pool_size(health["tiers"])
             update_image_tasks_inflight(health["total_inflight"])
         except Exception:
-            pass
+            import logging
+            logging.getLogger("chatgpt2api").warning("Prometheus 指标更新失败")
         # 带调度分的账号排名（供前端展示）
         ranked = []
         for account in accounts:

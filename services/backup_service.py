@@ -329,8 +329,8 @@ class BackupService:
         while not self._stop_event.is_set():
             try:
                 self.run_scheduled_backup_if_needed()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("备份调度异常: %s", exc)
             self._stop_event.wait(30)
 
     def run_scheduled_backup_if_needed(self) -> None:
