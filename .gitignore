@@ -42,3 +42,6 @@ reports/
 $HOME/
 .coverage
 htmlcov/
+
+# .omm 代码分析产物（regenerable）
+.omm/

@@ -246,24 +246,89 @@ def _request_excerpt(text: object, limit: int = 1000) -> str:
     return normalized[: limit - 1].rstrip() + "…"
 
 
+def _build_local_no_quota_debug() -> dict[str, Any]:
+    """本地账号池拒选调试摘要：脱敏账号快照，便于一眼看出是限流/无配额/被熔断。"""
+    try:
+        from services.account_service import account_service
+
+        accounts = list(account_service.list_accounts() or [])
+        summary = [
+            {
+                "email": str(a.get("email") or "").strip(),
+                "status": str(a.get("status") or "").strip(),
+                "quota": a.get("quota"),
+                "restore_at": a.get("restore_at"),
+                "plan_type": str(a.get("type") or "").strip(),
+                "source_type": str(a.get("source_type") or "").strip(),
+            }
+            for a in accounts[:10]
+        ]
+        return {
+            "kind": "local_no_quota",
+            "reason": "账号池内全部限流/无配额（未发起上游请求）",
+            "tried_accounts": len(accounts),
+            "accounts_summary": summary,
+            "hint": "等待 restore_at 恢复，或到 accounts 页添加更多账号",
+        }
+    except Exception:  # noqa: BLE001
+        return {"kind": "local_no_quota", "reason": "账号池内全部限流/无配额"}
+
+
+def _build_upstream_http_debug(exc: Exception) -> dict[str, Any]:
+    """上游 HTTP 错误调试摘要：状态码 + retry_after + 原始 body。"""
+    body = getattr(exc, "body", None)
+    if isinstance(body, (dict, list)):
+        body_repr: Any = body
+    else:
+        body_repr = str(body or "")[:1000]
+    return {
+        "kind": "upstream_http",
+        "reason": "OpenAI 上游返回非 2xx",
+        "upstream_status_code": getattr(exc, "status_code", None),
+        "upstream_retry_after": getattr(exc, "retry_after", None),
+        "upstream_context": getattr(exc, "context", ""),
+        "upstream_body": body_repr,
+    }
+
+
 def _image_error_response(exc: Exception) -> JSONResponse:
     from services.protocol.conversation import public_image_error_message
 
     message = public_image_error_message(str(exc))
     if "no available image quota" in message.lower():
-        return openai_error_response(
-            {
+        # 直接构造 JSONResponse：openai_error_payload 白名单只挑 message/type/param/code，
+        # 会丢掉 debug 字段，所以这里不走 openai_error_response。
+        return JSONResponse(
+            status_code=429,
+            content={
                 "error": {
                     "message": "no available image quota",
                     "type": "insufficient_quota",
                     "param": None,
                     "code": "insufficient_quota",
+                    "debug": _build_local_no_quota_debug(),
                 }
             },
-            429,
         )
     if hasattr(exc, "to_openai_error") and hasattr(exc, "status_code"):
         return JSONResponse(status_code=int(exc.status_code), content=exc.to_openai_error())
+    # UpstreamHTTPError：透传上游真实状态码/body 便于调试
+    from utils.helper import UpstreamHTTPError
+
+    if isinstance(exc, UpstreamHTTPError):
+        debug = _build_upstream_http_debug(exc)
+        return JSONResponse(
+            status_code=502,
+            content={
+                "error": {
+                    "message": message,
+                    "type": "upstream_error",
+                    "param": None,
+                    "code": f"upstream_http_{exc.status_code}",
+                    "debug": debug,
+                }
+            },
+        )
     return openai_error_response(message, 502)
 
 

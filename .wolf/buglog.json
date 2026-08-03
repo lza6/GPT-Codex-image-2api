@@ -45,5 +45,22 @@
     "related_bugs": [],
     "occurrences": 1,
     "last_seen": "2026-08-03T02:32:07.306690"
+  },
+  {
+    "id": "bug-004",
+    "timestamp": "2026-08-03T05:30:00.000000",
+    "error_message": "看板显示\"备份失败：boom\"，但无真实备份任务运行",
+    "file": "test/test_observability.py",
+    "root_cause": "D9 可观测性测试（test_backup_failure_logs_full_traceback / test_backup_failure_increments_prometheus_counter）通过 patch.object(svc, '_run_backup_once') 触发 BackupService.run_backup，run_backup 内部调 save_backup_state 直写真实 data/backup_state.json，把 mock 异常 'boom'/'r2 upload failed' 留在状态文件。settings 页启动时读到该状态显示为\"备份失败\"。",
+    "fix": "两测试加 tmp_path + monkeypatch.setattr(config_module, 'BACKUP_STATE_FILE', tmp_path/'backup_state.json') 隔离真实状态文件；同步把污染的 data/backup_state.json 重置为 idle；services/config.py save_backup_state 改走 _atomic_write_text 原子写防半写截断",
+    "tags": [
+      "test-isolation",
+      "test-pollution",
+      "mock-side-effect",
+      "backup-state"
+    ],
+    "related_bugs": ["bug-002"],
+    "occurrences": 1,
+    "last_seen": "2026-08-03T05:30:00.000000"
   }
 ]

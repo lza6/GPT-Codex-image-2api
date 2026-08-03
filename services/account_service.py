@@ -148,7 +148,11 @@ class AccountService:
             return False
         if account.get("status") in {"禁用", "限流", "异常"}:
             return False
-        return int(account.get("quota") or 0) > 0
+        quota = int(account.get("quota") or 0)
+        # quota != 0 即可用：> 0 是常规剩余配额，-1 是 OpenAI 无限配额
+        # （free plan 无硬上限场景，实测真实账号返回 remaining=-1）。
+        # quota=0/None 才拒选。
+        return quota != 0
 
     # ---- 健康档位 + 调度分（移植自 codex2api fast_scheduler） ----
     # 档位：healthy > warm > risky，档位越高优先调度；

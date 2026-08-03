@@ -6,8 +6,13 @@ import logging
 from unittest.mock import MagicMock, patch
 
 
-def test_backup_failure_logs_full_traceback(caplog):
+def test_backup_failure_logs_full_traceback(caplog, tmp_path, monkeypatch):
     """D9：备份失败时 logging.error 记录完整堆栈。"""
+    # 测试隔离：备份状态文件改写到 tmp，避免污染真实 data/backup_state.json
+    import services.config as config_module
+
+    monkeypatch.setattr(config_module, "BACKUP_STATE_FILE", tmp_path / "backup_state.json")
+
     from services.backup_service import BackupService
 
     svc = BackupService()
@@ -23,7 +28,7 @@ def test_backup_failure_logs_full_traceback(caplog):
         "备份失败未记录 error 日志"
 
 
-def test_backup_failure_increments_prometheus_counter():
+def test_backup_failure_increments_prometheus_counter(tmp_path, monkeypatch):
     """D9：备份失败计数器 +1。"""
     from services import prometheus_metrics as pm
 
@@ -31,6 +36,12 @@ def test_backup_failure_increments_prometheus_counter():
         raise AssertionError("chatgpt2api_backup_failures_total 指标不存在")
 
     before = pm.chatgpt2api_backup_failures_total._value.get()
+
+    # 测试隔离：备份状态文件改写到 tmp，避免污染真实 data/backup_state.json
+    import services.config as config_module
+
+    monkeypatch.setattr(config_module, "BACKUP_STATE_FILE", tmp_path / "backup_state.json")
+
     from services.backup_service import BackupService
 
     svc = BackupService()

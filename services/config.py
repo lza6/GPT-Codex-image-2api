@@ -924,7 +924,9 @@ def load_backup_state() -> dict[str, object]:
 
 def save_backup_state(state: dict[str, object]) -> dict[str, object]:
     normalized = _normalize_backup_state(state)
-    BACKUP_STATE_FILE.write_text(json.dumps(normalized, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    from services.storage.json_storage import _atomic_write_text
+
+    _atomic_write_text(BACKUP_STATE_FILE, json.dumps(normalized, ensure_ascii=False, indent=2) + "\n")
     return normalized
 
 

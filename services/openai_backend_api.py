@@ -317,7 +317,11 @@ class OpenAIBackendAPI:
     def _extract_quota_and_restore_at(limits_progress: list[Any]) -> tuple[int, str | None]:
         for item in limits_progress:
             if isinstance(item, dict) and item.get("feature_name") == "image_gen":
-                return int(item.get("remaining") or 0), str(item.get("reset_after") or "") or None
+                remaining = item.get("remaining")
+                # -1 表示无限配额（OpenAI 官方语义），不能用 `or 0` 兜底成 0——
+                # 否则会被 _is_image_account_available 误判为"无配额"而拒选（实测 bug）。
+                quota = int(remaining) if remaining is not None else 0
+                return quota, str(item.get("reset_after") or "") or None
         return 0, None
 
     def _raise_on_error(self, response: Any, path: str) -> None:

@@ -30,6 +30,31 @@ class AccountCapabilityTests(unittest.TestCase):
         )
         self.assertTrue(AccountService._is_image_account_available({"status": "正常", "quota": 1}))
 
+    def test_image_accounts_unlimited_quota_minus_one_is_available(self) -> None:
+        """quota=-1（OpenAI 无限配额，free plan 常见）必须视为可用——
+        实测 bug：账号 image_gen.remaining=-1 被 `or 0` 兜底成 0 后误判为限流。"""
+        self.assertTrue(
+            AccountService._is_image_account_available({"status": "正常", "quota": -1})
+        )
+
+    def test_extract_quota_preserves_unlimited_minus_one(self) -> None:
+        """_extract_quota_and_restore_at 必须保留 remaining=-1（OpenAI 无限配额语义）。"""
+        from services.openai_backend_api import OpenAIBackendAPI
+
+        limits_progress = [
+            {"feature_name": "image_gen", "remaining": -1, "reset_after": "2026-08-04T00:00:00Z"},
+        ]
+        quota, restore_at = OpenAIBackendAPI._extract_quota_and_restore_at(limits_progress)
+        self.assertEqual(quota, -1)
+        self.assertEqual(restore_at, "2026-08-04T00:00:00Z")
+
+        # remaining=0（真限流）也必须保留为 0
+        limits_progress_zero = [
+            {"feature_name": "image_gen", "remaining": 0, "reset_after": "2026-08-04T00:00:00Z"},
+        ]
+        quota_zero, _ = OpenAIBackendAPI._extract_quota_and_restore_at(limits_progress_zero)
+        self.assertEqual(quota_zero, 0)
+
     def test_prolite_variants_are_normalized(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             service = AccountService(JSONStorageBackend(Path(tmp_dir) / "accounts.json"))

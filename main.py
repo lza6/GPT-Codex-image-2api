@@ -1,11 +1,49 @@
 from __future__ import annotations
 
+import logging
+import logging.handlers
 import os
+from pathlib import Path
 
 import uvicorn
 
 from api import create_app
-from services.config import config
+from services.config import DATA_DIR, config
+
+
+def _init_file_logging() -> None:
+    """把 chatgpt2api 主 logger + 根 logger 同步落盘到 data/logs/server.log。
+
+    - bat 黑匣子看不清时的备用排查通道：DEBUG 事件（codex 请求/响应、账号状态）都会进文件。
+    - chatgpt2api logger 的 propagate=False，必须单独挂 handler 才能收到。
+    - RotatingFileHandler 5MB × 3 备份，避免磁盘爆量。
+    - 幂等：重复启动不会重复挂 handler。
+    """
+    try:
+        log_dir = Path(DATA_DIR) / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        formatter = logging.Formatter(
+            fmt="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+        for logger_name in ("chatgpt2api", ""):
+            target = logging.getLogger(logger_name)
+            if any(isinstance(h, logging.handlers.RotatingFileHandler) for h in target.handlers):
+                continue
+            handler = logging.handlers.RotatingFileHandler(
+                log_dir / "server.log",
+                maxBytes=5 * 1024 * 1024,
+                backupCount=3,
+                encoding="utf-8",
+            )
+            handler.setLevel(logging.DEBUG)
+            handler.setFormatter(formatter)
+            target.addHandler(handler)
+    except Exception as exc:  # noqa: BLE001
+        print(f"⚠️  日志文件初始化失败: {exc}")
+
+
+_init_file_logging()
 
 
 def resolve_workers() -> int:

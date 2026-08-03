@@ -50,11 +50,9 @@ def resolve_image_base_url(request: Request) -> str:
     return config.base_url or f"{request.url.scheme}://{request.headers.get('host', request.url.netloc)}"
 
 
-def raise_image_quota_error(exc: Exception) -> None:
-    message = str(exc)
-    if "no available image quota" in message.lower():
-        raise HTTPException(status_code=429, detail={"error": "no available image quota"}) from exc
-    raise HTTPException(status_code=502, detail={"error": message}) from exc
+# 图片错误的透传出口在 services/log_service.py:_image_error_response——
+# LoggedCall.run 捕获异常后走那里构造 OpenAI 兼容 error body + debug 字段。
+# 之前这里的 raise_image_quota_error 无调用方（死代码），已删除避免误导。
 
 
 def sanitize_cpa_pool(pool: dict | None) -> dict | None:
