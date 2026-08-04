@@ -43,7 +43,11 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
 COPY main.py ./
-COPY config.json ./
+# D-B1：config.json 被 .gitignore 排除不在 git 树中，CI 构建时不存在。
+# 用 config.example.json 兜底（用户挂载真实 config.json 覆盖）；在 CI 发布流水线中
+# 也不会因 COPY 目标文件不存在而崩溃。
+COPY config.json* ./config-orig.json
+COPY config.example.json ./config.json
 COPY VERSION ./
 COPY api ./api
 COPY services ./services

@@ -11,6 +11,22 @@ from api import create_app
 from services.config import DATA_DIR, config
 
 
+def _check_data_dir_writable() -> None:
+    """D-B2：检查 data/ 目录是否可写（Docker 非 root 与 bind mount 权限冲突常见）。
+    不可写时打印明确告警，让运维可在宿主机 `chown -R 10001:10001 data/` 修复。
+    """
+    try:
+        probe = Path(DATA_DIR) / ".write_probe"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+    except (OSError, PermissionError) as exc:
+        print(f"⚠️  data/ 目录不可写（{exc}）。如果是 Docker 非 root 用户权限问题，")
+        print("   请在宿主机执行：chown -R 10001:10001 data/")
+        print("   或使用 named volume 替代 bind mount：volumes: data:/app/data")
+        print("   当前进程将继续运行，但图片/日志/配置写入将失败。")
+        # 继续运行不抛异常（用户可先修复，日志写入失败有降级兜底）
+
+
 def _init_file_logging() -> None:
     """把 chatgpt2api 主 logger + 根 logger 同步落盘到 data/logs/server.log。
 
@@ -44,6 +60,7 @@ def _init_file_logging() -> None:
 
 
 _init_file_logging()
+_check_data_dir_writable()
 
 
 def resolve_workers() -> int:

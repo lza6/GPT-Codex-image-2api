@@ -125,7 +125,7 @@ console.log(resp.data[0].b64_json.slice(0, 50));
 
 | 端点 | 说明 |
 |------|------|
-| `GET /metrics` | Prometheus 指标（请求计数/延迟/错误率，无需鉴权） |
+| `GET /metrics` | Prometheus 指标（请求计数/延迟/错误率，需鉴权） |
 | `GET /api/dashboard/latency` | 请求延迟统计（需鉴权） |
 
 ## 图片任务轮询

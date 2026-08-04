@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+import uuid
 from contextlib import asynccontextmanager
 from threading import Event
 
@@ -14,6 +16,7 @@ from api.support import resolve_web_asset, start_limited_account_watcher, start_
 from services.backup_service import backup_service
 from services.config import config
 from services.image_service import start_image_cleanup_scheduler
+from services.metrics_service import set_request_id
 
 
 def create_app() -> FastAPI:
@@ -43,6 +46,27 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title="chatgpt2api", version=app_version, lifespan=lifespan)
     install_exception_handlers(app)
+
+    @app.middleware("http")
+    async def inject_request_headers(request, call_next):
+        """D-R2：注入 X-Request-ID + X-Response-Time-Ms 响应头。
+
+        此前 metrics_service 有 request_id 基础设施但从未写响应头，而
+        docs 与前端 request.ts 都依赖 X-Request-ID（5xx 排障定位）。
+        """
+        request_id = uuid.uuid4().hex[:16]
+        set_request_id(request_id)
+        start = time.perf_counter()
+        response = None
+        try:
+            response = await call_next(request)
+            return response
+        finally:
+            elapsed_ms = round((time.perf_counter() - start) * 1000, 1)
+            if response is not None:
+                response.headers["X-Request-ID"] = request_id
+                response.headers["X-Response-Time-Ms"] = str(elapsed_ms)
+
     # S-R15：注册限流中间件（此前 RateLimitMiddleware 定义了但从未接线，
     # rate_limit_rpm 配置形同虚设）。0 表示关闭；基于 BaseHTTPMiddleware，
     # 需在 CORS 之前注册成最外层。

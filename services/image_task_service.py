@@ -451,10 +451,12 @@ class ImageTaskService:
         return tasks
 
     def _save_locked(self) -> None:
+        # D-B3：统一原子写（唯一 tmp + replace + Windows 瞬态锁重试），
+        # 替代固定 .tmp 名——原实现并发写者互相覆盖、崩溃留半写文件
+        from services.storage.json_storage import _atomic_write_text
+
         items = sorted(self._tasks.values(), key=lambda item: str(item.get("updated_at") or ""), reverse=True)
-        tmp_path = self.path.with_suffix(self.path.suffix + ".tmp")
-        tmp_path.write_text(json.dumps({"tasks": items}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        tmp_path.replace(self.path)
+        _atomic_write_text(self.path, json.dumps({"tasks": items}, ensure_ascii=False, indent=2) + "\n")
 
     def _recover_unfinished_locked(self) -> bool:
         changed = False
