@@ -66,12 +66,14 @@ console.log(resp.data[0].b64_json.slice(0, 50));
 
 通过 `GET /v1/models` 动态获取，常用：
 
-| 模型 | 用途 |
-|------|------|
-| `gpt-image-2` | 图片生成/编辑（推荐） |
-| `codex-gpt-image-2` | Codex 画图（Plus/Team/Pro 订阅） |
-| `gpt-5` / `gpt-5-1` / `gpt-5-2` / `gpt-5-3` | 文本/搜索 |
-| `gpt-5-mini` / `gpt-5-3-mini` | 轻量文本 |
+| 模型 | 用途 | 适用账号 |
+|------|------|---------|
+| `gpt-image-2` | 图片生成/编辑（推荐） | free / Plus / Pro |
+| `codex-gpt-image-2` | Codex 画图（更高质量） | Plus / Team / Pro |
+| `gpt-5` / `gpt-5-1` / `gpt-5-2` / `gpt-5-3` | 文本/搜索 | 全部 |
+| `gpt-5-mini` / `gpt-5-3-mini` | 轻量文本 | 全部 |
+
+**free 账号图片配额**：每天约 5 张，用完后自动限流（`You've hit the Free plan limit`），系统会自动切换到下一个可用账号。
 
 ## 核心接口
 
@@ -79,6 +81,8 @@ console.log(resp.data[0].b64_json.slice(0, 50));
 - [openapi.yaml](./openapi.yaml) — OpenAPI 3.0 规范（可导入 Swagger UI / Postman）
 - [examples.md](./examples.md) — 多语言完整示例（含图片任务轮询代码）
 - [error-codes.md](./error-codes.md) — 错误码与错误处理
+- [image-generation-protocol.md](./image-generation-protocol.md) — ChatGPT 图片生成协议蓝图（逆向分析）
+- [image-upload-protocol.md](./image-upload-protocol.md) — ChatGPT 图片上传协议蓝图（逆向分析）
 
 ## 通用约定
 

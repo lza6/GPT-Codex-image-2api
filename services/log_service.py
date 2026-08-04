@@ -311,7 +311,14 @@ def _image_error_response(exc: Exception) -> JSONResponse:
             },
         )
     if hasattr(exc, "to_openai_error") and hasattr(exc, "status_code"):
-        return JSONResponse(status_code=int(exc.status_code), content=exc.to_openai_error())
+        content = exc.to_openai_error()
+        # 补 conversation_id 到 debug，便于调用方后续找回
+        conv_id = getattr(exc, "conversation_id", "")
+        if conv_id:
+            err = content.get("error") or {}
+            existing_debug = err.get("debug") or {}
+            err["debug"] = {**existing_debug, "conversation_id": conv_id}
+        return JSONResponse(status_code=int(exc.status_code), content=content)
     # UpstreamHTTPError：透传上游真实状态码/body 便于调试
     from utils.helper import UpstreamHTTPError
 

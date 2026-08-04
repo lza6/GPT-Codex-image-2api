@@ -5,6 +5,7 @@ from typing import Any
 
 from services.protocol.conversation import (
     ConversationRequest,
+    ImageGenerationError,
     collect_image_outputs,
     count_text_tokens,
     stream_image_chunks,
@@ -14,7 +15,14 @@ from utils.image_tokens import count_image_output_items_tokens, image_usage
 
 
 def handle(body: dict[str, Any]) -> dict[str, Any] | Iterator[dict[str, Any]]:
-    prompt = str(body.get("prompt") or "")
+    prompt = str(body.get("prompt") or "").strip()
+    if not prompt:
+        raise ImageGenerationError(
+            "prompt is required",
+            status_code=400,
+            error_type="invalid_request_error",
+            code="missing_prompt",
+        )
     model = str(body.get("model") or "gpt-image-2")
     n = int(body.get("n") or 1)
     size = body.get("size")

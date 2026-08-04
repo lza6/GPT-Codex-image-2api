@@ -45,7 +45,7 @@ class FakeBackend(OpenAIBackendAPI):
         index = min(self.calls - 1, len(self.conversations) - 1)
         return self.conversations[index]
 
-    def _get_file_download_url(self, file_id: str) -> str:
+    def _get_file_download_url(self, file_id: str, conversation_id: str | None = None) -> str:
         return self.file_urls.get(file_id, "")
 
     def _get_attachment_download_url(self, conversation_id: str, attachment_id: str) -> str:

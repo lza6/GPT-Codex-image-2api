@@ -20,6 +20,7 @@
 | 400 | `invalid_request_error` | `invalid_request_error` | 参数错误（缺少必填字段、格式错误） | 检查请求参数，不重试 |
 | 401 | `invalid_api_key` | `authentication_error` | 鉴权失败（auth-key 错误或失效） | 检查 auth-key，不重试 |
 | 429 | `insufficient_quota` | `insufficient_quota` | 号池配额不足（`no available image quota`） | 等待配额恢复或补充账号，可指数退避重试 |
+| 429 | `rate_limit_exceeded` | `rate_limit_error` | free 账号限流（`You've hit the Free plan limit`） | 系统自动换号重试，若仍失败等待 40 分钟或补充 Plus/Pro 账号 |
 | 429 | `rate_limit_global` | `rate_limit_error` | 触发全局限流 | 降低请求频率，等待后重试 |
 | 429 | `rate_limit_ip` | `rate_limit_error` | 触发单 IP 限流 | 降低该 IP 请求频率 |
 | 500 | `internal_error` | `api_error` | 服务器内部错误 | 可短暂等待后重试 |
@@ -77,6 +78,27 @@
 
 **处理**：降低请求频率。响应头含 `Retry-After: 1`，按提示等待后重试。
 
+### 5. free 账号限流（自动换号）
+
+```json
+{
+  "error": {
+    "message": "Free plan image generation limit reached. Try again later or use a different account.",
+    "type": "rate_limit_error",
+    "param": null,
+    "code": "rate_limit_exceeded",
+    "debug": {
+      "kind": "upstream_http",
+      "upstream_status_code": 429,
+      "upstream_body": "You've hit the Free plan limit for image generations requests. You can create more images when the limit resets in 40 minutes.",
+      "conversation_id": "6a70c31c-a63c-83ea-b63a-11aa0f6e000c"
+    }
+  }
+}
+```
+
+**处理**：系统已自动切换到下一个可用账号重试。如果所有账号都限流，等待 40 分钟或补充 Plus/Pro 账号。free 账号每天约 5 张图片配额。
+
 ## 重试策略建议
 
 | 错误 | 是否重试 | 策略 |
@@ -84,6 +106,7 @@
 | 401 鉴权失败 | ❌ 不重试 | 修复凭证 |
 | 400 参数错误 | ❌ 不重试 | 修复参数 |
 | 429 配额不足 | ✅ 可重试 | 指数退避（10s → 20s → 40s，上限 60s） |
+| 429 free 限流 | ✅ 自动换号 | 系统自动切换账号，无需手动重试 |
 | 429 限流 | ✅ 可重试 | 按 `Retry-After` 等待 |
 | 5xx 上游错误 | ✅ 可重试 | 短暂退避（1s → 2s → 4s） |
 

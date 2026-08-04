@@ -16,7 +16,7 @@ from services.account_service import account_service
 from services.circuit_breaker import circuit_breaker_registry
 from services.config import config
 from services.image_storage_service import image_storage_service
-from services.openai_backend_api import ImageContentPolicyError, ImagePollTimeoutError, OpenAIBackendAPI
+from services.openai_backend_api import ImageContentPolicyError, ImagePollTimeoutError, ImageRateLimitError, OpenAIBackendAPI
 from services.prometheus_metrics import record_upstream_request
 from utils.helper import (
     IMAGE_MODELS,
@@ -59,6 +59,8 @@ class ImageGenerationError(Exception):
         }
         if self.account_email:
             error_dict["error"]["account_email"] = self.account_email
+        if self.conversation_id:
+            error_dict["error"]["conversation_id"] = self.conversation_id
         return error_dict
 
 
@@ -1069,12 +1071,14 @@ def stream_image_outputs(
         )
     except ImagePollTimeoutError as exc:
         # 轮询超时 ≠ 最终失败——上游可能还在异步生成。
-        # 带 conversation_id 返回进度事件，让调用方/客户端可后续重试找回。
+        # 带 conversation_id + task_error 返回进度事件，让调用方/客户端可后续重试找回。
+        task_error = str(getattr(exc, "task_error", "") or "").strip()
         logger.warning({
             "event": "image_poll_timeout_streaming",
             "conversation_id": conversation_id,
             "timeout_secs": poll_timeout,
             "error": str(exc),
+            "task_error": task_error or None,
         })
         yield ImageOutput(
             kind="progress",
@@ -1086,14 +1090,18 @@ def stream_image_outputs(
             conversation_id=conversation_id,
         )
         # 让调用方选择：继续等（客户端可携带 conversation_id 重试）或放弃
+        timeout_msg = f"ChatGPT 生图超时（已等待 {poll_timeout} 秒）。"
+        if task_error:
+            timeout_msg += f"上游拒绝原因: {task_error}"
+        else:
+            timeout_msg += "上游可能在异步生成中。"
+        timeout_msg += f"你可携带 conversation_id={conversation_id} 重新查询。config.json 中 image_poll_timeout_secs 可调大超时阈值。"
         yield ImageOutput(
             kind="message",
             model=request.model,
             index=index,
             total=total,
-            text=f"ChatGPT 生图超时（已等待 {poll_timeout} 秒）。"
-                 f"上游可能仍在异步生成，你可携带 conversation_id={conversation_id} 重新查询。"
-                 f"config.json 中 image_poll_timeout_secs 可调大超时阈值。",
+            text=timeout_msg,
             conversation_id=conversation_id,
         )
         return
@@ -1601,6 +1609,54 @@ def _generate_single_image(
                 status_code=400,
                 error_type="invalid_request_error",
                 code="content_policy_violation",
+                account_email=account_email,
+                conversation_id=getattr(exc, "conversation_id", ""),
+            ) from exc
+        except ImageRateLimitError as exc:
+            account_service.mark_image_result(token, False)
+            _record_upstream("error")
+            logger.warning({
+                "event": "image_stream_rate_limit_error",
+                "request_token": token,
+                "account_email": account_email,
+                "error": str(exc),
+                "index": index,
+            })
+            # 限流错误：换号重试（不抛 ImageGenerationError，让上层换号）
+            if not emitted_for_token:
+                poll_timeout_retry_count += 1
+                if poll_timeout_retry_count <= MAX_POLL_TIMEOUT_RETRIES:
+                    logger.warning({
+                        "event": "image_rate_limit_retry",
+                        "request_token": token,
+                        "account_email": account_email,
+                        "retry_count": poll_timeout_retry_count,
+                        "index": index,
+                        "error": str(exc)[:200],
+                    })
+                    continue
+                logger.warning({
+                    "event": "image_rate_limit_exhausted_retries",
+                    "request_token": token,
+                    "account_email": account_email,
+                    "retry_count": poll_timeout_retry_count,
+                    "index": index,
+                })
+                _record_upstream("error")
+                raise ImageGenerationError(
+                    str(exc) or "Free plan image generation limit reached. Try again later or use a different account.",
+                    status_code=429,
+                    error_type="rate_limit_error",
+                    code="rate_limit_exceeded",
+                    account_email=account_email,
+                    conversation_id=getattr(exc, "conversation_id", ""),
+                ) from exc
+            _record_upstream("error")
+            raise ImageGenerationError(
+                str(exc) or "Free plan image generation limit reached.",
+                status_code=429,
+                error_type="rate_limit_error",
+                code="rate_limit_exceeded",
                 account_email=account_email,
                 conversation_id=getattr(exc, "conversation_id", ""),
             ) from exc

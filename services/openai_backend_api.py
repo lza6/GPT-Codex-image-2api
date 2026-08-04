@@ -49,6 +49,11 @@ class ImageContentPolicyError(ImageTaskError):
     pass
 
 
+class ImageRateLimitError(ImageTaskError):
+    """Raised when free account hits rate limit (should retry with different account)."""
+    pass
+
+
 class ImageStreamHardTimeoutError(RuntimeError):
     """图片 SSE 流读取超过硬上限时抛出，用于快速中断被挂起的长连接。"""
     pass
@@ -120,6 +125,32 @@ _CONTENT_POLICY_KEYWORDS = (
     # 通用拒绝
     "抱歉，我不能",
 )
+
+# free 账号限流错误关键词（触发自动换号重试）
+_RATE_LIMIT_KEYWORDS = (
+    "you've hit the free plan limit",
+    "hit the free plan limit",
+    "free plan limit",
+    "rate limit",
+    "rate_limit",
+    "too many requests",
+    "limit resets in",
+    "limit reset",
+    "今日上限",
+    "每日上限",
+    "达到今日上限",
+    "达到每日上限",
+    "quota exceeded",
+    "quota_exceeded",
+)
+
+
+def _is_rate_limit_error(error_msg: str) -> bool:
+    """检查错误消息是否为 free 账号限流（可换号重试）。"""
+    if not error_msg:
+        return False
+    msg_lower = error_msg.lower()
+    return any(keyword in msg_lower for keyword in _RATE_LIMIT_KEYWORDS)
 
 
 def _is_content_policy_error(error_msg: str) -> bool:
@@ -617,6 +648,11 @@ class OpenAIBackendAPI:
         if not base_model:
             return "auto", ""
         if base_model == "gpt-image-2":
+            # free 账号用 "auto"（让上游选择模型），Plus/Pro 用配置的上游模型
+            account = account_service.get_account(self.access_token) or {}
+            plan_type = str(account.get("type") or "free").strip().lower()
+            if plan_type == "free":
+                return "auto", ""
             upstream_model = config.default_upstream_model_name
         elif base_model == CODEX_IMAGE_MODEL:
             upstream_model = base_model
@@ -2189,7 +2225,7 @@ class OpenAIBackendAPI:
             elif isinstance(content, str) and content.strip():
                 text_parts.append(content.strip())
             msg_text = "\n".join(text_parts)
-            if msg_text and _is_content_policy_error(msg_text):
+            if msg_text and (_is_content_policy_error(msg_text) or _is_rate_limit_error(msg_text)):
                 return msg_text[:500]
         return ""
 
@@ -2313,7 +2349,8 @@ class OpenAIBackendAPI:
                 conversation = self._get_conversation(conversation_id)
             except UpstreamHTTPError as exc:
                 if exc.status_code in (429, 500, 502, 503, 504):
-                    if _retry_sleep("upstream_status", exc.status_code, None, exc.retry_after):
+                    upstream_body = exc.body if isinstance(exc.body, str) else (json.dumps(exc.body, ensure_ascii=False) if isinstance(exc.body, (dict, list)) else str(exc.body or ""))
+                    if _retry_sleep("upstream_status", exc.status_code, f"status_{exc.status_code}:{upstream_body[:200]}", exc.retry_after):
                         continue
                     break
                 raise
@@ -2343,6 +2380,9 @@ class OpenAIBackendAPI:
                         "attempt": attempt,
                         "error_msg": policy_msg[:200],
                     })
+                    # 区分限流错误（换号重试）和内容政策错误（不重试）
+                    if _is_rate_limit_error(policy_msg):
+                        raise ImageRateLimitError(policy_msg, conversation_id or "")
                     raise ImageContentPolicyError(policy_msg, conversation_id or "")
 
             logger.debug({"event": "image_poll_check", "conversation_id": conversation_id, "attempt": attempt,
@@ -2351,18 +2391,20 @@ class OpenAIBackendAPI:
             if file_ids or sediment_ids:
                 if not config.image_check_before_hit_enabled:
                     # 先check再hit 机制关闭：直接返回首次发现的 file_ids
-                    # 如果 sediment_ids 存在，文件可能尚未落地，强制等 settle 时间
-                    if sediment_ids and not file_ids:
+                    # 但 sediment 存在时说明文件可能尚未落地，继续轮询直到文件可下载
+                    if sediment_ids and attempt <= 4:
                         settle_secs = min(config.image_settle_secs, max(0.0, _remaining()))
                         if settle_secs > 0:
                             logger.info({
                                 "event": "image_poll_sediment_forced_settle",
                                 "conversation_id": conversation_id,
+                                "attempt": attempt,
                                 "settle_secs": settle_secs,
                                 "file_ids": file_ids,
                                 "sediment_ids": sediment_ids,
                             })
                             time.sleep(settle_secs)
+                            continue
                     logger.info({"event": "image_poll_hit_no_settle", "conversation_id": conversation_id,
                                  "file_ids": file_ids, "sediment_ids": sediment_ids})
                     return file_ids, sediment_ids
@@ -2409,11 +2451,22 @@ class OpenAIBackendAPI:
             setattr(exc, "task_error", last_task_error)
         raise exc
 
-    def _get_file_download_url(self, file_id: str) -> str:
-        """获取文件下载地址。"""
-        path = f"/backend-api/files/{file_id}/download"
-        response = self.session.get(self.base_url + path, headers=self._headers(path, {"Accept": "application/json"}),
-                                    timeout=60)
+    def _get_file_download_url(self, file_id: str, conversation_id: str | None = None) -> str:
+        """获取文件下载地址。
+
+        参考项目证实：必须用 /backend-api/files/download/{file_id}?conversation_id=xxx&inline=false&download_intent=false
+        而非 /backend-api/files/{file_id}/download（404）。
+        """
+        params = {"inline": "false", "download_intent": "false"}
+        if conversation_id:
+            params["conversation_id"] = conversation_id
+        path = f"/backend-api/files/download/{file_id}"
+        response = self.session.get(
+            self.base_url + path,
+            headers=self._headers(path, {"Accept": "application/json"}),
+            params=params,
+            timeout=60,
+        )
         ensure_ok(response, path)
         data = response.json()
         return data.get("download_url") or data.get("url") or ""
@@ -2517,16 +2570,37 @@ class OpenAIBackendAPI:
                 })
                 continue
             try:
-                url = self._get_file_download_url(file_id)
+                url = self._get_file_download_url(file_id, conversation_id)
             except Exception as exc:
-                logger.debug({
+                logger.warning({
                     "event": "image_download_url_failed",
                     "source": "file",
                     "conversation_id": conversation_id,
                     "id": file_id,
                     "error": repr(exc),
+                    "body": str(getattr(exc, "body", str(exc)))[:500],
                 })
-                continue
+                # 当 file_id 下载 404 且 sediment_ids 包含相同 id 时，
+                # fallback 到 sediment 路径（attachment download）
+                if file_id in sediment_ids:
+                    logger.info({
+                        "event": "image_download_fallback_to_sediment",
+                        "conversation_id": conversation_id,
+                        "id": file_id,
+                    })
+                    try:
+                        url = self._get_attachment_download_url(conversation_id, file_id)
+                    except Exception as sed_exc:
+                        logger.warning({
+                            "event": "image_download_sediment_fallback_failed",
+                            "conversation_id": conversation_id,
+                            "id": file_id,
+                            "error": repr(sed_exc),
+                            "body": str(getattr(sed_exc, "body", str(sed_exc)))[:500],
+                        })
+                        continue
+                else:
+                    continue
             if url:
                 if url not in urls:
                     urls.append(url)
