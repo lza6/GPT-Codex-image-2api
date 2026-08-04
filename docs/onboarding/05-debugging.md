@@ -32,7 +32,7 @@
 
 | 环境 | 位置 | 说明 |
 |------|------|------|
-| 本地/Docker 日志 | `data/logs.jsonl` | 自动惰性裁剪（5000→3000） |
+| 本地/Docker 日志 | `data/logs-YYYY-MM-DD.jsonl` | 按天切分；当天文件超 5000 条裁剪到 3000（旧 `data/logs.jsonl` 首次启动自动迁移） |
 | 请求级追踪 | 响应头 `X-Request-ID` + `X-Response-Time-Ms` | 日志全文 grep 该 ID |
 | 指标 | `GET /metrics`（Prometheus 文本） | dashboard 页可视化；`/api/dashboard/latency` 延迟分布 |
 | 实时事件 | SSE `/api/dashboard/stream` | 3s 推送；token 走 query 参数 |

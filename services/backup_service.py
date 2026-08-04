@@ -644,7 +644,9 @@ class BackupService:
             if include.get("sub2api"):
                 self._add_file_to_archive(archive, DATA_DIR / "sub2api_config.json", "data/sub2api_config.json")
             if include.get("logs"):
-                self._add_file_to_archive(archive, DATA_DIR / "logs.jsonl", "data/logs.jsonl")
+                # 4.1：日志按天切分，备份全部天文件（logs-*.jsonl）；旧 logs.jsonl.legacy 备份不纳入
+                for log_path in sorted(DATA_DIR.glob("logs-*.jsonl")):
+                    self._add_file_to_archive(archive, log_path, f"data/{log_path.name}")
             if include.get("image_tasks"):
                 self._add_file_to_archive(archive, DATA_DIR / "image_tasks.json", "data/image_tasks.json")
                 self._add_file_to_archive(archive, IMAGE_INDEX_FILE, "data/image_index.json")

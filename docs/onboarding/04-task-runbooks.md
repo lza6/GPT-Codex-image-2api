@@ -95,7 +95,7 @@ docker compose -f docker-compose.warp.yml up -d
 
 ## R9 · 调试一个线上行为
 
-1. 日志：`data/logs.jsonl`（单文件，超 5000 条惰性裁剪到 3000，无需手动清）
+1. 日志：`data/logs-YYYY-MM-DD.jsonl`（按天切分，当天文件；`data/logs.jsonl` 为升级前旧单文件，首次启动自动迁移到天文件；过期天文件整删 + 当天文件超 5000 条裁剪到 3000，无需手动清）
 2. 指标：`/metrics` + dashboard 页（调度健康度、用量、账号排行榜、延迟分布）
 3. 请求追踪：响应头 `X-Request-ID`，日志全文 grep 该 ID（N17：contextvars 全链路）
 4. 实时事件：SSE `/api/dashboard/stream`（EventSource，token 走 query 参数）

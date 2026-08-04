@@ -101,7 +101,14 @@ function LogsContent() {
   const loadLogs = async () => {
     setIsLoading(true);
     try {
-      const data = await fetchSystemLogs({ type, start_date: startDate, end_date: endDate, account_email: accountEmail });
+      // 4.1：默认只读最近 7 天天文件（days=7 快），用户选日期范围时用 start_date/end_date 精确过滤
+      const data = await fetchSystemLogs({
+        type,
+        start_date: startDate,
+        end_date: endDate,
+        account_email: accountEmail,
+        days: 7,
+      });
       setItems(data.items);
       setSelectedIds((current) => current.filter((id) => data.items.some((item) => item.id === id)));
       setPage(1);

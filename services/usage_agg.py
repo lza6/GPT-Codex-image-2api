@@ -43,17 +43,34 @@ def _parse_ts(created: str) -> float:
 
 
 class UsageAgg:
-    """按小时桶聚合的增量缓存。线程安全（RLock），惰性加载，原子落盘。"""
+    """按小时桶聚合的增量缓存。线程安全（RLock），惰性加载，原子落盘。
+
+    4.1 起支持两种日志形态：
+    - 单文件模式（logs_path 是文件）：兼容旧单一日志文件（测试/旧部署）。
+    - 按天模式（logs_path 是目录）：扫描 `logs-*.jsonl`，每文件独立 offset 增量读，
+      新的一天文件出现只增量（不触发全量重建）；某文件被裁剪（offset>size）才全量重建。
+    升级检测：旧缓存无 file_offsets 且当前为按天模式 → 判定发生按天切分升级，
+    清空 hourly 全量重建（只信天文件，防 logs.jsonl 迁移历史重复计数）。
+    """
 
     def __init__(self, cache_path: Path, logs_path: Path) -> None:
         self._cache_path = cache_path
         self._logs_path = logs_path
+        self._is_daily = logs_path.is_dir()
+        self._log_dir = logs_path if self._is_daily else logs_path.parent
         self._lock = threading.RLock()
         # hourly: {"2026-08-05T14": {"<summary>": {"success": n, "fail": n}}}
         self._hourly: dict[str, dict[str, dict[str, int]]] = {}
         self._recent: deque[dict[str, str]] = deque(maxlen=_RECENT_MAXLEN)
-        self._last_log_offset = 0
+        # 每文件字节 offset（按天模式下 per-file；单文件模式下只有一个 key）
+        self._file_offsets: dict[str, int] = {}
         self._load()
+
+    def _discover_log_files(self) -> list[Path]:
+        """按天模式：所有天文件（按日期升序）；单文件模式：仅该文件（存在时）。"""
+        if self._is_daily:
+            return sorted(self._log_dir.glob("logs-*.jsonl"))
+        return [self._logs_path] if self._logs_path.exists() else []
 
     # ---- 持久化 ----
     def _load(self) -> None:
@@ -64,45 +81,66 @@ class UsageAgg:
             self._recent = deque(
                 [item for item in recent if isinstance(item, dict)][-_RECENT_MAXLEN:], maxlen=_RECENT_MAXLEN
             )
-            self._last_log_offset = int(data.get("last_log_offset") or 0)
+            self._file_offsets = {str(k): int(v) for k, v in (data.get("file_offsets") or {}).items()}
+            cache_mode = str(data.get("mode") or "single")
+            if self._is_daily and cache_mode != "daily":
+                # 升级：旧缓存是单文件（或首次无缓存），当前按天切分 → 全量重建，
+                # 只信天文件（logs.jsonl 迁移历史已在其中，防重复计数）。
+                self._hourly = {}
+                self._recent = deque(maxlen=_RECENT_MAXLEN)
+                self._file_offsets = {}
+            elif not self._is_daily and "last_log_offset" in data and not self._file_offsets:
+                # 单文件模式：兼容旧字段（无 file_offsets 的旧缓存）
+                self._file_offsets = {self._logs_path.name: int(data.get("last_log_offset") or 0)}
         except Exception:
             # 缓存缺失/损坏 → 空态重建（后续 ingest 全量补齐）
             self._hourly = {}
             self._recent = deque(maxlen=_RECENT_MAXLEN)
-            self._last_log_offset = 0
+            self._file_offsets = {}
 
     def save(self) -> None:
         data = {
             "window_days": WINDOW_DAYS,
             "hourly": self._hourly,
             "recent": list(self._recent),
-            "last_log_offset": self._last_log_offset,
+            "file_offsets": self._file_offsets,
+            "mode": "daily" if self._is_daily else "single",
             "updated_at": datetime.datetime.now().isoformat(timespec="seconds"),
         }
         _atomic_write_text(self._cache_path, json.dumps(data, ensure_ascii=False, separators=(",", ":")))
 
     # ---- 增量 ----
     def ingest(self) -> int:
-        """读日志尾部增量并更新计数。offset 失效（日志被裁剪）时全量重建。返回本次新增条数。"""
-        if not self._logs_path.exists():
+        """读日志增量并更新计数。任一文件被裁剪（offset 失效）时全量重建。返回本次新增条数。"""
+        files = self._discover_log_files()
+        if not files:
             return 0
         with self._lock:
-            file_size = self._logs_path.stat().st_size
-            if self._last_log_offset > file_size:
-                # 日志被 _auto_cleanup 裁剪（5000→3000），offset 指向的字节已不存在。
-                # 必须清空计数再全量重建，否则旧行会被重复累加（double count）。
-                self._last_log_offset = 0
+            # 单文件模式：被 _auto_cleanup 裁剪（变小）→ offset 失效 → 全量重建（防 double count）
+            # 按天模式：某一天文件被裁剪（当天超限）→ 同样全量重建；新天文件出现只增量。
+            stale = any(
+                self._file_offsets.get(path.name, 0) > path.stat().st_size
+                for path in files if path.exists()
+            )
+            if stale:
+                self._file_offsets = {}
                 self._hourly = {}
                 self._recent = deque(maxlen=_RECENT_MAXLEN)
             added = 0
-            with self._logs_path.open("r", encoding="utf-8") as file:
-                file.seek(self._last_log_offset)
-                for raw_line in file:
-                    item = self._parse_line(raw_line)
-                    if item is not None:
-                        self._apply(item)
-                        added += 1
-                self._last_log_offset = file.tell()
+            for path in files:
+                if not path.exists():
+                    # 过期天文件被整删：移除其 offset，保留已聚合数据（prune 会清 90 天外）
+                    self._file_offsets.pop(path.name, None)
+                    continue
+                offset = self._file_offsets.get(path.name, 0)
+                with path.open("r", encoding="utf-8") as file:
+                    file.seek(offset)
+                    for raw_line in file:
+                        item = self._parse_line(raw_line)
+                        if item is not None:
+                            self._apply(item)
+                            added += 1
+                    self._file_offsets[path.name] = file.tell()
             self._prune()
         return added
 
@@ -262,7 +300,9 @@ def full_scan_daily_success(logs_path: Path, window_days: int, now: float | None
 
 
 # 全局单例：后台聚合任务与 usage / usage_forecast 端点共享
-usage_agg = UsageAgg(DATA_DIR / "usage_agg.json", DATA_DIR / "logs.jsonl")
+# 4.1 起按天切分：传 DATA_DIR 目录，扫描 logs-*.jsonl（多文件增量）；旧 data/logs.jsonl
+# 由 log_service 首次访问时迁移到天文件，此处不再直接读单文件。
+usage_agg = UsageAgg(DATA_DIR / "usage_agg.json", DATA_DIR)
 
 
 def start_usage_agg_watcher(stop_event: threading.Event) -> threading.Thread:

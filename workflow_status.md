@@ -1,4 +1,45 @@
-# ChatGPT2API 工作流状态 — 第十二轮（下一步改进指南首批落地：慢查询根治/账号洞察/编码容错/看板可见性/Redis 一键）
+# ChatGPT2API 工作流状态 — 第十三轮（4.1 日志按天轮转切分：慢查询根治落地）
+
+> 最后更新：2026-08-05
+> 模式：v3.0 路线第 2 批 —— 计划书 4.1 性能根治（日志按天切分 + usage_agg 多文件适配）
+> 基线：9174a7b（v2.5.0 收尾）
+
+## 本轮完成清单
+
+| 编号 | 事项 | 状态 | 证据 |
+|------|------|------|------|
+| A | 4.1 日志按天轮转切分 | ✅ | services/log_service.py 写 `logs-YYYY-MM-DD.jsonl`、`list(days=N)` 分片读、`delete()` 跨天、`_auto_cleanup()` 两级（过期整删+当天裁剪）；test_log_rotation.py 11 用例 |
+| B | 旧 logs.jsonl 惰性迁移 | ✅ | `_ensure_migrated()` 首次访问迁移 + rename 备份；app lifespan 启动即迁移；迁移无丢失无重复测试 |
+| C | usage_agg 多文件增量适配 | ✅ | services/usage_agg.py 单例传 DATA_DIR 目录扫 `logs-*.jsonl`、每文件独立 offset、新天文件增量/裁剪才重建、升级检测清空防 double count |
+| D | /api/logs days 参数 | ✅ | api/system.py 透传 + 前端 fetchSystemLogs 支持 + logs 页默认 days=7（选日期用 start_date/end_date）；契约守卫断链=0 漂移=0 |
+| E | 慢查询报告热点移除 | ✅ | scripts/slow_query_report.py 移除 3 处日志全量读热点（已根治），优化建议标注 4.1 落地 |
+| F | 验证全绿 | ✅ | pytest 347 passed / 0 failed；五道防线全 PASS；tsc 0 错误 + build 成功；契约探测 200 |
+
+## 五道防线状态
+
+| 批次 | 契约守卫 | SQL | 慢查询 | 变异 | 施压 |
+|------|---------|-----|--------|------|------|
+| 第十三轮 | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+> 慢查询热点从 6 处 → 2 处（日志 3 个热点已根治，剩账号/DB 2 个 P3 量级项）。
+> 变异探针 caught=6 escaped=0，还原后全量=OK。
+
+## 当前 git 状态
+
+- 测试：**347 passed / 0 failed**（31 live/redis 排除）
+- 前端：tsc 0 错误 + build 成功（logs 页 days=7）
+- 契约：断链=0 漂移=0（/api/logs 新增可选 query 参数，响应结构不变）
+- 版本：**v2.6.0（已发版）**
+
+## 边界声明（诚实）
+
+- 反向分块读取（4.2）未做：按天切分后单文件量级受 5000 条上限约束，风险已可控，登记远期
+- 本机 data/logs.jsonl 已被迁移为 logs-2026-08-05.jsonl（lifespan 启动迁移副作用，data/ 不入库）
+- 多 worker 下 usage_agg 各进程各自维护缓存，原子写互不损坏（同 3.5.1 口径）
+
+---
+
+## 第十二轮历史（下一步改进指南首批落地：慢查询根治/账号洞察/编码容错/看板可见性/Redis 一键）
 
 > 最后更新：2026-08-05
 > 模式：v3.0 路线第 1 批 —— 计划书 1.2 表 7 项中 5 项实现项全落地 + 2 项规模项登记远期

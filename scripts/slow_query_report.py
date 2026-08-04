@@ -29,34 +29,10 @@ DATA_DIR = ROOT / "data"
 
 # 已知热点：全量 I/O 或全量遍历的代码点（人工审计确认，脚本做规模交叉验证）
 # 每项: (名称, 文件:行, 模式, 复杂度, 触发频率, 关联数据文件)
+# 注：log_service.list/delete/_auto_cleanup 的 logs.jsonl 单文件全量读热点已于 4.1
+#   按天轮转切分根治（写入 logs-YYYY-MM-DD.jsonl、list(days=N) 分片读取、过期天文件整删），
+#   本清单不再登记。
 HOTSPOTS = [
-    {
-        "name": "日志列表全量读+全量解析",
-        "location": "services/log_service.py:128-142 (list)",
-        "pattern": "read_text 整个 logs.jsonl → 逐行 json.loads 直到凑够 limit",
-        "complexity": "O(文件行数) 读盘 + O(min(文件行数, 队首到 limit 条)) 解析",
-        "trigger": "每次 GET /api/logs、前端日志页轮询",
-        "data_file": "logs.jsonl",
-        "severity_when_large": "P1（10k 行以上每次请求全读，CPU+IO 双高）",
-    },
-    {
-        "name": "日志删除整文件重写",
-        "location": "services/log_service.py:144-164 (delete)",
-        "pattern": "read_text + 全量重序列化 + write_text",
-        "complexity": "O(文件行数) 读写各一次",
-        "trigger": "删除日志操作",
-        "data_file": "logs.jsonl",
-        "severity_when_large": "P2",
-    },
-    {
-        "name": "日志惰性清理整文件重写",
-        "location": "services/log_service.py:115-126 (_auto_cleanup)",
-        "pattern": "每 200 条触发：全量读+裁剪+全量写",
-        "complexity": "O(文件行数)",
-        "trigger": "写入路径（高频调用时每 200 次一次）",
-        "data_file": "logs.jsonl",
-        "severity_when_large": "P2（已有限流，超 5000 条才触发）",
-    },
     {
         "name": "账号存储整文件覆写",
         "location": "services/storage/json_storage.py:41-43 (save_accounts)",
@@ -182,11 +158,11 @@ def main() -> int:
         "",
         "## 4. 优化建议（按投入产出排序）",
         "",
-        "1. **logs.jsonl 轮转切分**（中成本低风险）：按天切分为 logs-YYYY-MM-DD.jsonl，",
-        "   list/usage 只读最近 N 天文件。当前 _AUTO_CLEAN_MAX_ENTRIES=5000 已兜底总量，",
-        "   但在高调用量场景 5000 条可能只是一天的量——切分后单文件始终可控。",
-        "2. **list 解析 early-exit 已有**（limit 凑够即停），但 read_text 仍是全量：",
-        "   可改为 mmap 或反向分块读取（seek 到尾部倒读），改动需评估编码边界，建议 v2.1。",
+        "1. **日志按天轮转切分已落地（4.1）**：写入 logs-YYYY-MM-DD.jsonl、list(days=N) 分片读取、",
+        "   过期天文件整删（文件级，不再逐行重写）；logs.jsonl 旧数据首次访问时惰性迁移。",
+        "   本清单已移除『日志列表全量读 / 日志删除整文件重写 / 日志惰性清理整文件重写』热点。",
+        "2. **反向分块读取（候选）**：list 的 read_text 在超大单文件（10w+ 行）仍全量读，",
+        "   可改为 mmap 或 seek 尾部倒读分块；当前按天切分后单文件量级受 5000 条上限约束，风险已可控。",
         "3. **数据库后端索引已就位**：access_token / key_id 业务键列均有 unique+index，",
         "   且请求路径不走 DB（启动期一次性加载），当前无量级风险；量级 >10k 时再看启动耗时。",
         "4. **accounts.json 写放大**：账号量级 <1k 时无需处理；若未来上万，",

@@ -28,6 +28,9 @@ def create_app() -> FastAPI:
         thread = start_limited_account_watcher(stop_event)
         cleanup_thread = start_image_cleanup_scheduler(stop_event)
         probe_thread = start_proactive_probe(stop_event)
+        # 4.1：启动即迁移旧 logs.jsonl 到天文件，确保 usage_agg watcher 读的是切分后日志
+        from services.log_service import log_service
+        log_service.migrate_legacy()
         from services.usage_agg import start_usage_agg_watcher
 
         agg_thread = start_usage_agg_watcher(stop_event)

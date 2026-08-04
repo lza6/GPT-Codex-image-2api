@@ -6,7 +6,7 @@ import json
 import os
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -25,14 +25,46 @@ INTERNAL_RESPONSE_KEYS = {"_account_email", "_conversation_id"}
 
 
 class LogService:
+    """结构化日志服务（4.1 起按天轮转切分）。
+
+    - 写入：当天文件 `logs-YYYY-MM-DD.jsonl`（不再写单一日志文件）。
+    - 读取：`list(days=N)` 只读最近 N 天天文件（默认全量，向后兼容旧调用方），
+      `start_date` 更早时自动扩展文件范围（不丢历史）。
+    - 迁移：旧 `logs.jsonl` 首次访问时惰性迁移到天文件并 rename 备份，幂等。
+    - 清理：过期天文件整删（文件级），当天文件超限裁剪（条目级）。
+    """
+
+    # 过期天文件保留天数（与 usage_agg WINDOW_DAYS=90 对齐，保证缓存重建不丢历史）
+    _LOG_RETENTION_DAYS = 90
+
     def __init__(self, path: Path):
         self.path = path
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._log_dir = self.path.parent
         self._add_count = 0
-        # 读-改-写路径（delete/_auto_cleanup）进程内互斥（第七轮 B16 部分缓解：
+        # 读-改-写路径（delete/_auto_cleanup/迁移）进程内互斥（第七轮 B16 部分缓解：
         # append 快路径不加锁，但覆写类操作必须互斥防 lost-update）
         import threading
         self._write_lock = threading.Lock()
+        self._migrated = False
+
+    # ---- 按天路径 ----
+    @staticmethod
+    def _day_from_name(name: str) -> str:
+        """从 `logs-YYYY-MM-DD.jsonl` 提取日期；非天文件返回空串。"""
+        if name.startswith("logs-") and name.endswith(".jsonl"):
+            return name[5:-6]
+        return ""
+
+    def _today_str(self) -> str:
+        return datetime.now().strftime("%Y-%m-%d")
+
+    def _daily_path(self, day: str) -> Path:
+        return self._log_dir / f"logs-{day}.jsonl"
+
+    def _daily_files(self) -> list[Path]:
+        """所有天文件，按日期升序（旧→新）。"""
+        return sorted(self._log_dir.glob("logs-*.jsonl"))
 
     @staticmethod
     def _legacy_id(raw_line: str, line_number: int) -> str:
@@ -91,6 +123,52 @@ class LogService:
             "detail": detail,
         }
 
+    def _item_day(self, item: dict[str, Any]) -> str:
+        """从条目提取 `YYYY-MM-DD`（兼容 text 'time' / json 'ts' / 历史 'created_at'）。"""
+        t = str(item.get("time") or item.get("ts") or item.get("created_at") or "")
+        return t[:10]
+
+    def _ensure_migrated(self) -> None:
+        """旧 `logs.jsonl` 惰性迁移到天文件（幂等、线程安全、失败不崩）。
+
+        触发点：首次 add/list/delete 前。迁移完成后把旧文件 rename 成
+        `logs.jsonl.legacy`（保留备份防误删，同时保证下次不再触发二次迁移）。
+        """
+        legacy = self.path
+        if self._migrated or not legacy.exists():
+            self._migrated = True
+            return
+        with self._write_lock:
+            if self._migrated or not legacy.exists():
+                return
+            batches: dict[str, list[str]] = {}
+            try:
+                raw_lines = legacy.read_text(encoding="utf-8").splitlines()
+            except OSError:
+                self._migrated = True
+                return
+            for line_number, raw_line in enumerate(raw_lines):
+                item = self._parse_line(raw_line, line_number)
+                if item is None:
+                    continue
+                day = self._item_day(item) or self._today_str()
+                batches.setdefault(day, []).append(self._serialize_item(item))
+            for day, lines in batches.items():
+                target = self._daily_path(day)
+                with target.open("a", encoding="utf-8") as fh:
+                    fh.write("\n".join(lines))
+                    if lines:
+                        fh.write("\n")
+            try:
+                legacy.rename(self._log_dir / "logs.jsonl.legacy")
+            except OSError:
+                pass
+            self._migrated = True
+
+    def migrate_legacy(self) -> None:
+        """公开迁移入口：启动时调用，确保旧 logs.jsonl 在 usage_agg watcher 前完成迁移。"""
+        self._ensure_migrated()
+
     def add(self, type: str, summary: str = "", detail: dict[str, Any] | None = None, **data: Any) -> None:
         detail = detail or data
         # 统一注入 request_id（text 和 json 格式都带，保证全链路追踪一致）
@@ -111,7 +189,10 @@ class LogService:
                 "summary": summary,
                 "detail": detail,
             }
-        with self.path.open("a", encoding="utf-8") as file:
+        # 4.1：先迁移旧单文件，再写当天文件（避免旧数据永久滞留 logs.jsonl）
+        self._ensure_migrated()
+        target = self._daily_path(self._today_str())
+        with target.open("a", encoding="utf-8") as file:
             file.write(self._serialize_item(item) + "\n")
         # 惰性清理：每 200 条检查一次，避免高频 I/O
         self._add_count += 1
@@ -124,63 +205,115 @@ class LogService:
     _AUTO_CLEAN_KEEP = 3000
 
     def _auto_cleanup(self) -> None:
-        """日志条数超限时自动裁剪到保留量，防止无限增长（互斥+原子写）。
+        """日志按天裁剪，防止无限增长（互斥+原子写）。
+
+        两级清理（4.1）：
+        1. 文件级：删除超过 _LOG_RETENTION_DAYS 的过期天文件（不再整文件重写）。
+        2. 条目级：当天文件超 _AUTO_CLEAN_MAX_ENTRIES 裁剪到 _AUTO_CLEAN_KEEP。
 
         失败必须可观测（第七轮 review #2：此前 except: pass 静默吞，
         清理持续失败会磁盘写满而无任何痕迹）。
         """
         try:
-            if not self.path.exists():
-                return
+            today = self._today_str()
             with self._write_lock:
-                lines = self.path.read_text(encoding="utf-8").splitlines()
+                # 文件级：过期天文件整删（按文件名日期，避免逐行重写）
+                cutoff = (datetime.now() - timedelta(days=self._LOG_RETENTION_DAYS)).strftime("%Y-%m-%d")
+                for path in self._daily_files():
+                    day = self._day_from_name(path.name)
+                    if day and day < cutoff:
+                        try:
+                            path.unlink()
+                        except OSError:
+                            pass
+                # 条目级：当天文件超限裁剪
+                today_path = self._daily_path(today)
+                if not today_path.exists():
+                    return
+                lines = today_path.read_text(encoding="utf-8").splitlines()
                 if len(lines) <= self._AUTO_CLEAN_MAX_ENTRIES:
                     return
                 kept = lines[-self._AUTO_CLEAN_KEEP:]
                 from services.storage.json_storage import _atomic_write_text
-                _atomic_write_text(self.path, "\n".join(kept) + "\n")
+                _atomic_write_text(today_path, "\n".join(kept) + "\n")
         except Exception:
             import logging
             logging.getLogger(__name__).warning("log auto-cleanup failed", exc_info=True)
 
-    def list(self, type: str = "", start_date: str = "", end_date: str = "", account_email: str = "", limit: int = 200) -> list[dict[str, Any]]:
-        if not self.path.exists():
-            return []
+    def _scan_min_day(self, days: int | None, start_date: str, end_date: str) -> str | None:
+        """文件扫描下界日期：days=N 给最近 N 天；start_date/end_date 任一更早时扩展到覆盖（不丢历史）。
+
+        注意：end_date 只设过去某天（无 start_date）时，days 不得把文件范围截到 end_date 之后，
+        否则过滤结果恒为空（用户明确要看更早日志）。
+        """
+        today = datetime.now().date()
+        min_day: str | None = None
+        if days is not None and days > 0:
+            min_day = (today - timedelta(days=days - 1)).strftime("%Y-%m-%d")
+        for bound in (start_date[:10], end_date[:10]):
+            if bound and bound < (min_day or "9999-12-31"):
+                min_day = bound
+        return min_day
+
+    def list(self, type: str = "", start_date: str = "", end_date: str = "", account_email: str = "", limit: int = 200, days: int | None = None) -> list[dict[str, Any]]:
+        """读取日志，按天文件分片（4.1）。
+
+        - `days=N`：只读最近 N 天天文件（limit 凑够 early-exit，不触碰更早文件）。
+        - 不传 days（None）：读全部天文件，向后兼容旧调用方（前端日志页/契约守卫）。
+        - `start_date`/`end_date` 更早时自动扩展文件范围（见 _scan_min_day），保证日期筛选不丢历史。
+        - 返回最新在前（跨文件新→旧、文件内行倒序）。
+        """
+        self._ensure_migrated()
+        min_day = self._scan_min_day(days, start_date, end_date)
+        files = [p for p in self._daily_files() if not min_day or self._day_from_name(p.name) >= min_day]
         items: list[dict[str, Any]] = []
-        lines = self.path.read_text(encoding="utf-8").splitlines()
-        for line_number in range(len(lines) - 1, -1, -1):
-            item = self._parse_line(lines[line_number], line_number)
-            if item is None:
+        # 跨文件：新→旧；文件内：行倒序
+        for path in reversed(files):
+            if not path.exists():
                 continue
-            if not self._matches_filters(item, type=type, start_date=start_date, end_date=end_date, account_email=account_email):
-                continue
-            items.append(item)
-            if len(items) >= limit:
-                break
+            lines = path.read_text(encoding="utf-8").splitlines()
+            for line_number in range(len(lines) - 1, -1, -1):
+                item = self._parse_line(lines[line_number], line_number)
+                if item is None:
+                    continue
+                if not self._matches_filters(item, type=type, start_date=start_date, end_date=end_date, account_email=account_email):
+                    continue
+                items.append(item)
+                if len(items) >= limit:
+                    return items
         return items
 
     def delete(self, ids: list[str]) -> dict[str, int]:
         target_ids = {str(item or "").strip() for item in ids if str(item or "").strip()}
-        if not self.path.exists() or not target_ids:
+        if not target_ids:
             return {"removed": 0}
+        self._ensure_migrated()
+        removed = 0
         with self._write_lock:
-            lines = self.path.read_text(encoding="utf-8").splitlines()
-            kept_lines: list[str] = []
-            removed = 0
-            for line_number, raw_line in enumerate(lines):
-                item = self._parse_line(raw_line, line_number)
-                if item is None:
-                    kept_lines.append(raw_line)
+            # 跨天文件删除：每文件读-改-原子写（低频管理操作，逐文件处理即可）
+            for path in self._daily_files():
+                if not path.exists():
                     continue
-                if str(item.get("id") or "") in target_ids:
-                    removed += 1
+                lines = path.read_text(encoding="utf-8").splitlines()
+                kept_lines: list[str] = []
+                local_removed = 0
+                for line_number, raw_line in enumerate(lines):
+                    item = self._parse_line(raw_line, line_number)
+                    if item is None:
+                        kept_lines.append(raw_line)
+                        continue
+                    if str(item.get("id") or "") in target_ids:
+                        local_removed += 1
+                        continue
+                    kept_lines.append(self._serialize_item(item))
+                if local_removed == 0:
                     continue
-                kept_lines.append(self._serialize_item(item))
-            content = "\n".join(kept_lines)
-            if content:
-                content += "\n"
-            from services.storage.json_storage import _atomic_write_text
-            _atomic_write_text(self.path, content)
+                removed += local_removed
+                content = "\n".join(kept_lines)
+                if content:
+                    content += "\n"
+                from services.storage.json_storage import _atomic_write_text
+                _atomic_write_text(path, content)
         return {"removed": removed}
 
 

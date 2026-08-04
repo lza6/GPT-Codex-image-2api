@@ -275,12 +275,12 @@ chatgpt2api/
 | 代理池 | services/proxy_pool.py + api/proxy_pool.py |
 | 限流 | api/rate_limit.py（已接线 api/app.py，默认 0 关闭） |
 | 用量预测 | services/usage_forecast.py + /api/dashboard/usage-forecast + dashboard 看板横幅 |
-| 日志聚合缓存 | services/usage_agg.py（usage/usage_forecast 数据源；按小时桶增量聚合+90 天窗口+原子落盘，后台线程每 60s ingest；full_scan_* 为旧口径参考） |
+| 日志聚合缓存 | services/usage_agg.py（usage/usage_forecast 数据源；按小时桶增量聚合+90 天窗口+原子落盘，后台线程每 60s ingest；4.1 起日志路径传 DATA_DIR 目录扫描 logs-*.jsonl 多文件增量；full_scan_* 为旧口径参考） |
 | 批量账号操作 | api/accounts.py `POST /api/accounts/batch`（3.1.2：evict_stale/label/export 表驱动分发，复用既有单点逻辑；账号 `label` 字段 JSON/SQLite JSON 列自动持久化） |
 | 图片 seed 透传 | services/protocol/openai_v1_image_generations.py → ConversationRequest.seed → 上游 payload tools[0].seed（3.1.3 实验性；负向提示前端拼入 prompt 降级） |
 | 主动探活 | api/support.py start_proactive_probe（默认关，proactive_probe_enabled） |
 | 配置 | services/config.py |
-| 日志 | services/log_service.py |
+| 日志 | services/log_service.py（4.1 起按天轮转切分：写 logs-YYYY-MM-DD.jsonl、list(days=N) 分片读、过期天文件整删+当天文件裁剪；旧 logs.jsonl 启动迁移） |
 | 看板 | api/dashboard.py + web/src/app/dashboard/page.tsx |
 | IP 池 | web/src/app/proxy-pool/page.tsx |
 | API 文档 | docs/api/* |

@@ -1,3 +1,13 @@
+## 2.6.0 - 2026-08-05 (4.1 日志按天轮转切分：慢查询根治落地)
+
+**性能根治（计划书 4.1）：**
++ [日志切分] `services/log_service.py` 改为按天轮转切分：写入 `logs-YYYY-MM-DD.jsonl`（不再写单一日志文件），`list()` 支持 `days=N` 只读最近 N 天天文件（limit 凑够 early-exit，不触碰更早文件），`start_date` 更早时自动扩展文件范围（不丢历史）；`delete()` 跨天文件删除；`_auto_cleanup()` 两级——过期天文件整删（文件级）+ 当天文件超限裁剪（条目级）
++ [旧数据迁移] 旧 `logs.jsonl` 首次访问时惰性迁移到天文件并 rename 为 `logs.jsonl.legacy`（幂等、线程安全、失败不崩）；app lifespan 启动即触发迁移，确保 usage_agg watcher 读切分后日志
++ [用量聚合适配] `services/usage_agg.py` 改为多文件增量：日志路径传 `DATA_DIR` 目录扫描 `logs-*.jsonl`，每文件独立 offset 增量读，新天文件出现只增量、某文件被裁剪才全量重建；升级检测（旧缓存无 `file_offsets` 且按天模式）自动清空重建防重复计数
++ [API] `/api/logs` 新增可选 `days` 参数透传；前端 `fetchSystemLogs` 支持 `days`，日志页默认近 7 天（days=7），用户选日期范围时用 start_date/end_date 精确过滤
++ [慢查询报告] `scripts/slow_query_report.py` 移除「日志列表全量读/日志删除整文件重写/日志惰性清理整文件重写」三个热点（已根治）；优化建议标注 4.1 已落地
++ [测试] 新增 `test/test_log_rotation.py` 11 用例（按天写入/list 跨天倒序/days 只读最近 N 天 mock 文件系统/start_date 扩展/过期天文件整删/当天超限裁剪/跨天删除/旧文件迁移无丢失无重复/limit 跨文件全局）；全量 347 passed / 0 failed
+
 ## 2.5.0 - 2026-08-05 (3.1.2 账号批量操作 + 3.1.3 图片工作台增强)
 
 **新功能（计划书 3.1.2/3.1.3）：**

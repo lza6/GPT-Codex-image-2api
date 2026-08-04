@@ -1,10 +1,10 @@
 # ChatGPT2API 项目规格
 
-> 自动生成（2026-08-04 21:50:04 UTC）——由 scripts/refresh_spec.py 保鲜，手动改动会被覆盖。
+> 自动生成（2026-08-04 23:47:35 UTC）——由 scripts/refresh_spec.py 保鲜，手动改动会被覆盖。
 > 保鲜机制：会话启动前跑 `python scripts/refresh_spec.py`，输出 [REFRESHED] 说明已过期需重读。
 
 ## 版本与部署
-- 应用版本：`2.3.0`
+- 应用版本：`2.6.0`
 - 端口：23456（Docker 80 映射）
 - 存储后端：json / sqlite / postgres / git（config.storage_backend）
 - 部署：Windows bat 一键启动 / Docker Compose（非 root + HEALTHCHECK + 优雅停机）
@@ -69,9 +69,10 @@
 | `trusted_proxies` | 可信反向代理 IP 白名单（默认仅回环）；仅这些来源的 XFF 头被信任。 |
 | `workers` | uvicorn worker 进程数（高并发时调大，多核利用）。 |
 
-## API 路由（81 个）
+## API 路由（82 个）
 
 - `/api/accounts`
+- `/api/accounts/batch`
 - `/api/accounts/evict_stale`
 - `/api/accounts/export`
 - `/api/accounts/oauth/finish`

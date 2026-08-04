@@ -748,12 +748,13 @@ export async function deleteToTarget(targetFreeMb: number) {
   );
 }
 
-export async function fetchSystemLogs(filters: { type?: string; start_date?: string; end_date?: string; account_email?: string }) {
+export async function fetchSystemLogs(filters: { type?: string; start_date?: string; end_date?: string; account_email?: string; days?: number }) {
   const params = new URLSearchParams();
   if (filters.type) params.set("type", filters.type);
   if (filters.start_date) params.set("start_date", filters.start_date);
   if (filters.end_date) params.set("end_date", filters.end_date);
   if (filters.account_email) params.set("account_email", filters.account_email);
+  if (filters.days !== undefined) params.set("days", String(filters.days));
   return httpRequest<{ items: SystemLog[] }>(`/api/logs${params.toString() ? `?${params.toString()}` : ""}`);
 }
 

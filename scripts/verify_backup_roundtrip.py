@@ -74,7 +74,13 @@ def run_roundtrip() -> dict[str, object]:
 
     from services.config import CONFIG_FILE, DATA_DIR
     _check_file("config.json", CONFIG_FILE)
-    _check_file("data/logs.jsonl", DATA_DIR / "logs.jsonl")
+    # 4.1：日志按天切分，校验全部天文件（logs-*.jsonl）；无天文件时跳过（不强制）
+    daily_logs = sorted(DATA_DIR.glob("logs-*.jsonl"))
+    if daily_logs:
+        for log_path in daily_logs:
+            _check_file(f"data/{log_path.name}", log_path)
+    else:
+        checks.append({"item": "data/logs-*.jsonl", "status": "skip", "reason": "当前无天文件"})
     _check_file("data/image_tasks.json", DATA_DIR / "image_tasks.json")
 
     # 3. 快照项：JSON 可解析
