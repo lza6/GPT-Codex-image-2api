@@ -1,10 +1,10 @@
 # ChatGPT2API 项目规格
 
-> 自动生成（2026-08-04 10:08:51 UTC）——由 scripts/refresh_spec.py 保鲜，手动改动会被覆盖。
+> 自动生成（2026-08-04 10:18:01 UTC）——由 scripts/refresh_spec.py 保鲜，手动改动会被覆盖。
 > 保鲜机制：会话启动前跑 `python scripts/refresh_spec.py`，输出 [REFRESHED] 说明已过期需重读。
 
 ## 版本与部署
-- 应用版本：`2.1.0`
+- 应用版本：`2.3.0`
 - 端口：23456（Docker 80 映射）
 - 存储后端：json / sqlite / postgres / git（config.storage_backend）
 - 部署：Windows bat 一键启动 / Docker Compose（非 root + HEALTHCHECK + 优雅停机）

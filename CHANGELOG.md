@@ -1,3 +1,25 @@
+## 2.3.0 - 2026-08-04 (排期矩阵闭环：P0 运行时修复 + 调度/告警/看板功能 + 工程效能)
+
+**新增配置项：**
+- `scheduler_mode` 新增 `weighted_random`：档位内按调度分加权随机选号，摊平单账号磨损
+- `proactive_probe_enabled`（默认关）/ `proactive_probe_interval_minute`（默认 30）：低频主动探活，提前剔除哑死账号
+- 告警事件新增 `quota_forecast_depletion`：配额耗尽预测临近时推 webhook
+
+本轮（v2.3.0 排期 A/B/C/E + F 调研转化）：
++ [修复] account_service 补 logging.getLogger，防配额告警路径 NameError 崩溃
++ [修复] 限流关键词词边界收紧，"rate limiting" 不再误中 "rate limit" 白换号浪费配额
++ [修复] resume_poll 原账号优先：任务记录 account_email，恢复按 email 找回 token 重连（匿名 token 无权读已登录会话，超时续等此前必失败）；账号已删明确报错
++ [修复] 熔断器 OPEN 态迟到 record_success 不再直接闭合，防抖动上游过早放行
++ [修复] Session 池 remove 偷出时摘池化标记，防死连接回流复用（连接泄漏）
++ [修复] 图片任务幂等强化：TERMINAL 同 key 幂等返回 + 120s prompt 短窗口去重，防重复扣配额
++ [修复] 下载 fallback 双失败日志带 primary_error + fallback_attempted 关联字段
++ [修复] 启动 bat 连续 5 次崩溃熔断 + 指数退避（3s→60s）+ crash.log 记录，防刷盘死循环
++ [修复] 停止 bat 杀进程前校验 python 映像名，防误杀同端口其他程序
++ [功能] 用量预测 `/api/dashboard/usage-forecast`：近 7 天线性外推号池配额耗尽时间 + 提前告警
++ [功能] 加权随机调度（F3）+ 低频主动探活（F4）+ 配额耗尽预测告警（F1/F2）
++ [工程] CI pip-audit 高危阻断 / 五道防线执行锁 / conftest 环境隔离面扩大 / 配置校验表驱动化 / live 测试安全入口 / Docker 非 root+HEALTHCHECK+SIGTERM / 项目规格保鲜脚本
++ [脚本] `verify_backup_roundtrip.py`（备份恢复演练）、`run_live_tests.py`（live 安全入口）、`refresh_spec.py`（规格保鲜）
+
 ## 2.1.0 - 2026-08-03 (安全收口 + 韧性收口 + 可观测性 + 主动告警)
 
 **Breaking changes（升级必读）：**
