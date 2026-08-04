@@ -81,7 +81,7 @@ chatgpt2api/
 - `/metrics` Prometheus 端点（**需鉴权**：Authorization header 或 `?token=`，防公网暴露账号规模）
 - 中间件注入 `X-Request-ID` + `X-Response-Time-Ms`
 - `/api/dashboard/latency` 延迟统计（总数/错误率/平均延迟/按路径/在途）
-- `/api/dashboard/usage` 用量统计：日志时间键兼容 `time`(text)/`ts`(json)/`created_at`，成败状态读 `detail.status`（顶层无 status 键）
+- `/api/dashboard/usage` 用量统计：日志时间键兼容 `time`(text)/`ts`(json)/`created_at`，成败状态读 `detail.status`（顶层无 status 键）。**3.5.1 起改读 `services/usage_agg.py` 聚合缓存**（按小时桶增量聚合，后台线程每 60s ingest），不再每次全量扫 logs.jsonl；`usage_forecast` 同源
 - **注意**：中间件异常路径必须 `status = 500` 默认值，response 存在才注入头（历史 P0 bug）
 
 ### 4. SSE 实时推送（api/dashboard.py `/api/dashboard/stream`）
@@ -266,6 +266,7 @@ chatgpt2api/
 | 代理池 | services/proxy_pool.py + api/proxy_pool.py |
 | 限流 | api/rate_limit.py（已接线 api/app.py，默认 0 关闭） |
 | 用量预测 | services/usage_forecast.py + /api/dashboard/usage-forecast + dashboard 看板横幅 |
+| 日志聚合缓存 | services/usage_agg.py（usage/usage_forecast 数据源；按小时桶增量聚合+90 天窗口+原子落盘，后台线程每 60s ingest；full_scan_* 为旧口径参考） |
 | 主动探活 | api/support.py start_proactive_probe（默认关，proactive_probe_enabled） |
 | 配置 | services/config.py |
 | 日志 | services/log_service.py |

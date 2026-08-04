@@ -55,7 +55,7 @@ class LogService:
         return json.dumps(item, ensure_ascii=False, separators=(",", ":"))
 
     @staticmethod
-    def _matches_filters(item: dict[str, Any], *, type: str = "", start_date: str = "", end_date: str = "") -> bool:
+    def _matches_filters(item: dict[str, Any], *, type: str = "", start_date: str = "", end_date: str = "", account_email: str = "") -> bool:
         # 兼容 text 格式 'time' 与 json 格式 'ts'（json 无 'time' 键，否则日期筛选全失效）
         t = str(item.get("time") or item.get("ts") or "")
         day = t[:10]
@@ -65,6 +65,13 @@ class LogService:
             return False
         if end_date and day > end_date:
             return False
+        if account_email:
+            # 3.1.1：按账号过滤（模糊匹配）。account_email 可能落在 detail 或内联 _account_email，
+            # 用递归收集器统一查找，避免字段位置漂移导致过滤失效。
+            needle = account_email.lower()
+            emails = _collect_account_emails(item)
+            if not any(needle in (email or "").lower() for email in emails):
+                return False
         return True
 
     def _structured_item(self, type: str, summary: str, detail: dict[str, Any]) -> dict[str, Any]:
@@ -136,7 +143,7 @@ class LogService:
             import logging
             logging.getLogger(__name__).warning("log auto-cleanup failed", exc_info=True)
 
-    def list(self, type: str = "", start_date: str = "", end_date: str = "", limit: int = 200) -> list[dict[str, Any]]:
+    def list(self, type: str = "", start_date: str = "", end_date: str = "", account_email: str = "", limit: int = 200) -> list[dict[str, Any]]:
         if not self.path.exists():
             return []
         items: list[dict[str, Any]] = []
@@ -145,7 +152,7 @@ class LogService:
             item = self._parse_line(lines[line_number], line_number)
             if item is None:
                 continue
-            if not self._matches_filters(item, type=type, start_date=start_date, end_date=end_date):
+            if not self._matches_filters(item, type=type, start_date=start_date, end_date=end_date, account_email=account_email):
                 continue
             items.append(item)
             if len(items) >= limit:

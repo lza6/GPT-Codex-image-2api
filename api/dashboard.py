@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import datetime
 import json
 import os
 import platform
@@ -19,7 +18,6 @@ from services.account_service import AccountService, account_service
 from services.circuit_breaker import circuit_breaker_registry
 from services.config import DATA_DIR, config
 from services.image_service import storage_stats
-from services.log_service import log_service
 from services.metrics_service import metrics_service
 
 
@@ -49,42 +47,14 @@ def _collect_account_health(accounts: list[dict]) -> dict[str, object]:
 
 
 def _collect_log_stats() -> dict[str, object]:
-    """基于系统日志统计用量（近 24h 成功/失败/总量）。"""
-    logs = log_service.list(limit=1000)
-    now = time.time()
-    day_ago = now - 86400
-    success = 0
-    failed = 0
-    calls: dict[str, int] = {}
-    recent: list[dict[str, object]] = []
-    for item in logs:
-        # 兼容日志三种时间键：text 格式写 'time'，json 格式写 'ts'，历史可能写 'created_at'
-        created = str(item.get("time") or item.get("ts") or item.get("created_at") or "")
-        try:
-            # 'ts' 为 ISO 格式（含 T 与毫秒），统一截断前 19 字符并替换 T 为空格
-            normalized = created[:19].replace("T", " ")
-            ts = time.mktime(datetime.datetime.strptime(normalized, "%Y-%m-%d %H:%M:%S").timetuple())
-        except (ValueError, TypeError):
-            ts = 0
-        if ts < day_ago:
-            continue
-        # 成败状态在 detail 子对象（detail['status']），顶层无 status 键，需兜底读取
-        detail = item.get("detail") if isinstance(item.get("detail"), dict) else {}
-        status = str(item.get("status") or detail.get("status") or "success")
-        summary = str(item.get("summary") or "调用")
-        calls[summary] = calls.get(summary, 0) + 1
-        if status == "failed":
-            failed += 1
-        else:
-            success += 1
-        recent.append({"time": created, "summary": summary, "status": status})
-    return {
-        "success_24h": success,
-        "failed_24h": failed,
-        "total_24h": success + failed,
-        "by_summary": calls,
-        "recent": recent[-20:],
-    }
+    """基于日志聚合缓存统计用量（近 24h 成功/失败/总量）。
+
+    3.5.1：改读 usage_agg 增量缓存，不再每次全量扫 logs.jsonl（慢查询热点根治）。
+    字段结构与旧全量扫描口径一致（由 test_usage_agg 双算对比保证不漂移）。
+    """
+    from services.usage_agg import usage_agg
+
+    return usage_agg.stats_24h()
 
 
 def _build_metrics_summary() -> dict[str, object]:

@@ -96,6 +96,24 @@ docker compose -f docker-compose.local.yml up -d --build   # 本地构建验证
 | `CHATGPT2API_CONFIG_FILE` | `/app/config.json` | init 脚本写入目标 |
 | `WARP_LICENSE_KEY` | 空 | Cloudflare WARP+ License（可选） |
 
+### 多 Worker 精确限流（`scripts/init_redis_state.py` 一键接线）
+
+多 worker（`workers>1`）时，各进程的限流计数/聊天缓存/熔断器状态各自独立（状态分裂）。
+启用 Redis 共享状态即可让计数跨进程一致：
+
+```bash
+# 1) 本地起 Redis（Docker）：docker compose -f docker-compose.local.yml up -d
+# 2) 一键接线：校验连通性并幂等写入 config.json 的 redis_url
+python scripts/init_redis_state.py                 # 默认 redis://127.0.0.1:6379/0
+# 3) 重启服务后 shared_state 自动走 Redis 实现（不可用时静默降级 Local）
+uv run pytest test/test_shared_state.py            # Local / Redis 工厂降级两实现全过
+```
+
+| 变量 | 默认 | 说明 |
+|------|------|------|
+| `CHATGPT2API_REDIS_URL` | 空（Local） | Redis 连接串；设置后共享状态跨进程一致（也覆盖 init 脚本目标） |
+| `CHATGPT2API_CONFIG_FILE` | `./config.json` | init_redis_state.py 写入目标 |
+
 ### 备份
 
 | 变量 | 说明 |

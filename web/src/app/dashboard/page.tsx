@@ -41,6 +41,14 @@ const TIER_COLORS: Record<SchedulerTier, string> = {
   banned: "bg-stone-200 text-stone-600 dark:bg-stone-700 dark:text-stone-300",
 };
 
+// 3.7.2：调度排行榜档位筛选（风险账号可见性）
+type TierFilter = "all" | "warm_risk" | "risk";
+const TIER_FILTER_OPTIONS: { key: TierFilter; label: string }[] = [
+  { key: "all", label: "全部" },
+  { key: "warm_risk", label: "风险+温存" },
+  { key: "risk", label: "仅风险" },
+];
+
 function formatUptime(seconds: number) {
   const days = Math.floor(seconds / 86400);
   const hours = Math.floor((seconds % 86400) / 3600);
@@ -75,6 +83,7 @@ function DashboardContent() {
   const [latency, setLatency] = useState<LatencySummary | null>(null);
   const [metrics, setMetrics] = useState<MetricsSummary | null>(null);
   const [loading, setLoading] = useState(true);
+  const [tierFilter, setTierFilter] = useState<TierFilter>("all");
 
   const [isRefreshing, setIsRefreshing] = useState(false);
   const load = useCallback(async () => {
@@ -224,8 +233,14 @@ function DashboardContent() {
 
   const topAccounts = useMemo(() => {
     if (!scheduler) return [];
-    return [...scheduler.accounts].sort((a, b) => b.score - a.score).slice(0, 10);
-  }, [scheduler]);
+    let accounts = [...scheduler.accounts];
+    if (tierFilter === "risk") accounts = accounts.filter((a) => a.tier === "risky");
+    if (tierFilter === "warm_risk") accounts = accounts.filter((a) => a.tier === "risky" || a.tier === "warm");
+    accounts.sort((a, b) => b.score - a.score);
+    // 3.7.2：默认视图截断前 10（保持原行为）；风险筛选中显示该档位全部，
+    // 保证风险档账号无论排位都能一屏定位，不被 slice(0,10) 截断在榜单外。
+    return tierFilter === "all" ? accounts.slice(0, 10) : accounts;
+  }, [scheduler, tierFilter]);
 
   // 连接池并发：当前正在使用的账号（image_inflight > 0）
   const inUseAccounts = useMemo(() => {
@@ -428,7 +443,25 @@ function DashboardContent() {
       {/* 调度排行榜 */}
       <Card className="rounded-xl border-stone-200 bg-white">
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">调度排行榜（健康档位 + 调度分）</CardTitle>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle className="text-base">调度排行榜（健康档位 + 调度分）</CardTitle>
+            <div className="flex items-center gap-1 rounded-lg border border-stone-200 p-1">
+              {TIER_FILTER_OPTIONS.map((opt) => (
+                <button
+                  key={opt.key}
+                  type="button"
+                  className={`rounded-md px-2.5 py-1 text-xs transition ${
+                    tierFilter === opt.key
+                      ? "bg-stone-900 text-white"
+                      : "text-stone-500 hover:bg-stone-100 hover:text-stone-900"
+                  }`}
+                  onClick={() => setTierFilter(opt.key)}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
           <p className="text-xs text-stone-400">模式: {ops?.scheduler_mode ?? "-"} · 每30秒自动刷新</p>
         </CardHeader>
         <CardContent>

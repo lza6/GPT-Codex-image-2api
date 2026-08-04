@@ -5,6 +5,8 @@
 2. 全量扫描点识别：静态扫描源码中每次请求都会全量读/全量遍历的热点
    （log_service.list/delete/_auto_cleanup、JSON 后端整文件覆写等），
    给出复杂度与数据规模交叉后的风险评级。
+   注：usage / usage_forecast 的 logs.jsonl 全量读已在 3.5.1 改读聚合缓存
+   （services/usage_agg.py），本清单不再登记该热点。
 3. 优化建议：分页/索引/惰性加载/切分的具体落地建议，标注改动成本。
 
 用法：
@@ -36,15 +38,6 @@ HOTSPOTS = [
         "trigger": "每次 GET /api/logs、前端日志页轮询",
         "data_file": "logs.jsonl",
         "severity_when_large": "P1（10k 行以上每次请求全读，CPU+IO 双高）",
-    },
-    {
-        "name": "用量统计全量读",
-        "location": "api/dashboard.py (usage) → log_service",
-        "pattern": "同样全量读 logs.jsonl 做时间窗过滤",
-        "complexity": "O(文件行数)",
-        "trigger": "看板页每次刷新/轮询",
-        "data_file": "logs.jsonl",
-        "severity_when_large": "P1",
     },
     {
         "name": "日志删除整文件重写",

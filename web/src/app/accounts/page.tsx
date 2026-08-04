@@ -11,6 +11,7 @@ import {
   CircleOff,
   Copy,
   Download,
+  History,
   Link2,
   LoaderCircle,
   LogIn,
@@ -51,6 +52,7 @@ import {
   fetchModels,
   fetchRefreshProgress,
   fetchReLoginProgress,
+  fetchSystemLogs,
   reLoginAccounts,
   refreshAccounts,
   testProxy,
@@ -60,6 +62,7 @@ import {
   type AccountStatus,
   type Model,
   type RefreshProgressResponse,
+  type SystemLog,
 } from "@/lib/api";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 import { cn } from "@/lib/utils";
@@ -197,6 +200,9 @@ function AccountsPageContent() {
   const [editStatus, setEditStatus] = useState<AccountStatus>("正常");
   const [editProxy, setEditProxy] = useState("");
   const [isTestingProxy, setIsTestingProxy] = useState(false);
+  const [timelineAccount, setTimelineAccount] = useState<Account | null>(null);
+  const [timelineLogs, setTimelineLogs] = useState<SystemLog[]>([]);
+  const [timelineLoading, setTimelineLoading] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingModels, setIsLoadingModels] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -727,6 +733,28 @@ function AccountsPageContent() {
     setEditProxy(account.proxy ?? "");
   };
 
+  // 3.2.1：单账号洞察时间线——拉取该账号调用日志（复用 /api/logs?account_email= 过滤）
+  const openTimeline = async (account: Account) => {
+    const email = (account.email ?? account.access_token?.slice(-8) ?? "").trim();
+    if (!email) {
+      // 无邮箱/token 可过滤时不拉全量日志（否则时间线抽屉变成全部调用，误导）
+      toast.error("该账号无邮箱/token 可过滤");
+      setTimelineAccount(null);
+      return;
+    }
+    setTimelineAccount(account);
+    setTimelineLogs([]);
+    setTimelineLoading(true);
+    try {
+      const data = await fetchSystemLogs({ type: "调用", account_email: email });
+      setTimelineLogs(data.items);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "加载账号日志失败");
+    } finally {
+      setTimelineLoading(false);
+    }
+  };
+
   const handleTestAccountProxy = async () => {
     const candidate = editProxy.trim();
     if (!candidate) {
@@ -912,6 +940,56 @@ function AccountsPageContent() {
             >
               {isUpdating ? <LoaderCircle className="size-4 animate-spin" /> : null}
               保存修改
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 3.2.1：单账号洞察时间线抽屉 */}
+      <Dialog open={Boolean(timelineAccount)} onOpenChange={(open) => (!open ? setTimelineAccount(null) : null)}>
+        <DialogContent showCloseButton={false} className="rounded-2xl p-0">
+          <DialogHeader className="gap-1 border-b border-stone-100 px-6 py-4">
+            <DialogTitle>单账号时间线</DialogTitle>
+            <DialogDescription className="truncate text-sm">
+              {timelineAccount?.email ?? timelineAccount?.access_token?.slice(-8) ?? "-"}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[55vh] overflow-y-auto px-6 py-4">
+            {timelineLoading ? (
+              <div className="flex items-center justify-center gap-2 py-10 text-sm text-stone-400">
+                <LoaderCircle className="size-4 animate-spin" /> 加载中…
+              </div>
+            ) : timelineLogs.length === 0 ? (
+              <p className="py-10 text-center text-sm text-stone-400">该账号暂无调用日志</p>
+            ) : (
+              <ul className="space-y-2">
+                {timelineLogs.map((item) => (
+                  <li
+                    key={item.id}
+                    className="flex items-center justify-between gap-3 rounded-lg border border-stone-100 px-3 py-2 text-sm"
+                  >
+                    <span className="min-w-0 flex-1 truncate text-stone-600">
+                      <span className="font-medium text-stone-900">{item.summary ?? "-"}</span>
+                      <span className="ml-2 text-xs text-stone-400">{item.time ?? ""}</span>
+                    </span>
+                    <Badge
+                      variant={item.detail?.status === "failed" ? "danger" : "secondary"}
+                      className="shrink-0 rounded-md"
+                    >
+                      {item.detail?.status === "failed" ? "失败" : "成功"}
+                    </Badge>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <DialogFooter className="border-t border-stone-100 px-6 py-4">
+            <Button
+              variant="secondary"
+              className="h-9 rounded-xl bg-stone-100 px-4 text-stone-700 hover:bg-stone-200"
+              onClick={() => setTimelineAccount(null)}
+            >
+              关闭
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1315,6 +1393,14 @@ function AccountsPageContent() {
                               disabled={isUpdating}
                             >
                               <Pencil className="size-4" />
+                            </button>
+                            <button
+                              type="button"
+                              title="查看单账号日志时间线"
+                              className="rounded-lg p-2 transition hover:bg-stone-100 hover:text-stone-700"
+                              onClick={() => void openTimeline(account)}
+                            >
+                              <History className="size-4" />
                             </button>
                             <button
                               type="button"

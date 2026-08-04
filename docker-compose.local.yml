@@ -13,6 +13,9 @@ services:
     environment:
       STORAGE_BACKEND: sqlite
       DATABASE_URL: sqlite:////app/data/accounts.db
+    # 多 worker 精确限流（3.3.2，可选）：起本文件 redis 服务后取消下行注释，
+    # 共享状态（限流计数/聊天缓存/熔断器）跨进程一致；不配则进程内 Local 实现。
+    #   CHATGPT2API_REDIS_URL: redis://redis:6379/0
     # 存储后端配置 (可选值: json, sqlite, postgres, git)
     # environment:
     #   STORAGE_BACKEND: json
@@ -32,3 +35,17 @@ services:
 
     # 基础 URL (可选)
     #   CHATGPT2API_BASE_URL: https://your-domain.com
+
+  # 可选 Redis 共享状态（3.3.2）：docker compose -f docker-compose.local.yml up -d
+  redis:
+    image: redis:7-alpine
+    container_name: chatgpt2api-local-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
+
+volumes:
+  redis-data:

@@ -6,6 +6,34 @@ import re
 from typing import Any
 
 
+class _SafeStreamHandler(logging.StreamHandler):
+    """3.3.4：Windows 中文日志经 GBK 管道偶发 UnicodeEncodeError 的容错 handler。
+
+    底层 stream.write 编码失败（生僻字/emoji 不在管道编码集内）时，
+    用 errors='replace' 替换重写，保证日志进程不崩溃、行语义不丢失。
+
+    注意：必须整体覆盖 emit——父类 StreamHandler.emit 会把所有异常吞进
+    handleError，直接调 super().emit 永远捕获不到 UnicodeEncodeError。
+    """
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            message = self.format(record)
+            self.stream.write(message + self.terminator)
+            self.flush()
+        except UnicodeEncodeError:
+            try:
+                message = self.format(record)
+                encoding = getattr(self.stream, "encoding", None) or "utf-8"
+                fallback = message.encode(encoding, errors="replace").decode(encoding, errors="replace")
+                self.stream.write(fallback + self.terminator)
+                self.flush()
+            except Exception:
+                self.handleError(record)
+        except Exception:
+            self.handleError(record)
+
+
 class Logger:
     _DATA_URL_RE = re.compile(r"data:image/[^;]+;base64,[A-Za-z0-9+/=]+")
     _JSON_B64_RE = re.compile(r'("b64_json"\s*:\s*")([A-Za-z0-9+/=]+)(")')
@@ -13,7 +41,7 @@ class Logger:
     def __init__(self, name: str = "chatgpt2api") -> None:
         self._logger = logging.getLogger(name)
         if not self._logger.handlers:
-            handler = logging.StreamHandler()
+            handler = _SafeStreamHandler()
             handler.setFormatter(logging.Formatter("[%(levelname)s] %(message)s"))
             self._logger.addHandler(handler)
         self._logger.setLevel(logging.DEBUG)

@@ -1,6 +1,6 @@
 """F2/A2：用量预测——按近期用量趋势线性外推号池配额耗尽时间，提前告警。
 
-数据源：log_service 调用日志（近 N 天按天聚合成功调用数）+ account_service 当前
+数据源：usage_agg 日志聚合缓存（近 N 天按天成功调用数）+ account_service 当前
 总剩余配额。线性外推日均消耗速率，估算"按当前速率多少天后配额耗尽"。
 
 设计取舍（性能优先 + 简洁）：
@@ -16,47 +16,21 @@ import datetime
 import time
 from typing import Any
 
-from services.log_service import log_service
-
 # 预测窗口：近 N 天日均消耗速率
 _FORECAST_WINDOW_DAYS = 7
 # 提前告警阈值：预计耗尽天数 ≤ 此值时 should_alert=True
 _DEFAULT_ALERT_THRESHOLD_DAYS = 3.0
 
 
-def _parse_log_ts(item: dict[str, Any]) -> float:
-    """复用 dashboard 的时间键兼容逻辑：time(text) / ts(json) / created_at。"""
-    created = str(item.get("time") or item.get("ts") or item.get("created_at") or "")
-    try:
-        normalized = created[:19].replace("T", " ")
-        return time.mktime(datetime.datetime.strptime(normalized, "%Y-%m-%d %H:%M:%S").timetuple())
-    except (ValueError, TypeError):
-        return 0.0
-
-
 def _daily_consumption(window_days: int) -> list[dict[str, Any]]:
-    """近 window_days 天按天聚合成功调用数（含今天，今天可能不完整）。"""
-    now = time.time()
-    cutoff = now - window_days * 86400
-    logs = log_service.list(limit=10000)
-    # 按日期分桶
-    buckets: dict[str, int] = {}
-    for item in logs:
-        ts = _parse_log_ts(item)
-        if ts < cutoff:
-            continue
-        detail = item.get("detail") if isinstance(item.get("detail"), dict) else {}
-        status = str(item.get("status") or detail.get("status") or "success")
-        if status == "failed":
-            continue  # 失败调用不消耗配额
-        day = datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d")
-        buckets[day] = buckets.get(day, 0) + 1
-    # 补零：窗口内无调用的天也计入（避免只算有量天导致速率虚高）
-    series: list[dict[str, Any]] = []
-    for offset in range(window_days - 1, -1, -1):
-        day = datetime.datetime.fromtimestamp(now - offset * 86400).strftime("%Y-%m-%d")
-        series.append({"date": day, "calls": buckets.get(day, 0)})
-    return series
+    """近 window_days 天按天聚合成功调用数（含今天，今天可能不完整）。
+
+    3.5.1：改读日志聚合缓存（usage_agg），不再每次全量扫 logs.jsonl——
+    慢查询热点根治。口径与旧全量扫描一致（test_usage_agg 双算对比保证）。
+    """
+    from services.usage_agg import usage_agg
+
+    return usage_agg.daily_success_series(window_days)
 
 
 def _total_quota() -> tuple[int, int, int]:

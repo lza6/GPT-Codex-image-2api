@@ -1,3 +1,14 @@
+## 2.4.0 - 2026-08-05 (下一步改进指南首批落地：慢查询根治 / 账号洞察 / 编码容错 / 看板可见性 / Redis 一键)
+
+**v3.0 路线第 1 批（P1/P2 落地，向后兼容）：**
++ [慢查询根治] `services/usage_agg.py` 日志聚合缓存（按小时桶增量聚合 + 90 天窗口 + 原子落盘）：`/api/dashboard/usage` 与 `usage_forecast` 改读缓存，不再每次全量扫 logs.jsonl（慢查询报告热点已移除）；启动后台聚合线程每 60s 增量 ingest；mock 断言 usage 端点不再调 log_service.list
++ [账号洞察] `/api/logs` 新增 `account_email` 查询参数（模糊匹配，含过滤+分页+缺参兼容）；日志页加账号筛选输入框；账号页行操作加「单账号时间线」抽屉（拉该账号调用日志）
++ [编码容错] `utils/log.py` 新增 `_SafeStreamHandler`：Windows 中文日志经 GBK 管道偶发 UnicodeEncodeError 时 errors='replace' 兜底重写，不再崩溃（变异探针「还原后全量测试」偶发失败根因修复）
++ [看板可见性] 调度排行榜加档位筛选（全部/风险+温存/仅风险），筛选时显示该档位全部账号，风险档不被 slice(0,10) 截断在榜单外
++ [Redis 一键] `scripts/init_redis_state.py` 幂等接线多 worker 精确限流（校验连通性→写入 config.json）；`docker-compose.local.yml` 补 redis 服务样例；README/onboarding 补「多 Worker 精确限流一键化」段；顺带修复 README 限流版本号漂移（v2.3.1→v2.3.0）
++ [慢查询报告] `scripts/slow_query_report.py` 热点清单移除「用量统计全量读」（已由聚合缓存根治），docstring 注明
++ [测试] 新增 `test_usage_agg.py`（7 用例：增量不丢不重/磁盘恢复/窗口裁剪/与全量扫描口径等价/mock 断言不触发全量扫描）、`test_logs_account_filter.py`（5 用例）、`test_log_encoding.py`（3 用例）；全量 323 passed / 0 failed
+
 ## 2.3.0 审计补丁 - 2026-08-04 (终局总审计：假接口接入 + 越权 + 限流接线 + 稳定性)
 
 **修复（发版后审计发现，未发新版本号）：**

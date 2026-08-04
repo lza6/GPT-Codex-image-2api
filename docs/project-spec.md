@@ -1,6 +1,6 @@
 # ChatGPT2API 项目规格
 
-> 自动生成（2026-08-04 20:40:11 UTC）——由 scripts/refresh_spec.py 保鲜，手动改动会被覆盖。
+> 自动生成（2026-08-04 21:50:04 UTC）——由 scripts/refresh_spec.py 保鲜，手动改动会被覆盖。
 > 保鲜机制：会话启动前跑 `python scripts/refresh_spec.py`，输出 [REFRESHED] 说明已过期需重读。
 
 ## 版本与部署
@@ -153,7 +153,7 @@
 - `/v1/search`
 - `/version`
 
-## 服务模块（28 个）
+## 服务模块（29 个）
 
 | 模块 | 用途 |
 |------|------|
@@ -184,4 +184,5 @@
 | `shared_state.py` | 多 worker 共享状态抽象层（D16）：Local/Redis 双实现。 |
 | `ssrf_guard.py` | SSRF 防护（D2）：image_inputs URL 抓取的协议白名单 + 内网 IP 段校验。 |
 | `sub2api_service.py` | Sub2API integration for browsing and importing ChatGPT OAuth accounts from a sub2api admin. |
+| `usage_agg.py` | 3.5.1：日志聚合缓存——替代 /api/dashboard/usage 与 usage_forecast 的全量日志扫描。 |
 | `usage_forecast.py` | F2/A2：用量预测——按近期用量趋势线性外推号池配额耗尽时间，提前告警。 |

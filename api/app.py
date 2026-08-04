@@ -28,6 +28,9 @@ def create_app() -> FastAPI:
         thread = start_limited_account_watcher(stop_event)
         cleanup_thread = start_image_cleanup_scheduler(stop_event)
         probe_thread = start_proactive_probe(stop_event)
+        from services.usage_agg import start_usage_agg_watcher
+
+        agg_thread = start_usage_agg_watcher(stop_event)
         backup_service.start()
         config.cleanup_old_images()
         try:
@@ -38,6 +41,7 @@ def create_app() -> FastAPI:
             cleanup_thread.join(timeout=5)
             if probe_thread is not None:
                 probe_thread.join(timeout=5)
+            agg_thread.join(timeout=5)
             backup_service.stop()
             # D15：优雅停机——归还并关闭所有池化 TLS 连接，防资源泄漏
             from services.session_pool import session_pool

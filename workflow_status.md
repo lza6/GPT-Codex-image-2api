@@ -1,4 +1,46 @@
-# ChatGPT2API 工作流状态 — 第十一轮（onboarding 初级版落地 + 文档漂移全量修复）
+# ChatGPT2API 工作流状态 — 第十二轮（下一步改进指南首批落地：慢查询根治/账号洞察/编码容错/看板可见性/Redis 一键）
+
+> 最后更新：2026-08-05
+> 模式：v3.0 路线第 1 批 —— 计划书 1.2 表 7 项中 5 项实现项全落地 + 2 项规模项登记远期
+> 基线：27f2ac1（第十一轮收尾）
+
+## 本轮完成清单
+
+| 编号 | 事项 | 状态 | 证据 |
+|------|------|------|------|
+| A | 3.5.1 日志聚合缓存替代全量扫描（慢查询热点根治） | ✅ | services/usage_agg.py（UsageAgg 按小时桶增量聚合+90 天窗口+原子落盘+后台线程）；api/dashboard.py + usage_forecast.py 改读缓存；test_usage_agg.py 7 用例含"mock 断言 usage 端点不调 log_service.list"；慢查询报告热点已移除 |
+| B | 3.1.1 `/api/logs` 按 account_email 过滤 | ✅ | services/log_service.py `_matches_filters`/`list` 加参数 + api/system.py `/api/logs?account_email=` + 前端 logs 页筛选输入框；test_logs_account_filter.py 5 用例；契约快照 --update 刷新（断链=0 漂移=0） |
+| C | 3.2.1 单账号洞察时间线 | ✅ | accounts/page.tsx 行操作 History 按钮 + 时间线抽屉（拉 `/api/logs?account_email=`）；tsc 0 错误 |
+| D | 3.3.4 Windows 中文日志编码容错 | ✅ | utils/log.py `_SafeStreamHandler`（errors='replace' 兜底重写）；test_log_encoding.py 3 用例；变异探针「还原后全量测试」偶发失败根因修复 |
+| E | 3.7.2 调度排行榜风险账号可见性 | ✅ | dashboard/page.tsx 档位筛选（全部/风险+温存/仅风险）+ 筛选显示该档位全部（风险档不被 slice(0,10) 截断） |
+| F | 3.3.2 Redis 共享限流一键化 | ✅ | scripts/init_redis_state.py（幂等写 redis_url+连通性校验）+ docker-compose.local.yml redis 服务 + README/onboarding 文档段；复用 test_shared_state.py |
+| G | 规模项登记远期（不拆分） | ✅ | 计划书 1.2 已登记（openai_backend_api 2974/account_service 1993/conversation 1884；image/accounts/settings 前端页）；本轮不拆防回归 |
+
+## 五道防线状态
+
+| 批次 | 契约守卫 | SQL | 慢查询 | 变异 | 施压 |
+|------|---------|-----|--------|------|------|
+| 第十二轮 | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+> 慢查询热点从 7 处 → 6 处（「用量统计全量读」已由聚合缓存根治）；变异探针 caught=6 escaped=0，还原后全量=OK（3.3.4 后稳定）。
+
+## 当前 git 状态
+
+- 测试：**324 passed / 0 failed**（30 live/redis 排除）
+- 前端：tsc 0 错误 + build 成功（logs/accounts/dashboard 三页改动）
+- 契约：断链=0 漂移=0（/api/logs 新增 account_email 参数，快照已 --update）
+- 版本：**v2.4.0（已发版）**
+
+## 边界声明（诚实）
+
+- 单账号时间线前端为手动走查（未写 UI 单测，避免 brittle 断言）；后端过滤逻辑由 test_logs_account_filter.py 覆盖
+- Redis 一键化仅本地验证幂等写入与连通性（本机 Redis 可达）；真实多 worker 精确限流需部署环境实测
+- 近 24h 用量为整小时窗口近似（缓存口径），与旧精确 86400 秒窗口误差 ≤1 小时数据量，业务可忽略（test_usage_agg 双算对比文档注明）
+- 规模项（3/4）本轮不拆，仅远期记录，见计划书 1.2
+
+---
+
+## 第十一轮历史（onboarding 初级版落地 + 文档漂移全量修复）
 
 > 最后更新：2026-08-05
 > 模式：文档闭环轮 —— 新增初级开发者 onboarding + 对照真实代码核查并修复全部文档漂移（含 SKILL.md 自相矛盾）

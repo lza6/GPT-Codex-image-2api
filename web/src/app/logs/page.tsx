@@ -55,6 +55,7 @@ function LogsContent() {
   const [type, setType] = useState<string>(LogType.Call);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [accountEmail, setAccountEmail] = useState("");
   const [detailLog, setDetailLog] = useState<SystemLog | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
@@ -100,7 +101,7 @@ function LogsContent() {
   const loadLogs = async () => {
     setIsLoading(true);
     try {
-      const data = await fetchSystemLogs({ type, start_date: startDate, end_date: endDate });
+      const data = await fetchSystemLogs({ type, start_date: startDate, end_date: endDate, account_email: accountEmail });
       setItems(data.items);
       setSelectedIds((current) => current.filter((id) => data.items.some((item) => item.id === id)));
       setPage(1);
@@ -114,6 +115,7 @@ function LogsContent() {
   const clearFilters = () => {
     setStartDate("");
     setEndDate("");
+    setAccountEmail("");
   };
 
   const openDetail = (item: SystemLog) => {
@@ -154,7 +156,7 @@ function LogsContent() {
 
   useEffect(() => {
     void loadLogs();
-  }, [type, startDate, endDate]);
+  }, [type, startDate, endDate, accountEmail]);
 
   // 自动滚动：新日志加载后滚动到顶部
   useEffect(() => {
@@ -193,6 +195,14 @@ function LogsContent() {
               onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
               placeholder="搜索内容 / request_id"
               className="h-10 rounded-xl border-stone-200 bg-white pl-10"
+            />
+          </div>
+          <div className="relative min-w-[200px]">
+            <Input
+              value={accountEmail}
+              onChange={(e) => { setAccountEmail(e.target.value); setPage(1); }}
+              placeholder="按账号邮箱 / 末8位过滤"
+              className="h-10 rounded-xl border-stone-200 bg-white"
             />
           </div>
           <DateRangeFilter startDate={startDate} endDate={endDate} onChange={(start, end) => { setStartDate(start); setEndDate(end); }} />
