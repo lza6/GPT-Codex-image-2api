@@ -154,6 +154,9 @@ echo   关闭此窗口即可停止服务
 echo.
 
 set "RESTART_COUNT=0"
+set "MAX_RESTART=5"
+set "BACKOFF_SECS=3"
+set "CRASH_LOG=%~dp0crash.log"
 :service_loop
 "%UV%" run python main.py
 set "EXIT_CODE=%ERRORLEVEL%"
@@ -161,11 +164,19 @@ if "%EXIT_CODE%"=="0" (
     goto :end
 )
 set /a RESTART_COUNT+=1
+echo %date% %time% exit=%EXIT_CODE% count=%RESTART_COUNT% >> "%CRASH_LOG%"
 echo.
-echo [守护] 服务异常退出 (代码 %EXIT_CODE%)，3 秒后自动重启 (第 %RESTART_COUNT% 次)...
-echo   如需彻底停止请直接关闭此窗口
+echo [警告] 服务异常退出 (代码 %EXIT_CODE%)，第 %RESTART_COUNT%/%MAX_RESTART% 次，%BACKOFF_SECS% 秒后重试...
+echo   已记录到 crash.log，要彻底停止请直接关闭此窗口
 echo.
-timeout /t 3 /nobreak >nul
+if %RESTART_COUNT% GEQ %MAX_RESTART% (
+    echo [熔断] 连续 %MAX_RESTART% 次崩溃，停止自动重启防止刷盘死循环。
+    echo   查 crash.log 定位原因，修复后可手动再次启动。
+    goto :failed
+)
+timeout /t %BACKOFF_SECS% /nobreak >nul
+set /a BACKOFF_SECS*=2
+if %BACKOFF_SECS% GTR 60 set "BACKOFF_SECS=60"
 goto :service_loop
 
 :failed

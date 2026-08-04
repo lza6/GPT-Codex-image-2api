@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import secrets
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Condition, Lock, Thread
 from typing import Any
@@ -20,6 +21,8 @@ from services.log_service import (
 )
 from services.storage.base import StorageBackend
 from utils.helper import anonymize_token
+
+logger = logging.getLogger(__name__)
 
 
 class AccountService:
@@ -1251,6 +1254,21 @@ class AccountService:
             access_token = self._resolve_access_token_locked(access_token)
             account = self._accounts.get(access_token)
             return dict(account) if account else None
+
+    def get_account_by_email(self, email: str) -> dict | None:
+        """按 email 找回账号（含最新 access_token）。
+
+        用于 resume_poll 等"知道原账号、需重连"场景：token 可能已轮换，
+        但 email 稳定，经此找回当前有效 token。
+        """
+        target = str(email or "").strip().lower()
+        if not target:
+            return None
+        with self._lock:
+            for account in self._accounts.values():
+                if str((account or {}).get("email") or "").strip().lower() == target:
+                    return dict(account)
+        return None
 
     def list_accounts(self) -> list[dict]:
         """返回所有账号的副本，并为每个账号附加当前图片在途数 image_inflight。

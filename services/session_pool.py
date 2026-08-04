@@ -104,12 +104,20 @@ class SessionPool:
     def remove(self, session: requests.Session) -> None:
         """从池中移除一个 Session（不 close），供长轮询等场景独享 Session。
 
-        轮询结束后调用方自行 close() 或归还。
+        "偷出"语义（C6/P1-1）：同时摘掉 `_chatgpt2api_pooled` 与 `_pool_key` 标记。
+        此后调用方 `OpenAIBackendAPI.close()` 检测到无池化标记 → 直接真 close 底层
+        连接，不再归还池中。若不清标记，长轮询结束后 close()→release() 会把可能已
+        淘汰的死连接重新放回池中，被后续请求复用（连接泄漏/状态不一致）。
         """
         with self._lock:
             for key, (sess, ts) in list(self._sessions.items()):
                 if sess is session:
                     del self._sessions[key]
+                    try:
+                        session._chatgpt2api_pooled = False  # type: ignore[attr-defined]
+                        session._pool_key = None  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
                     return
 
     def invalidate(self, account: dict | None = None, impersonate: str = "chrome110", verify: bool = True, fp_key: str = "") -> None:

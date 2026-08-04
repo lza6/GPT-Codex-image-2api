@@ -20,6 +20,10 @@ TASK_STATUS_ERROR = "error"
 TERMINAL_STATUSES = {TASK_STATUS_SUCCESS, TASK_STATUS_ERROR}
 UNFINISHED_STATUSES = {TASK_STATUS_QUEUED, TASK_STATUS_RUNNING}
 
+# C8/P1-3：prompt 短窗口去重窗口（秒）。窗口内同 owner+mode+model+prompt 的
+# 重复提交直接返回已有任务，防止前端重试/双击导致同一 prompt 重复扣配额。
+PROMPT_DEDUP_WINDOW_SECS = 120.0
+
 
 def _now_iso() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -74,6 +78,10 @@ def _public_task(task: dict[str, Any]) -> dict[str, Any]:
     }
     if task.get("conversation_id"):
         item["conversation_id"] = task.get("conversation_id")
+    if task.get("account_email"):
+        item["account_email"] = task.get("account_email")
+    if task.get("deduped"):
+        item["deduped"] = True
     if task.get("data") is not None:
         item["data"] = task.get("data")
     if task.get("usage") is not None:
@@ -213,14 +221,35 @@ class ImageTaskService:
                 if cleaned:
                     self._save_locked()
                 return _public_task(task)
+            # C8/P1-3：短窗口 prompt 去重——窗口内同 owner+mode+model+prompt 已有任务，
+            # 直接返回该任务（标 deduped），不再起新线程重复扣配额。
+            new_prompt = _clean(payload.get("prompt"))
+            new_model = _clean(payload.get("model"), "gpt-image-2")
+            if new_prompt:
+                now_ts = time.time()
+                for existing in self._tasks.values():
+                    if existing.get("owner_id") != owner:
+                        continue
+                    if existing.get("mode") != mode:
+                        continue
+                    if _clean(existing.get("prompt")) != new_prompt:
+                        continue
+                    if _clean(existing.get("model"), "gpt-image-2") != new_model:
+                        continue
+                    if now_ts - float(existing.get("created_ts") or 0) > PROMPT_DEDUP_WINDOW_SECS:
+                        continue
+                    existing["deduped"] = True
+                    self._save_locked()
+                    return _public_task(existing)
             task = {
                 "id": task_id,
                 "owner_id": owner,
                 "status": TASK_STATUS_QUEUED,
                 "mode": mode,
-                "model": _clean(payload.get("model"), "gpt-image-2"),
+                "model": new_model,
                 "size": _clean(payload.get("size")),
                 "quality": _clean(payload.get("quality"), "auto"),
+                "prompt": new_prompt,
                 "created_at": now,
                 "updated_at": now,
                 "created_ts": time.time(),
@@ -293,7 +322,8 @@ class ImageTaskService:
             duration_ms = int((time.time() - started) * 1000)
             self._update_task(key, status=TASK_STATUS_ERROR, error=error_message, data=[],
                               duration_ms=duration_ms,
-                              **({"conversation_id": conversation_id} if conversation_id else {}))
+                              **({"conversation_id": conversation_id} if conversation_id else {}),
+                              **({"account_email": account_email} if account_email else {}))
             self._log_call(
                 identity,
                 mode,
@@ -484,13 +514,28 @@ class ImageTaskService:
         started = time.time()
         backend = None
         try:
+            from services.account_service import account_service
             from services.openai_backend_api import OpenAIBackendAPI
             from services.protocol.conversation import format_image_result
 
+            # C9/P0-2 修复：图片挂在已登录会话上，匿名 token 无权读取该 conversation，
+            # 必须按任务记录的原账号 email 找回 token 重连；email 缺失（历史任务）回退匿名。
+            account_email = ""
+            with self._lock:
+                task_snapshot = self._tasks.get(key) or {}
+                account_email = _clean(task_snapshot.get("account_email"))
+            resume_token = ""
+            if account_email:
+                account = account_service.get_account_by_email(account_email)
+                if not account:
+                    raise RuntimeError(
+                        f"原账号 {account_email} 已不在号池，无法恢复超时任务的轮询。"
+                    )
+                resume_token = _clean(account.get("access_token"))
             # 第七轮 B7 修复：OpenAIBackendAPI 无 proxy_url 形参（此前调用即 TypeError，
             # resume-poll 路径必崩且零测试）。代理经 proxy_settings 全局配置在
             # session_pool 内生效，backend 无需显式传代理。
-            backend = OpenAIBackendAPI()
+            backend = OpenAIBackendAPI(resume_token) if resume_token else OpenAIBackendAPI()
             file_ids, sediment_ids = backend._poll_image_results(
                 conversation_id,
                 extra_timeout_secs,

@@ -63,10 +63,15 @@ class CircuitBreaker:
                     # 半开连续成功，恢复闭合
                     self._state = CircuitState.CLOSED
                     self._failure_count = 0
+            elif self._state == CircuitState.OPEN:
+                # C7/P1-2 竞态修复：请求放行时已判 OPEN 拒绝，若此后另一条路径把状态
+                # 推进到 OPEN（并发 record_failure 触发熔断），迟到的 record_success 不得
+                # 把 OPEN 直接拉回 CLOSED——否则刚熔断的上游被过早放行，失去熔断意义。
+                # OPEN 只能经冷却转 HALF_OPEN 后再由连续成功恢复。
+                return
             else:
+                # CLOSED：正常路径清零失败计数
                 self._failure_count = 0
-                if self._state == CircuitState.OPEN:
-                    self._state = CircuitState.CLOSED
 
     def record_failure(self) -> None:
         with self._lock:

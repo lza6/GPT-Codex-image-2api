@@ -16,7 +16,12 @@ from services.account_service import account_service
 from services.circuit_breaker import circuit_breaker_registry
 from services.config import config
 from services.image_storage_service import image_storage_service
-from services.openai_backend_api import ImageContentPolicyError, ImagePollTimeoutError, ImageRateLimitError, OpenAIBackendAPI
+from services.openai_backend_api import (
+    ImageContentPolicyError,
+    ImagePollTimeoutError,
+    ImageRateLimitError,
+    OpenAIBackendAPI,
+)
 from services.prometheus_metrics import record_upstream_request
 from utils.helper import (
     IMAGE_MODELS,

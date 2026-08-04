@@ -145,12 +145,36 @@ _RATE_LIMIT_KEYWORDS = (
 )
 
 
+def _keyword_boundary_ok(text: str, start: int, end: int) -> bool:
+    """关键词命中位置的边界检查：紧邻字符若是字母则视为更长单词的一部分（子串误伤）。
+
+    例："rate limiting" 中的 "rate limit" 右侧紧邻 'i'（字母）→ 不是独立限流信号，
+    防止 "our rate limiting system" 这类文案被误判为账号限流而白换号浪费配额。
+    关键词含尾随非字母（如 "too many requests" 末尾空格/标点）时边界天然成立。
+    """
+    if start > 0 and text[start - 1].isalpha():
+        return False
+    if end < len(text) and text[end].isalpha():
+        return False
+    return True
+
+
 def _is_rate_limit_error(error_msg: str) -> bool:
-    """检查错误消息是否为 free 账号限流（可换号重试）。"""
+    """检查错误消息是否为 free 账号限流（可换号重试）。
+
+    子串匹配 + 词边界收紧：仅当命中关键词两侧不是字母时才算命中，
+    避免 "rate limiting" 误中 "rate limit"。
+    """
     if not error_msg:
         return False
     msg_lower = error_msg.lower()
-    return any(keyword in msg_lower for keyword in _RATE_LIMIT_KEYWORDS)
+    for keyword in _RATE_LIMIT_KEYWORDS:
+        start = msg_lower.find(keyword)
+        while start != -1:
+            if _keyword_boundary_ok(msg_lower, start, start + len(keyword)):
+                return True
+            start = msg_lower.find(keyword, start + 1)
+    return False
 
 
 def _is_content_policy_error(error_msg: str) -> bool:
@@ -2591,12 +2615,16 @@ class OpenAIBackendAPI:
                     try:
                         url = self._get_attachment_download_url(conversation_id, file_id)
                     except Exception as sed_exc:
+                        # N3：fallback 双失败时带上 primary_error + fallback_attempted 关联字段，
+                        # 排障时能直接看到主下载为何失败、是否走了 fallback，无需翻两条孤立日志。
                         logger.warning({
                             "event": "image_download_sediment_fallback_failed",
                             "conversation_id": conversation_id,
                             "id": file_id,
                             "error": repr(sed_exc),
                             "body": str(getattr(sed_exc, "body", str(sed_exc)))[:500],
+                            "primary_error": repr(exc),
+                            "fallback_attempted": True,
                         })
                         continue
                 else:
