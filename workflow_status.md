@@ -12,7 +12,7 @@
 | 一·P0 | 9c4a4bf | C10 logger 补导入 / C11 限流关键词词边界 / C9 resume_poll 原账号优先 / C7 熔断 OPEN 竞态 / C6 Session 池偷出语义 / C8 任务幂等 + prompt 去重 / N3 fallback 日志关联 / C2 bat 崩溃熔断 / P0-5 停止脚本进程校验 / C1 备份演练 | ✅ | 各文件 diff + test_resume_poll_token.py 3 例 |
 | 二·功能 | 6014f2a | F3 weighted_random 调度 / F4 主动探活(默认关) / F1 配额耗尽预测告警 / F2 usage_forecast + 端点 / F6 进度链路加固 | ✅ | services/usage_forecast.py + /api/dashboard/usage-forecast |
 | 三·工程 | 430c75e | E1 CI pip-audit 高危阻断 / E2 防线执行锁 / E3 conftest 隔离面扩大 / E4 配置校验表驱动 / E5 live 安全入口 / E6 Docker 非 root+HEALTHCHECK+SIGTERM / E7 规格保鲜 | ✅ | 各脚本 + Dockerfile + ci.yml |
-| 发版 | 待提交 | VERSION→2.3.0 + CHANGELOG 新增 2.3.0 + tag + push + Release | ⏳ 本流程收尾 | — |
+| 发版 | 764bc7a | VERSION→2.3.0 + CHANGELOG 新增 2.3.0 + tag + push + Release | ✅ | tag v2.3.0 已推送，Release 已创建 |
 
 ### 待评估项（未越权实施，与矩阵状态一致）
 
