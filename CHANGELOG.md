@@ -1,3 +1,13 @@
+## 2.3.0 审计补丁 - 2026-08-04 (终局总审计：假接口接入 + 越权 + 限流接线 + 稳定性)
+
+**修复（发版后审计发现，未发新版本号）：**
++ [假接口] usage-forecast 前端接入看板（告警横幅 + 近7天趋势折线）；scheduler_mode=weighted_random / proactive_probe 补齐设置页 UI + env/config 模板样例；「导出全部 Token」改走后端三件套导出
++ [越权] dashboard 后端全端点 require_identity→require_admin；前端 useAuthGuard(["admin"])
++ [限流] RateLimitMiddleware 接线生效（此前定义了但从未注册，配置形同虚设）
++ [稳定性] resume_poll resume_inflight 竞态守卫 / image_tasks.json 加载保留 conversation_id / 落盘失败降级不卡死 / 原子写统一 / X-Request-ID 注入 / SSE 指数退避重连
++ [安全] 图片压缩/清理、R2 备份删除、CPA/Sub2API 连接删除补二次确认
++ [文档] README 限流描述、docs/api /metrics 鉴权、onboarding 引用、SKILL.md 13 条新 bug 警示
+
 ## 2.3.0 - 2026-08-04 (排期矩阵闭环：P0 运行时修复 + 调度/告警/看板功能 + 工程效能)
 
 **新增配置项：**
