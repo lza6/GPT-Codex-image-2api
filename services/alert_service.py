@@ -17,7 +17,7 @@ from curl_cffi import requests
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_EVENTS = ["circuit_breaker_open", "backup_failure", "account_invalid", "quota_exhausted"]
+DEFAULT_EVENTS = ["circuit_breaker_open", "backup_failure", "account_invalid", "quota_exhausted", "quota_forecast_depletion"]
 
 
 class AlertService:

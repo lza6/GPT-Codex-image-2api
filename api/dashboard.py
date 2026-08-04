@@ -261,6 +261,14 @@ def create_router() -> APIRouter:
         require_identity(authorization)
         return await run_in_threadpool(_collect_log_stats)
 
+    @router.get("/api/dashboard/usage-forecast")
+    async def usage_forecast_stats(authorization: str | None = Header(default=None)):
+        """F2/A2：用量预测——按近 7 天趋势线性外推号池配额耗尽时间 + 提前告警。"""
+        require_identity(authorization)
+        from services.usage_forecast import forecast_quota_depletion
+
+        return await run_in_threadpool(forecast_quota_depletion)
+
     @router.get("/api/dashboard/latency")
     async def latency_stats(authorization: str | None = Header(default=None)):
         """请求延迟统计：总请求/错误率/平均延迟/按路径分布/在途。"""

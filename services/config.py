@@ -387,10 +387,10 @@ class ConfigStore:
         errors: list[str] = []
         # scheduler_mode 枚举
         mode = data.get("scheduler_mode")
-        if mode is not None and mode not in ("round_robin", "remaining_quota"):
-            errors.append(f"scheduler_mode 必须是 round_robin 或 remaining_quota，当前为 {mode!r}")
+        if mode is not None and mode not in ("round_robin", "remaining_quota", "weighted_random"):
+            errors.append(f"scheduler_mode 必须是 round_robin、remaining_quota 或 weighted_random，当前为 {mode!r}")
         # 数值型配置
-        int_fields = ["workers", "rate_limit_rpm", "rate_limit_per_ip_rpm", "refresh_account_interval_minute", "image_retention_days", "image_account_concurrency", "sqlite_busy_timeout_ms", "progress_ttl_seconds", "alert_webhook_timeout"]
+        int_fields = ["workers", "rate_limit_rpm", "rate_limit_per_ip_rpm", "refresh_account_interval_minute", "image_retention_days", "image_account_concurrency", "sqlite_busy_timeout_ms", "progress_ttl_seconds", "alert_webhook_timeout", "proactive_probe_interval_minute"]
         for field in int_fields:
             value = data.get(field)
             if value is None:
@@ -404,7 +404,7 @@ class ConfigStore:
         if tp is not None and not isinstance(tp, (list, str)):
             errors.append(f"trusted_proxies 必须是数组或逗号分隔字符串，当前为 {tp!r} ({type(tp).__name__})")
         # sqlite_wal_mode / ssrf_allow_private_ips 布尔校验
-        for field in ("sqlite_wal_mode", "ssrf_allow_private_ips"):
+        for field in ("sqlite_wal_mode", "ssrf_allow_private_ips", "proactive_probe_enabled"):
             bval = data.get(field)
             if bval is not None and not isinstance(bval, bool):
                 errors.append(f"{field} 必须是布尔值，当前为 {bval!r} ({type(bval).__name__})")
@@ -496,7 +496,7 @@ class ConfigStore:
             or self.data.get("scheduler_mode")
             or "round_robin"
         ).strip().lower()
-        return value if value in {"round_robin", "remaining_quota"} else "round_robin"
+        return value if value in {"round_robin", "remaining_quota", "weighted_random"} else "round_robin"
 
     @property
     def rate_limit_rpm(self) -> int:
@@ -626,7 +626,7 @@ class ConfigStore:
     @property
     def alert_events(self) -> list[str]:
         """启用的告警事件列表。"""
-        default = ["circuit_breaker_open", "backup_failure", "account_invalid", "quota_exhausted"]
+        default = ["circuit_breaker_open", "backup_failure", "account_invalid", "quota_exhausted", "quota_forecast_depletion"]
         raw = os.getenv("CHATGPT2API_ALERT_EVENTS")
         if raw is not None:
             return [e.strip() for e in str(raw).split(",") if e.strip()]
@@ -634,6 +634,26 @@ class ConfigStore:
         if isinstance(value, list):
             return [str(e).strip() for e in value if str(e).strip()]
         return default
+
+    @property
+    def proactive_probe_enabled(self) -> bool:
+        """低频主动探活开关（F4/B6，默认关）：周期性 fetch_remote_info 探活全部账号，
+        把哑死账号（限流/失效）提前剔除，避免首次请求才踩坑。"""
+        raw = os.getenv("CHATGPT2API_PROACTIVE_PROBE_ENABLED")
+        if raw is not None:
+            return _normalize_bool(raw, False)
+        return _normalize_bool(self.data.get("proactive_probe_enabled"), False)
+
+    @property
+    def proactive_probe_interval_minute(self) -> int:
+        """主动探活周期分钟数（默认 30，最小 5，防过度消耗配额）。"""
+        try:
+            return max(5, int(
+                os.getenv("CHATGPT2API_PROACTIVE_PROBE_INTERVAL_MINUTE")
+                or self.data.get("proactive_probe_interval_minute", 30)
+            ))
+        except (TypeError, ValueError):
+            return 30
 
     @property
     def progress_ttl_seconds(self) -> int:
@@ -822,6 +842,8 @@ class ConfigStore:
         data["alert_webhook_url"] = self.alert_webhook_url
         data["alert_webhook_timeout"] = self.alert_webhook_timeout
         data["alert_events"] = self.alert_events
+        data["proactive_probe_enabled"] = self.proactive_probe_enabled
+        data["proactive_probe_interval_minute"] = self.proactive_probe_interval_minute
         data["redis_url"] = self.redis_url
         data["image_remove_conversation_after_result"] = self.image_remove_conversation_after_result
         data["image_remove_conversation_always"] = self.image_remove_conversation_always

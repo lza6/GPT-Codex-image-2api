@@ -45,6 +45,7 @@ SNAPSHOT_ENDPOINTS = [
     "/api/dashboard/scheduler",
     "/api/dashboard/ops",
     "/api/dashboard/usage",
+    "/api/dashboard/usage-forecast",
     "/api/dashboard/latency",
     "/api/dashboard/metrics_summary",
     "/api/dashboard/circuit_breakers",
@@ -56,7 +57,7 @@ SNAPSHOT_ENDPOINTS = [
 # 动态键端点：响应里含有按数据内容生成的键（如 by_summary 按日志 summary 动态命名、
 # logs limit=1 读最新一条 detail 内容不可预测）。对这些端点只做"状态码 + 顶层键集合"
 # 比对，不做深字段签名——否则每次运行都因数据不同而误报漂移（第七轮实测教训）。
-DYNAMIC_KEY_ENDPOINTS = {"/api/dashboard/usage", "/api/logs?limit=1"}
+DYNAMIC_KEY_ENDPOINTS = {"/api/dashboard/usage", "/api/logs?limit=1", "/api/dashboard/usage-forecast"}
 
 
 def collect_frontend_paths() -> dict[str, list[str]]:

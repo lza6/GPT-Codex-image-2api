@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import random
 import secrets
 import time
 import uuid
@@ -1091,12 +1092,27 @@ class AccountService:
                     if config.scheduler_mode == "remaining_quota":
                         # remaining_quota：直接取排序后第一个（已按 quota 降序）
                         access_token = tokens[0]
+                    elif config.scheduler_mode == "weighted_random":
+                        # F3/B5：档位内按调度分加权随机——同档账号按分数比例分配流量，
+                        # 摊平单账号磨损（纯 round_robin 均匀但无视健康差异，排序首选手
+                        # 又造成单账号热点）。权重取 max(score,0)+1 保底，避免零权。
+                        access_token = self._weighted_pick(tokens)
                     else:
                         access_token = tokens[self._index % len(tokens)]
                         self._index += 1
                     self._image_inflight[access_token] = int(self._image_inflight.get(access_token, 0)) + 1
                     return access_token
                 self._image_slot_condition.wait(timeout=1.0)
+
+    def _weighted_pick(self, tokens: list[str]) -> str:
+        """档位内按调度分加权随机选取（F3/B5）。
+
+        tokens 已按 优先级>档位>调度分 排序，同档账号分数相近。以
+        max(score,0)+1 为权重随机，分数越高被选概率越大，但低分账号也有机会，
+        避免排序首选模式造成的单账号热点、摊平磨损。
+        """
+        weights = [max(0.0, self._account_dispatch_score(self._accounts.get(t) or {})) + 1.0 for t in tokens]
+        return random.choices(tokens, weights=weights, k=1)[0]
 
     def release_image_slot(self, access_token: str) -> None:
         if not access_token:
@@ -1305,6 +1321,15 @@ class AccountService:
                 for item in self._accounts.values()
                 if item.get("status") == "正常"
                    and (token := item.get("access_token") or "")
+            ]
+
+    def list_all_access_tokens(self) -> list[str]:
+        """全部持有 access_token 的账号（F4 主动探活用，不限状态）。"""
+        with self._lock:
+            return [
+                token
+                for item in self._accounts.values()
+                if (token := item.get("access_token") or "")
             ]
 
     @staticmethod

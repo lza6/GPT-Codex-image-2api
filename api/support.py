@@ -108,6 +108,49 @@ def start_limited_account_watcher(stop_event: Event) -> Thread:
     return thread
 
 
+def start_proactive_probe(stop_event: Event) -> Thread | None:
+    """F4/B6：低频主动探活线程（默认关）。
+
+    周期性对全部账号 fetch_remote_info，把哑死账号（限流/失效）在调度前提前
+    标记/剔除，避免首次真实请求才踩坑。复用 refresh_accounts 的远程探活能力。
+    周期由 config.proactive_probe_interval_minute 控制（默认 30min，最小 5min）。
+    """
+    if not config.proactive_probe_enabled:
+        return None
+    interval_seconds = config.proactive_probe_interval_minute * 60
+
+    def worker() -> None:
+        while not stop_event.is_set():
+            try:
+                tokens = account_service.list_all_access_tokens()
+                if tokens:
+                    print(f"[proactive-probe] probing {len(tokens)} accounts")
+                    account_service.refresh_accounts(tokens)
+            except Exception as exc:  # noqa: BLE001 - 探活异常不阻塞主服务
+                print(f"[proactive-probe] fail {exc}")
+            # F1：探活后顺带做一次配额耗尽预测，临近耗尽发 webhook 告警（含去重）
+            try:
+                from services.usage_forecast import forecast_quota_depletion
+
+                forecast = forecast_quota_depletion()
+                if forecast.get("should_alert"):
+                    from services.alert_service import send_alert
+
+                    send_alert("quota_forecast_depletion", {
+                        "days_until_depletion": forecast.get("days_until_depletion"),
+                        "estimated_depletion_date": forecast.get("estimated_depletion_date") or "",
+                        "total_remaining_quota": forecast.get("total_remaining_quota"),
+                        "daily_avg_consumption": forecast.get("daily_avg_consumption"),
+                    })
+            except Exception as exc:  # noqa: BLE001 - 告警绝不阻塞探活
+                print(f"[proactive-probe] forecast alert fail {exc}")
+            stop_event.wait(interval_seconds)
+
+    thread = Thread(target=worker, name="proactive-probe", daemon=True)
+    thread.start()
+    return thread
+
+
 def resolve_web_asset(requested_path: str) -> Path | None:
     if not WEB_DIST_DIR.exists():
         return None
