@@ -81,8 +81,8 @@ docker compose -f docker-compose.local.yml up -d --build   # 本地构建验证
 | `CHATGPT2API_RATE_LIMIT_RPM` | 0（不限） | 全局每分钟请求数上限 |
 | `CHATGPT2API_RATE_LIMIT_PER_IP_RPM` | 0（不限） | 单 IP 每分钟请求数上限 |
 | `CHATGPT2API_WORKERS` | 1 | Worker 进程数；>1 要求 sqlite/postgres 后端 |
-| `CHATGPT2API_MAX_REQUEST_BODY_MB_CHAT` | 10 | chat/responses 类请求体上限（MB） |
-| `CHATGPT2API_MAX_REQUEST_BODY_MB_IMAGE` | 50 | 图片编辑类请求体上限（MB） |
+| `CHATGPT2API_MAX_REQUEST_BODY_MB_CHAT` | 10 | ⚠️ 历史遗留：config 仍读取，但 request_size_limit 中间件已移除，**当前无消费方** |
+| `CHATGPT2API_MAX_REQUEST_BODY_MB_IMAGE` | 50 | ⚠️ 同上：历史遗留死配置 |
 
 ### 代理运行时与 CF 清障（`scripts/init_proxy_config.py` 写入 config.json）
 

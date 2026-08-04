@@ -38,7 +38,7 @@
 
 **何时复用**：缓存任何"建起来贵、可复用、但有隔离维度"的资源（DB 连接、浏览器实例、WebSocket）。
 
-## 4. 纯 ASGI 安全响应头 — `api/security_headers.py`
+## 4. 纯 ASGI 安全响应头 — `api/security_headers.py`（⚠️ 该文件已于 v2.3.0 清理死文件时删除，模式仍可参考）
 
 **示范模式**：绕过 BaseHTTPMiddleware，直接操作 ASGI 层。
 
@@ -46,6 +46,7 @@
 中间件对所有响应（含 4xx/5xx/413）都生效。这是"框架抽象漏了边界场景时，下沉一层"的范例。
 
 **何时复用**：需要"无条件对所有响应生效"的逻辑（CORS 细化、缓存头、自定义追踪头）。
+（注：当前项目中间件仅剩 X-Request-ID 注入 / CORS / 限流，见 `api/app.py`。）
 
 ## 5. 契约探测 — `scripts/contract_probe.py` + `scripts/contract_guard.py`
 

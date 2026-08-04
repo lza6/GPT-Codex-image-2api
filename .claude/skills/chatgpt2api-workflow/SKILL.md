@@ -103,7 +103,8 @@ chatgpt2api/
 
 ### 7. 安全策略（企业内网自用，性能优先）
 
-- **安全层由调用方处理**：已移除 RateLimitMiddleware/SecurityHeadersMiddleware/RequestSizeLimitMiddleware/MetricsMiddleware/SSRF 防护
+- **中间件现状**（`api/app.py` 核实）：限流 `RateLimitMiddleware` **已接线**（默认 0 关闭，S-R15）；CORS 配置驱动；`inject_request_headers` 注入 X-Request-ID/X-Response-Time-Ms。已移除 SecurityHeadersMiddleware / RequestSizeLimitMiddleware / MetricsMiddleware——对应 config 的 `max_request_body_mb_*` 是**死配置残留**（config 仍读取但无中间件消费，勿误以为有 413 行为）
+- **SSRF 防护仍在**：图片 URL 抓取走 `services/ssrf_guard.py`（协议白名单 + 内网 IP 段校验，`api/image_inputs.py:261` 消费），`CHATGPT2API_SSRF_ALLOW_PRIVATE_IPS` 可回退（默认拒绝内网）
 - **CORS 配置驱动**：`config.cors_origins`（默认 `*`），企业内网场景无需收紧
 - **弱口令检测**：auth-key 常见弱口令或 <12 位，development 警告、production（`CHATGPT2API_ENV=production`）拒绝启动
 

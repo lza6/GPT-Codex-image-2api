@@ -1,8 +1,8 @@
-# ChatGPT2API 开发者 Onboarding（高级工程师版）
+# ChatGPT2API 开发者 Onboarding
 
-> 受众：熟悉 FastAPI / Next.js 的高级工程师。目标：**快速建立心智模型，知道改哪里、怕什么、怎么验证。**
-> 生成日期：2026-08-02 · 版本 **2.0.0**（已发版）· 项目状态：N1–N28 闭环、S1–S8 核验、182 测试全绿，维护期
-> 其他版本：[外包/承包商版](README-contractor.md)（强调边界与汇报协议）
+> 按受众分三版：**高级工程师版**（本 README 主索引）、**初级开发者版**（07）、**承包商版**（README-contractor）。
+> 高级版生成日期：2026-08-02 · 初级版：2026-08-05 · 当前版本 **2.3.0** · 项目状态：维护期，338 测试用例
+> 其他版本：[初级开发者版](07-junior-developer.md)（零基础：术语表+端到端走查+任务演练）· [外包/承包商版](README-contractor.md)（强调边界与汇报协议）
 
 ## AI 编码助手专用
 
@@ -18,6 +18,7 @@
 | [04-task-runbooks.md](04-task-runbooks.md) | 干活时：加端点/加存储后端/多 Worker/部署的固定步骤 |
 | [05-debugging.md](05-debugging.md) | 出问题时：历史 P0/P1 故障档案 + 症状速查 + 诊断命令 |
 | [06-contributing.md](06-contributing.md) | 提交前：CI 质量门、提交约定、文档同步点 |
+| [07-junior-developer.md](07-junior-developer.md) | 零基础入门：术语表 + 一次请求端到端走查 + 三个任务演练 + 测试入门 |
 
 ## 60 秒速览
 

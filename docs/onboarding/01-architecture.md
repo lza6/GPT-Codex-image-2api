@@ -11,7 +11,7 @@ flowchart TD
 
     subgraph App["main.py · uvicorn · 端口 23456"]
         GW["api/ FastAPI 网关<br/>ai · accounts · dashboard · image_tasks<br/>proxy_pool · system（6 个 router）"]
-        MW["中间件（api/app.py 装配）<br/>Metrics → CORS → 请求大小 → 限流 → 安全头"]
+        MW["中间件（api/app.py 装配）<br/>注入请求头(X-Request-ID) · CORS · 限流(默认 0 关闭)"]
         GW --> MW
         MW --> SVC
         SVC["services/ 业务层（24 个模块）<br/>账号池+调度 · 代理池 · 熔断器 · 会话池<br/>图片任务 · OAuth · 日志 · 备份 · 内容审核"]
@@ -60,9 +60,10 @@ flowchart TD
 | API 认证 | Bearer Token（auth-key），production 下 <12 位拒绝启动 | `services/auth_service.py`、`services/config.py` |
 | 密钥管理 | 环境变量覆盖 config.json（`CHATGPT2API_AUTH_KEY` 等），config.json 不进容器镜像而是挂载 | `services/config.py:362` |
 | 注入面 | 无 SQL 拼接（SQLAlchemy ORM）；存储层统一走 `storage/base.py` | `services/storage/` |
-| 请求大小 | chat/responses 类默认 10MB，图片编辑类默认 50MB | `api/request_size_limit.py` |
-| 限流 | 全局 RPM + 单 IP RPM 滑动窗口 | `api/rate_limit.py` |
-| 安全头 | CSP/X-Frame-Options/nosniff 等 | `api/security_headers.py` |
+| 限流 | 全局 RPM + 单 IP RPM 滑动窗口（默认 0 关闭） | `api/rate_limit.py`（`api/app.py` 已接线，S-R15） |
+| 请求大小 | 配置项 `max_request_body_mb_*` 仍在 config 但 **request_size_limit 中间件已移除，无消费方**（历史清理残留，见 `services/config.py:570`） | 无 |
+| 安全头 | 已移除（`api/security_headers.py` 已删除；企业内网自用，安全由调用方处理） | 无 |
+| SSRF 防护 | 图片 URL 抓取前校验协议白名单 + 内网 IP 段（`CHATGPT2API_SSRF_ALLOW_PRIVATE_IPS` 可回退，默认拒绝内网） | `services/ssrf_guard.py`（`api/image_inputs.py:261` 消费） |
 | 备份 | OpenSSL 加密 + HMAC；用户配置入口为 config.json 的 `backup.passphrase`（环境变量仅为内部子进程传参） | `services/backup_service.py` |
 | 日志脱敏 | URL/邮箱/会话 ID 采集与内部字段剥离 | `services/log_service.py` |
 | 逆向合规 | README 免责声明不可删；不用于商业/批量/滥用 | 项目红线 |

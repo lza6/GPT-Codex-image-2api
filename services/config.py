@@ -568,7 +568,7 @@ class ConfigStore:
 
     @property
     def max_request_body_mb_chat(self) -> int:
-        """chat/responses 类请求体上限（MB），超限返回 413。"""
+        """chat/responses 类请求体上限（MB）。⚠️ request_size_limit 中间件已移除，当前无消费方（历史遗留）。"""
         try:
             return max(1, int(
                 os.getenv("CHATGPT2API_MAX_REQUEST_BODY_MB_CHAT")
@@ -579,7 +579,7 @@ class ConfigStore:
 
     @property
     def max_request_body_mb_image(self) -> int:
-        """图片编辑类请求体上限（MB，base64 图占体积），超限返回 413。"""
+        """图片编辑类请求体上限（MB，base64 图占体积）。⚠️ request_size_limit 中间件已移除，当前无消费方（历史遗留）。"""
         try:
             return max(1, int(
                 os.getenv("CHATGPT2API_MAX_REQUEST_BODY_MB_IMAGE")

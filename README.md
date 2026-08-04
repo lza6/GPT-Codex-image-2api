@@ -36,14 +36,14 @@ v2.1.0 引入安全边界收紧（SSRF/文件下载/XFF）与韧性收口，**�
 
 | 变更 | 影响 | 迁移动作 |
 |------|------|---------|
-| **SSRF 防护（已移除）** | v2.1.1 起移除 SSRF 防护——企业内网自用，安全由调用方处理 | 无需任何操作 |
+| **SSRF 防护（图片抓取路径保留）** | 图片 URL 抓取前仍有协议白名单 + 内网 IP 校验（`services/ssrf_guard.py`，`api/image_inputs.py:261` 消费） | 默认拒绝内网；确需内网图床用 `CHATGPT2API_SSRF_ALLOW_PRIVATE_IPS=true` |
 | **文件下载鉴权** | `/files/{path}` 需 auth-key（原公开端点） | 调用方请求头带 `Authorization: Bearer <auth-key>` |
-| **XFF 伪造防护（已移除）** | v2.1.1 起移除 XFF 处理（限流中间件在 v2.3.1 已重新接线，默认关闭） | 无需任何操作 |
+| **XFF 伪造防护（已移除）** | v2.1.1 移除 XFF 处理；限流中间件在 v2.3.0 已重新接线（`api/app.py` S-R15），默认关闭 | 无需任何操作 |
 | **账号导出时区** | 导出文件 `expired`/`last_refresh` 从 UTC+8 改 UTC ISO8601 | 解析导出文件方按 UTC 处理 |
 
-**v2.1.1 新变化：**
-- **性能优先**：移除 RateLimitMiddleware/SecurityHeadersMiddleware/RequestSizeLimitMiddleware/MetricsMiddleware/SSRF 防护，每个请求减少 4 层中间件 dispatch
-- **企业内网场景**：安全层由调用方自行处理，降低维护成本
+**v2.1.1 新变化（当前状态）：**
+- **性能优先**：移除 SecurityHeadersMiddleware/RequestSizeLimitMiddleware/MetricsMiddleware，减少中间件层数（限流已在 v2.3.0 重新接线；SSRF 校验保留在图片抓取路径）
+- **企业内网场景**：CORS 默认 `*`，弱口令/密钥强度由配置在 production 下强制（弱口令拒绝启动）
 
 ## 升级到 2.0
 
