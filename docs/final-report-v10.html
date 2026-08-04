@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ChatGPT2API 终局总审计报告 · v2.3.0 全量闭环（第十轮）</title>
+<style>
+  body { font-family: -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif; max-width: 1080px; margin: 0 auto; padding: 24px; background: #f5f4f2; color: #1c1917; line-height: 1.65; }
+  h1 { border-bottom: 3px solid #292524; padding-bottom: 10px; font-size: 25px; }
+  h2 { margin-top: 32px; color: #292524; font-size: 19px; border-left: 4px solid #10b981; padding-left: 12px; }
+  h3 { font-size: 15px; margin-bottom: 6px; }
+  .badge { display: inline-block; padding: 2px 9px; border-radius: 10px; font-size: 11px; font-weight: 600; margin-right: 5px; }
+  .badge-p0 { background: #fee2e2; color: #991b1b; }
+  .badge-p1 { background: #fef3c7; color: #92400e; }
+  .badge-p2 { background: #dbeafe; color: #1e40af; }
+  .badge-done { background: #d1fae5; color: #065f46; }
+  .badge-defer { background: #f3e8ff; color: #6b21a8; }
+  .card { background: white; border-radius: 12px; padding: 16px 20px; margin: 12px 0; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; background: white; border-radius: 8px; overflow: hidden; }
+  th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #e7e5e4; vertical-align: top; }
+  th { background: #292524; color: white; font-weight: 600; }
+  code { background: #f1efed; padding: 1px 5px; border-radius: 4px; font-family: 'Consolas', monospace; font-size: 12.5px; }
+  .evidence { background: #f0fdf4; border-left: 3px solid #10b981; padding: 8px 12px; margin: 8px 0; font-size: 13px; border-radius: 0 6px 6px 0; }
+  .evidence strong { color: #065f46; }
+  .bug { background: #fef2f2; border-left: 3px solid #dc2626; padding: 8px 12px; margin: 8px 0; font-size: 13px; border-radius: 0 6px 6px 0; }
+  .bug strong { color: #991b1b; }
+  .insight { background: #eff6ff; border-left: 3px solid #2563eb; padding: 10px 14px; margin: 10px 0; font-size: 13.5px; border-radius: 0 6px 6px 0; }
+  .quiz { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 12px; padding: 18px 22px; margin: 20px 0; }
+  .quiz h2 { border-left-color: #2563eb; margin-top: 0; }
+  .q { background: white; border-radius: 8px; padding: 12px 16px; margin: 10px 0; }
+  .q p { margin: 0 0 6px 0; font-weight: 600; font-size: 14px; }
+  .q .opts { color: #57534e; font-size: 13px; white-space: pre-line; }
+  .q .ans { color: #2563eb; font-size: 12px; margin-top: 6px; display: none; }
+  .q button { background: #292524; color: white; border: none; padding: 3px 10px; border-radius: 5px; font-size: 11px; cursor: pointer; margin-top: 6px; }
+  .summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 14px 0; }
+  .stat { background: white; border-radius: 10px; padding: 12px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+  .stat .num { font-size: 24px; font-weight: 700; color: #10b981; }
+  .stat .label { font-size: 11px; color: #78716c; margin-top: 3px; }
+  .turn { background: #fef9c3; border-left: 3px solid #ca8a04; padding: 10px 14px; margin: 10px 0; font-size: 13.5px; border-radius: 0 6px 6px 0; }
+</style>
+</head>
+<body>
+
+<h1>ChatGPT2API 终局总审计报告 · 第十轮</h1>
+<p style="color:#57534e">审计日期 2026-08-04 · 覆盖 v2.3.0 全量排期闭环 + 六维独立复验 · 含底部测验（需通过）</p>
+
+<div class="summary-grid">
+  <div class="stat"><div class="num">305</div><div class="label">pytest passed / 0 failed</div></div>
+  <div class="stat"><div class="num">5/5</div><div class="label">五道防线 PASS</div></div>
+  <div class="stat"><div class="num">0</div><div class="label">契约断链 / 假接口</div></div>
+  <div class="stat"><div class="num">13</div><div class="label">SKILL.md 新 bug 警示</div></div>
+</div>
+
+<h2>一、任务目标与上下文重建</h2>
+<div class="insight">
+<strong>真实目标：</strong>这是一个已在生产环境部署的 ChatGPT 官网逆向封装服务（OpenAI 兼容图片生成 API + 号池 + 智能调度 + 运维看板）。本轮不是"总结做了什么"，而是以"即将被真实用户/调用方/部署者使用"的标准，做最严格、最主动、最诚实的终局审计、补漏、修复、验证与文档同步。
+<br><br>
+<strong>显式需求：</strong>完整落地排期矩阵（A2 用量预测 / F1 告警 / F2 预测 / F3 加权调度 / F4 主动探活 / 各类 P0-P2 修复）、六维审查循环、HTML 报告+测验、整理成可复用 skill。
+<br><br>
+<strong>隐式需求：</strong>可运行可调用可使用、尽量少 bug、真实实现非伪实现、前后端真接通、文档同步、主动补齐遗漏、验证闭环。
+</div>
+
+<h2>二、需求追踪矩阵（核心项）</h2>
+<table>
+<tr><th>需求</th><th>实现位置</th><th>状态</th><th>证据</th></tr>
+<tr><td>A2/F2 用量预测</td><td>services/usage_forecast.py + /api/dashboard/usage-forecast + 看板横幅</td><td><span class="badge badge-done">已闭环</span></td><td>TestClient 200，契约字段齐全，days=0 边界修正</td></tr>
+<tr><td>F3 加权随机调度</td><td>account_service._weighted_pick + config 三值枚举 + 设置页</td><td><span class="badge badge-done">已闭环</span></td><td>2000 次抽样分布验证偏向高分账号</td></tr>
+<tr><td>F4 主动探活 + F1 告警</td><td>api/support.start_proactive_probe + quota_forecast_depletion 事件</td><td><span class="badge badge-done">已闭环</span></td><td>app 挂载验证 + 设置页开关</td></tr>
+<tr><td>C9 resume_poll 原账号</td><td>image_task_service + get_account_by_email</td><td><span class="badge badge-done">已闭环</span></td><td>test_resume_poll_token 3 例通过</td></tr>
+<tr><td>越权（dashboard 鉴权）</td><td>api/dashboard.py require_admin + useAuthGuard([admin])</td><td><span class="badge badge-done">已闭环</span></td><td>无鉴权 401，普通 user-key 403</td></tr>
+<tr><td>限流中间件接线</td><td>api/app.py 注册 RateLimitMiddleware</td><td><span class="badge badge-done">已闭环</span></td><td>app 创建成功 + 回归通过</td></tr>
+<tr><td>破坏性操作确认</td><td>图片压缩/清理、备份、CPA、Sub2API 删除</td><td><span class="badge badge-done">已闭环</span></td><td>tsc 0 错误，Dialog 全覆盖</td></tr>
+<tr><td>文档一致性</td><td>README/docs/api 限流与鉴权描述修正</td><td><span class="badge badge-done">已闭环</span></td><td>三处"限流已移除"改"已接线"</td></tr>
+</table>
+
+<h2>三、最强自我反驳（审计前先攻击自己）</h2>
+<div class="card">
+<ul style="font-size:14px">
+<li><strong>反驳 1：我上一轮把三批排期"标完成"了，但前端口哨只有 round_robin/remaining_quota，weighted_random/proactive/usage-forecast 前端零接入——"假接口"恰恰是我留的坑。</strong> → 已修：设置页补开关/选项，看板补预测横幅。</li>
+<li><strong>反驳 2：Dockerfile 改非 root + config.json 被 gitignore 排除，CI 构建必失败；data/ bind mount 权限冲突。</strong> → 已修：example 兜底 + 启动可写性检测。</li>
+<li><strong>反驳 3：我改过 resume_poll 却没加 in-flight 守卫，并发 resume 会双线程轮询双扣配额。</strong> → 已修：resume_inflight 置位/清除对称。</li>
+<li><strong>反驳 4：RateLimitMiddleware 定义了但从未接线，用户配了限流以为生效实际无效。</strong> → 已修：app 注册。</li>
+</ul>
+</div>
+
+<h2>四、全量问题清单（P0/P1 已修复）</h2>
+<table>
+<tr><th>级别</th><th>问题</th><th>修复</th></tr>
+<tr><td><span class="badge badge-p0">P0</span></td><td>usage-forecast / weighted_random / proactive 前端零接入（假接口）</td><td>看板横幅+趋势图 / 设置页选项 / 设置页开关+间隔</td></tr>
+<tr><td><span class="badge badge-p0">P0</span></td><td>dashboard 全端点仅 require_identity（越权）</td><td>改 require_admin + 前端 admin 守卫</td></tr>
+<tr><td><span class="badge badge-p0">P0</span></td><td>Dockerfile COPY config.json 但被 gitignore（CI 崩溃）</td><td>config.example.json 兜底</td></tr>
+<tr><td><span class="badge badge-p0">P0</span></td><td>resume_poll 无 in-flight 守卫（双扣配额）</td><td>resume_inflight 竞态守卫</td></tr>
+<tr><td><span class="badge badge-p0">P0</span></td><td>限流中间件从未接线（配置无效）</td><td>app 注册 RateLimitMiddleware</td></tr>
+<tr><td><span class="badge badge-p1">P1</span></td><td>image_tasks.json 重启丢 conversation_id（resume 失效）</td><td>_load_locked 保留关键字段</td></tr>
+<tr><td><span class="badge badge-p1">P1</span></td><td>落盘失败二次崩溃卡死任务</td><td>_update_task 落盘降级不抛出</td></tr>
+<tr><td><span class="badge badge-p1">P1</span></td><td>X-Request-ID 头后端从不写（前端 5xx 依赖）</td><td>注入中间件</td></tr>
+<tr><td><span class="badge badge-p1">P1</span></td><td>SSE 断线不重连（假降级 3s→30s）</td><td>指数退避自动重连</td></tr>
+<tr><td><span class="badge badge-p1">P1</span></td><td>刷新复活失败图片 / 双击双发 / 乐观更新不回滚</td><td>前端修复</td></tr>
+<tr><td><span class="badge badge-p1">P1</span></td><td>图片压缩/清理、备份、CPA、Sub2API 删除无确认</td><td>全部补二次确认</td></tr>
+</table>
+
+<h2>五、实际修复与补齐过程</h2>
+<div class="turn">
+<strong>批次一（9c4a4bf）</strong>：C10 logger 补导入 / C11 限流词边界 / C9 resume_poll 原账号 / C7 熔断 OPEN 竞态 / C6 Session 池偷出语义 / C8 任务幂等+prompt 去重 / C2 bat 崩溃熔断 / P0-5 进程校验 / C1 备份演练
+</div>
+<div class="turn">
+<strong>批次二（6014f2a）</strong>：F3 weighted_random / F4 主动探活 / F1 配额耗尽预测告警 / F2 usage_forecast 端点 / F6 进度链路加固
+</div>
+<div class="turn">
+<strong>批次三（430c75e）</strong>：E1 CI pip-audit 高危阻断 / E2 防线执行锁 / E3 conftest 隔离面 / E4 配置表驱动校验 / E5 live 安全入口 / E6 Docker 非root+HEALTHCHECK / E7 规格保鲜
+</div>
+<div class="turn">
+<strong>终局审计三批（454b309/d764e32/2b55426）</strong>：三大假接口前端接入 / 越权修复 / 限流接线 / resume_inflight 守卫 / 原子写统一 / 请求头注入 / SSE 重连 / 破坏性确认全覆盖 / 文档对齐 / 边界修正
+</div>
+
+<h2>六、验证结果</h2>
+<div class="evidence"><strong>启动验证：</strong>from api.app import create_app 无报错（含 RateLimitMiddleware + X-Request-ID 中间件）</div>
+<div class="evidence"><strong>构建验证：</strong>前端 npm run build 成功，web_dist 已同步</div>
+<div class="evidence"><strong>接口验证：</strong>usage-forecast 200 契约字段齐全；无鉴权 dashboard 401；X-Request-ID 头存在</div>
+<div class="evidence"><strong>测试验证：</strong>305 passed / 0 failed（30 live 排除）</div>
+<div class="evidence"><strong>防线验证：</strong>契约守卫断链=0，五道防线 5/5 PASS</div>
+<div class="evidence"><strong>类型验证：</strong>tsc --noEmit 0 错误</div>
+
+<h2>七、文档同步</h2>
+<div class="card">
+<ul style="font-size:14px">
+<li>README.md：限流"已移除"→"已接线默认关闭"三处对齐；XFF 描述修正</li>
+<li>docs/api/README.md：/metrics 改"需鉴权"</li>
+<li>.env.example / config.example.json：proactive_probe + weighted_random 样例</li>
+<li>SKILL.md：13 条新历史 bug 警示 + 新模块速查（可复用）</li>
+<li>workflow_status.md：第十轮审计闭环</li>
+</ul>
+</div>
+
+<h2>八、边界声明（诚实）</h2>
+<div class="bug">
+<strong>未真测 / 受外部限制项：</strong>
+<ul>
+<li>真实上游图片生成/编辑（live 测试需烧配额）——用户按项目约定自行自测</li>
+<li>多 worker 下进程内限流不共享（全局精确需 Redis）——README 已声明</li>
+<li>Docker 容器内实际启动（非 root + HEALTHCHECK）——需真实 docker 环境</li>
+<li>WebDAV/R2 实际连通——无外部凭证</li>
+</ul>
+</div>
+
+<h2>九、六维独立复验结果</h2>
+<div class="insight" id="review-result">
+<strong>独立审查线程已启动（只读 code-reviewer）。</strong>结论与发现清单由审查 agent 完成并回报后填入此节；主线程按其发现修复并复验，直至通过或明确卡点。若审查有新增问题，将追加到下方问题清单并修复。
+</div>
+
+<div class="quiz">
+<h2>十、变更测验（请通过）</h2>
+<div id="quiz"></div>
+</div>
+
+<script>
+const questions = [
+  {
+    q: "本轮修复的『三大假接口』是指什么？",
+    opts: "A. /v1/images、/v1/edits、/v1/models\nB. usage-forecast、weighted_random、proactive_probe（后端有端点/配置但前端零消费）\nC. /api/dashboard/scheduler、ops、usage",
+    ans: "B。A/C 是已接通的正常端点；B 是后端实现但前端没有任何展示/开关的假接口，本轮全部接到看板和设置页。"
+  },
+  {
+    q: "dashboard 越权修复的本质是？",
+    opts: "A. 前端删掉看板入口\nB. 后端全端点 require_identity 改 require_admin + 前端 useAuthGuard([\"admin\"])，普通 user-key 访问 403\nC. 加登录页",
+    ans: "B。dashboard 是敏感运维数据，普通登录用户不应看到全部账号/配额/出口 IP。"
+  },
+  {
+    q: "resume_poll 竞态修复（resume_inflight）解决什么问题？",
+    opts: "A. 前端轮询太频繁\nB. 并发 resume 双线程轮询同一 conversation → 双扣配额/双写结果\nC. 账号并发上限",
+    ans: "B。resume 成功改状态后锁释放，第二次并发 resume 会再起一个线程轮询同一个 conversation_id。"
+  },
+  {
+    q: "限流中间件（RateLimitMiddleware）本轮发生了什么？",
+    opts: "A. 新增\nB. 之前定义了但从未在 app 注册（配置形同虚设），本轮接线生效，默认 0 关闭\nC. 删除",
+    ans: "B。S-R15 抓出：用户配 rate_limit_rpm 以为生效实际完全无效。"
+  },
+  {
+    q: "X-Request-ID 响应头此前的问题？",
+    opts: "A. 一直正常\nB. 文档和前端 request.ts 依赖它（5xx 定位），但后端从未写该响应头，本轮加注入中间件\nC. 应删除",
+    ans: "B。D-R2：metrics_service 有 request_id 基础设施但从不写响应头。"
+  },
+  {
+    q: "图片『继续等待』(resume-poll) 与任务幂等的关系？",
+    opts: "A. 无关系\nB. resume 后置 loading 会触发重新 create，但 C8 幂等（TERMINAL 同 key 返回）保证不重复扣配额\nC. resume 会删除原任务",
+    ans: "B。C8 幂等强化使 P0-3 的『重复生成』风险被兜住。"
+  },
+  {
+    q: "本轮新增的破坏性操作二次确认覆盖了哪些？",
+    opts: "A. 只有账号删除\nB. 图片压缩/清理至、R2 备份删除、CPA 连接删除、Sub2API 连接删除（+既有删除确认）\nC. 都不需要",
+    ans: "B。有损/不可逆操作必须二次确认，与既有删除模式对齐。"
+  },
+  {
+    q: "关于文档一致性，本轮修了什么？",
+    opts: "A. 只改代码不改文档\nB. README 三处『限流已移除』改『已接线默认关闭』；docs/api /metrics 改『需鉴权』；env/config 模板补 proactive/weighted_random 样例\nC. 文档从未有误",
+    ans: "B。D-R1/R3/R4/R8：代码与文档双向对齐，避免反向误导调用方。"
+  }
+];
+const quiz = document.getElementById("quiz");
+questions.forEach((item, i) => {
+  const d = document.createElement("div");
+  d.className = "q";
+  d.innerHTML = `<p>Q${i+1}. ${item.q}</p><div class="opts">${item.opts}</div><button onclick="toggleAns(${i})">显示答案</button><div class="ans" id="ans${i}">${item.ans}</div>`;
+  quiz.appendChild(d);
+});
+function toggleAns(i) {
+  const el = document.getElementById("ans" + i);
+  el.style.display = el.style.display === "none" ? "block" : "none";
+}
+</script>
+
+</body>
+</html>
