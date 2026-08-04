@@ -13,6 +13,7 @@ from urllib.parse import quote, urlparse
 from curl_cffi import requests
 from fastapi import HTTPException
 from PIL import Image
+from utils.log import logger
 
 from services.config import DATA_DIR, config
 
@@ -219,8 +220,17 @@ class ImageStorageService:
             stored_local = True
 
         if mode in {"webdav", "both"}:
-            remote_url = WebDAVClient(self.settings()).put(rel, image_data)
-            stored_webdav = True
+            try:
+                remote_url = WebDAVClient(self.settings()).put(rel, image_data)
+                stored_webdav = True
+            except Exception as exc:  # noqa: BLE001
+                # S-B1：both 模式 WebDAV 失败降级为 local 返回——本地副本已落盘，图仍可用，
+                # 不让整个请求 502 + 已扣配额却无结果。记日志便于排查，下次 sync 会补传。
+                logger.warning({"event": "image_webdav_upload_failed", "rel": rel, "error": str(exc)})
+                if mode == "webdav":
+                    # 纯 webdav 模式（本地无副本）失败必须抛错，调用方明确感知
+                    raise
+                stored_webdav = False
 
         dimensions = _image_dimensions(image_data)
         item = {

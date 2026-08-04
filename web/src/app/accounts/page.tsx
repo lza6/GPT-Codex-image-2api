@@ -205,6 +205,9 @@ function AccountsPageContent() {
   const [isUpdating, setIsUpdating] = useState(false);
   const [isRelogining, setIsRelogining] = useState(false);
   const [isEvicting, setIsEvicting] = useState(false);
+  // P1-3：ref 级防重入锁——React setState 异步生效，同一帧双击"一键刷新/删除"会双发请求，
+  // 按钮 disabled 拦不住（下帧才生效）。用 ref 同步拦截。
+  const busyRef = useRef(false);
   // 危险操作二次确认（第七轮 F1：删除/驱逐/清理异常与 image-manager/logs 确认模式对齐）
   const [confirmAction, setConfirmAction] = useState<{
     title: string;
@@ -390,6 +393,8 @@ function AccountsPageContent() {
       title: `删除 ${tokens.length} 个账户？`,
       description: "将从号池永久移除这些账号的 token，此操作不可恢复。",
       run: async () => {
+        if (busyRef.current) return;
+        busyRef.current = true;
         setIsDeleting(true);
         try {
           const data = await deleteAccounts(tokens);
@@ -400,6 +405,7 @@ function AccountsPageContent() {
           const message = error instanceof Error ? error.message : "删除账户失败";
           toast.error(message);
         } finally {
+          busyRef.current = false;
           setIsDeleting(false);
         }
       },
@@ -437,6 +443,11 @@ function AccountsPageContent() {
     }
 
     setIsRefreshing(true);
+    if (busyRef.current) {
+      setIsRefreshing(false);
+      return;
+    }
+    busyRef.current = true;
 
     // 计算非选中账号的基数（统计卡片联动用）
     const selectedTokenSet = new Set(accessTokens);
@@ -555,6 +566,7 @@ function AccountsPageContent() {
       const message = error instanceof Error ? error.message : "刷新账户失败";
       toast.error(message);
     } finally {
+      busyRef.current = false;
       setIsRefreshing(false);
     }
   };

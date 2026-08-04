@@ -1,10 +1,13 @@
 "use client";
 
+import { useState } from "react";
 import { Import, LoaderCircle, Pencil, Plus, ServerCog, Trash2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import type { CPAPool } from "@/lib/api";
 
 import { useSettingsStore } from "../store";
 
@@ -17,6 +20,8 @@ export function CPAPoolsCard() {
   const openEditDialog = useSettingsStore((state) => state.openEditDialog);
   const deletePool = useSettingsStore((state) => state.deletePool);
   const browseFiles = useSettingsStore((state) => state.browseFiles);
+  // C-P1：删除连接加二次确认（与备份/图片删除确认模式一致）
+  const [pendingDeletePool, setPendingDeletePool] = useState<CPAPool | null>(null);
 
   return (
     <Card className="rounded-2xl border-white/80 bg-white/90 shadow-sm">
@@ -81,7 +86,7 @@ export function CPAPoolsCard() {
                       <button
                         type="button"
                         className="rounded-lg p-2 text-stone-400 transition hover:bg-rose-50 hover:text-rose-500"
-                        onClick={() => void deletePool(pool)}
+                        onClick={() => setPendingDeletePool(pool)}
                         disabled={isBusy}
                         title="删除"
                       >
@@ -163,6 +168,36 @@ export function CPAPoolsCard() {
             <li>前端只轮询导入进度，不直接参与 download。</li>
           </ul>
         </div>
+
+        {/* C-P1：删除连接二次确认 */}
+        <Dialog open={pendingDeletePool !== null} onOpenChange={(open) => (!open ? setPendingDeletePool(null) : null)}>
+          <DialogContent className="max-w-md rounded-2xl">
+            <DialogHeader>
+              <DialogTitle>确认删除该 CPA 连接？</DialogTitle>
+            </DialogHeader>
+            <div className="py-2">
+              <p className="text-sm text-stone-500">
+                将删除「{pendingDeletePool?.name}」连接及其配置，关联已导入的账号不受影响。此操作不可恢复。
+              </p>
+            </div>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setPendingDeletePool(null)}>取消</Button>
+              <Button
+                variant="destructive"
+                disabled={deletingId === pendingDeletePool?.id}
+                onClick={async () => {
+                  const pool = pendingDeletePool;
+                  setPendingDeletePool(null);
+                  if (!pool) return;
+                  await deletePool(pool);
+                }}
+              >
+                {deletingId === pendingDeletePool?.id ? <LoaderCircle className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+                确认删除
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </CardContent>
     </Card>
   );

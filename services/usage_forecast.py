@@ -116,7 +116,11 @@ def forecast_quota_depletion(alert_threshold_days: float = _DEFAULT_ALERT_THRESH
         depletion_ts = time.time() + days_left * 86400
         depletion_date = datetime.datetime.fromtimestamp(depletion_ts).strftime("%Y-%m-%d")
 
-    should_alert = days_left is not None and days_left <= alert_threshold_days
+    # R1a：配额已耗尽（days_left<=0，如账号刚被刷完但状态未及更新）不算"即将耗尽"预测——
+    # 那属于 quota_exhausted 告警的职责；这里应返回 days=0 但不应 should_alert 触发
+    # proactive 探活每周期重复发"耗尽"告警（语义是已耗尽而非即将耗尽）。
+    # 前端对 should_alert 做横幅预警，days=0 时应显示"已耗尽"而非倒计时。
+    should_alert = days_left is not None and 0 < days_left <= alert_threshold_days
     return {
         **base,
         "status": "ok",

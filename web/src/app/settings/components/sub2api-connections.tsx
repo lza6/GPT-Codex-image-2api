@@ -102,6 +102,8 @@ export function Sub2APIConnections() {
   const [isLoadingGroups, setIsLoadingGroups] = useState(false);
 
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  // C-P1：删除连接加二次确认（与备份/图片/CPA 删除确认模式一致）
+  const [pendingDeleteServer, setPendingDeleteServer] = useState<Sub2APIServer | null>(null);
   const [loadingAccountsId, setLoadingAccountsId] = useState<string | null>(null);
 
   const [browserOpen, setBrowserOpen] = useState(false);
@@ -452,7 +454,7 @@ export function Sub2APIConnections() {
                         <button
                           type="button"
                           className="rounded-lg p-2 text-stone-400 transition hover:bg-rose-50 hover:text-rose-500"
-                          onClick={() => void handleDelete(server)}
+                          onClick={() => setPendingDeleteServer(server)}
                           disabled={isBusy}
                           title="删除"
                         >
@@ -547,6 +549,36 @@ export function Sub2APIConnections() {
           </div>
         </CardContent>
       </Card>
+
+      {/* C-P1：删除连接二次确认 */}
+      <Dialog open={pendingDeleteServer !== null} onOpenChange={(open) => (!open ? setPendingDeleteServer(null) : null)}>
+        <DialogContent className="max-w-md rounded-2xl">
+          <DialogHeader>
+            <DialogTitle>确认删除该 Sub2API 连接？</DialogTitle>
+          </DialogHeader>
+          <div className="py-2">
+            <p className="text-sm text-stone-500">
+              将删除「{pendingDeleteServer?.name}」（{pendingDeleteServer?.base_url}）连接配置，此操作不可恢复。
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setPendingDeleteServer(null)}>取消</Button>
+            <Button
+              variant="destructive"
+              disabled={deletingId === pendingDeleteServer?.id}
+              onClick={async () => {
+                const server = pendingDeleteServer;
+                setPendingDeleteServer(null);
+                if (!server) return;
+                await handleDelete(server);
+              }}
+            >
+              {deletingId === pendingDeleteServer?.id ? <LoaderCircle className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+              确认删除
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent showCloseButton={false} className="rounded-2xl p-6">

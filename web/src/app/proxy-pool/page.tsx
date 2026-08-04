@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -88,6 +89,8 @@ function ProxyPoolContent() {
   const [egressIp, setEgressIp] = useState<EgressIpResult | null>(null);
   const [probing, setProbing] = useState(false);
   const [strategyValue, setStrategyValue] = useState("round_robin");
+  // P1-6：删除代理加二次确认（此前直接移除，与 accounts/image-manager/logs 确认模式不一致）
+  const [pendingDeleteUrl, setPendingDeleteUrl] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -135,11 +138,14 @@ function ProxyPoolContent() {
   };
 
   const handleStrategyChange = async (value: string) => {
+    const previous = strategyValue;
     setStrategyValue(value);
     try {
       await setStrategy(value);
       toast.success("调度策略已更新");
     } catch (e) {
+      // P1-6：乐观更新失败必须回滚到后端真实值，避免下拉框显示"已切换"但实际未生效
+      setStrategyValue(previous);
       toast.error("设置失败: " + String(e));
     }
   };
@@ -315,7 +321,7 @@ function ProxyPoolContent() {
                     <TableCell className="text-right text-rose-600">{proxy.failed_requests}</TableCell>
                     <TableCell className="text-right text-xs text-stone-400">{formatTime(proxy.last_check)}</TableCell>
                     <TableCell className="text-right">
-                      <Button variant="ghost" size="sm" onClick={() => void handleRemove(proxy.url)}>
+                      <Button variant="ghost" size="sm" onClick={() => setPendingDeleteUrl(proxy.url)}>
                         <Trash2 className="h-4 w-4 text-rose-500" />
                       </Button>
                     </TableCell>
@@ -326,6 +332,33 @@ function ProxyPoolContent() {
           </Table>
         </CardContent>
       </Card>
+
+      {/* P1-6：删除代理二次确认 */}
+      <Dialog open={pendingDeleteUrl !== null} onOpenChange={(open) => (!open ? setPendingDeleteUrl(null) : null)}>
+        <DialogContent className="max-w-md rounded-2xl">
+          <DialogHeader>
+            <DialogTitle>确认删除该代理？</DialogTitle>
+          </DialogHeader>
+          <div className="py-2">
+            <p className="break-all text-sm text-stone-500">将从代理池永久移除 <code className="rounded bg-stone-100 px-1">{pendingDeleteUrl}</code>，此操作不可恢复。</p>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setPendingDeleteUrl(null)}>取消</Button>
+            <Button
+              variant="destructive"
+              onClick={async () => {
+                const url = pendingDeleteUrl;
+                setPendingDeleteUrl(null);
+                if (!url) return;
+                await handleRemove(url);
+              }}
+            >
+              <Trash2 className="size-4" />
+              确认删除
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

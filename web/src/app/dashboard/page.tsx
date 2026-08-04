@@ -111,14 +111,41 @@ function DashboardContent() {
     // 此前从 localStorage 读取恒为 null，SSE 通道静默失效只剩 30s 轮询兜底
     let cancelled = false;
     let source: EventSource | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let retryDelay = 1000; // 指数退避起点 1s，上限 30s
+    let reconnect = false;
+
+    const scheduleReconnect = () => {
+      if (cancelled || reconnect) return;
+      reconnect = true;
+      reconnectTimer = setTimeout(() => {
+        reconnect = false;
+        if (!cancelled && !document.hidden) {
+          void connect();
+        }
+      }, retryDelay);
+      retryDelay = Math.min(retryDelay * 2, 30000);
+    };
+
     const connect = async () => {
       if (source || cancelled) return;
       const token = await getStoredAuthKey();
       if (!token || cancelled) return;
-      source = new EventSource(`/api/dashboard/stream?token=${encodeURIComponent(token)}`);
-      attachHandlers(source);
+      try {
+        source = new EventSource(`/api/dashboard/stream?token=${encodeURIComponent(token)}`);
+        attachHandlers(source);
+      } catch {
+        // 同步构造失败（极少见）也走重连
+        source = null;
+        scheduleReconnect();
+      }
     };
     const disconnect = () => {
+      reconnect = false;
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
       source?.close();
       source = null;
     };
@@ -126,6 +153,7 @@ function DashboardContent() {
       if (document.hidden) {
         disconnect();
       } else {
+        retryDelay = 1000; // 回到前台重置退避
         void load();
         connect();
       }
@@ -163,11 +191,16 @@ function DashboardContent() {
           // 忽略解析错误
         }
       };
+      src.onopen = () => {
+        // P1-1：连接成功重置退避起点，避免偶发抖动后长退避
+        retryDelay = 1000;
+      };
       src.onerror = () => {
-        // 断连（含 token 失效 401）时主动关闭并允许重连逻辑再次建立；
-        // 轮询兜底独立运行，看板不会因流通道故障而停更（第七轮 F4）
+        // P1-1：断连（含 token 失效 401）时关闭并指数退避自动重连——
+        // 原实现只 close 不重连，SSE 从"实时"静默退化为 30s 轮询（假降级）
         source?.close();
         source = null;
+        scheduleReconnect();
       };
     };
 

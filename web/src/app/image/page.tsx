@@ -325,7 +325,9 @@ async function syncConversationImageTasks(items: ImageConversation[]) {
           turn.resultsDeleted
             ? []
             : turn.images.flatMap((image) =>
-                (image.status === "loading" || (image.status === "error" && image.taskId))
+                // P1-2：仅对 loading（进行中/待提交）图片轮询任务；error 图片保留错误快照不重查，
+                // 否则刷新后若后端任务已成功，会把"已失败"翻转成"成功"（"已点取消"场景尤其误导）
+                image.status === "loading" && image.taskId
                   ? [image.taskId!]
                   : [],
               ),
