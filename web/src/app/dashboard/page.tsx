@@ -309,9 +309,11 @@ function DashboardContent() {
           )}
         </div>
       )}
-      {forecast && (forecast.status === "unlimited" || forecast.status === "insufficient_data") && (
-        <div className="rounded-2xl border border-stone-200 bg-white p-4 text-sm text-stone-500">
-          {forecast.status === "unlimited" ? "号池全部为无限配额账号，无需耗尽预测。" : "用量数据不足，暂无法预测配额耗尽时间。"}
+      {forecast && (forecast.status === "unlimited" || forecast.status === "insufficient_data" || forecast.status === "exhausted") && (
+        <div className={`rounded-2xl border p-4 text-sm ${forecast.status === "exhausted" ? "border-rose-200 bg-rose-50 text-rose-700" : "border-stone-200 bg-white text-stone-500"}`}>
+          {forecast.status === "unlimited" && "号池全部为无限配额账号，无需耗尽预测。"}
+          {forecast.status === "exhausted" && "号池无正向配额账号（配额已耗尽或为空），请检查号池状态。"}
+          {forecast.status === "insufficient_data" && "用量数据不足，暂无法预测配额耗尽时间。"}
         </div>
       )}
 

@@ -44,9 +44,9 @@ RUN uv sync --frozen --no-dev --no-install-project
 
 COPY main.py ./
 # D-B1：config.json 被 .gitignore 排除不在 git 树中，CI 构建时不存在。
-# 用 config.example.json 兜底（用户挂载真实 config.json 覆盖）；在 CI 发布流水线中
-# 也不会因 COPY 目标文件不存在而崩溃。
-COPY config.json* ./config-orig.json
+# 用 config.example.json 兜底；用户以 volume 挂载真实 config.json 覆盖（docker-compose 已配）。
+# 注意：不得写 `COPY config.json*`——glob 匹配为空在 Docker/BuildKit 直接报
+# "no source files were specified"，反而让 CI 必失败（审查 HIGH-1）。
 COPY config.example.json ./config.json
 COPY VERSION ./
 COPY api ./api

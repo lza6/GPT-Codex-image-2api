@@ -44,3 +44,30 @@ def install_exception_handlers(app: FastAPI) -> None:
         if _is_openai_compatible_path(request.url.path):
             return _compatible_error_response(request, exc.errors(), 422)
         return JSONResponse(status_code=422, content={"detail": jsonable_encoder(exc.errors())})
+
+    @app.exception_handler(Exception)
+    async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+        """P3-7：未处理 Python 异常兜底。
+
+        此前无全局 Exception handler，未处理异常由 ServerErrorMiddleware 以纯文本
+        "Internal Server Error" 兜底，且因 BaseHTTPMiddleware 架构（call_next 在异常
+        路径 re-raise 为 ExceptionGroup，inject middleware 的 finally 拿不到 response）
+        X-Request-ID 注入失效——"5xx 排障定位"在真正未处理异常时不可用。
+        这里转 JSON + 手动补 X-Request-ID（contextvar 同请求可见）+ 记录堆栈。
+        """
+        import logging
+        import traceback
+        import uuid
+
+        logging.getLogger("chatgpt2api").error(
+            "unhandled exception: %s: %s\n%s",
+            type(exc).__name__,
+            exc,
+            "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
+        )
+        request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex[:16]
+        headers = {"X-Request-ID": request_id, "X-Response-Time-Ms": "0"}
+        if _is_openai_compatible_path(request.url.path):
+            # OpenAI 兼容路径返回统一错误结构（不含内部堆栈）
+            return _compatible_error_response(request, "Internal Server Error", 500, headers=headers)
+        return JSONResponse(status_code=500, content={"detail": "Internal Server Error"}, headers=headers)

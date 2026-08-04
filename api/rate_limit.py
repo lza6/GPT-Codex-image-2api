@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import time
+import uuid
 from collections import defaultdict, deque
 from threading import Lock
 
@@ -122,12 +123,17 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if not request.url.path.startswith(("/v1/", "/api/")):
             return await call_next(request)
 
+        # P3-6：RateLimit 在 X-Request-ID 注入中间件外层，429 响应不经注入层，
+        # 这里手工补头，保证限流响应也有追踪号可排障
+        request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex[:16]
+        rate_limit_headers = {"Retry-After": "1", "X-Request-ID": request_id}
+
         if self.global_rpm > 0:
             if not self._global.check("global"):
                 return JSONResponse(
                     status_code=429,
                     content={"error": {"message": "rate limit exceeded", "type": "rate_limit_error", "param": None, "code": "rate_limit_global"}},
-                    headers={"Retry-After": "1"},
+                    headers=rate_limit_headers,
                 )
 
         if self.per_ip_rpm > 0:
@@ -142,7 +148,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 return JSONResponse(
                     status_code=429,
                     content={"error": {"message": "per-ip rate limit exceeded", "type": "rate_limit_error", "param": None, "code": "rate_limit_ip"}},
-                    headers={"Retry-After": "1"},
+                    headers=rate_limit_headers,
                 )
 
         return await call_next(request)

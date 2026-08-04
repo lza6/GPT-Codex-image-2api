@@ -157,8 +157,10 @@ export function EditableFilePanel({ title, kind, endpoint, defaultPrompt, imageR
   }, [kind]);
 
   useEffect(() => {
-    void listEditableFileDrafts(kind).then(setDrafts);
-    void listDeletedEditableFileIds(kind).then(setDeletedIds);
+    // P3-9：request.ts 拦截器改 reject 后，无 catch 的 .then() 会在 401/网络失败时触发
+    // unhandled rejection——补空 catch 吞掉（debug 面板非核心，失败不影响其余加载）
+    void listEditableFileDrafts(kind).then(setDrafts).catch(() => undefined);
+    void listDeletedEditableFileIds(kind).then(setDeletedIds).catch(() => undefined);
     void fetchTasks();
   }, [fetchTasks, kind]);
 

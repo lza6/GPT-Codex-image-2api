@@ -59,21 +59,27 @@ def _daily_consumption(window_days: int) -> list[dict[str, Any]]:
     return series
 
 
-def _total_quota() -> tuple[int, int]:
-    """返回 (正向配额总和, 正向配额账号数)。quota=-1 为无限配额，不参与。"""
+def _total_quota() -> tuple[int, int, int]:
+    """返回 (正向配额总和, 正向配额账号数, 无限配额账号数)。
+
+    quota=-1 视为无限配额（不参与耗尽预测）；quota<=0 视为已耗尽。
+    """
     from services.account_service import account_service
 
     total = 0
     count = 0
+    unlimited = 0
     for account in account_service.list_accounts() or []:
         try:
             quota = int((account or {}).get("quota") or 0)
         except (TypeError, ValueError):
             continue
-        if quota > 0:
+        if quota == -1:
+            unlimited += 1
+        elif quota > 0:
             total += quota
             count += 1
-    return total, count
+    return total, count, unlimited
 
 
 def forecast_quota_depletion(alert_threshold_days: float = _DEFAULT_ALERT_THRESHOLD_DAYS) -> dict[str, Any]:
@@ -92,7 +98,7 @@ def forecast_quota_depletion(alert_threshold_days: float = _DEFAULT_ALERT_THRESH
     total_calls = sum(point["calls"] for point in series)
     daily_avg = total_calls / _FORECAST_WINDOW_DAYS
 
-    total_quota, quota_accounts = _total_quota()
+    total_quota, quota_accounts, unlimited_accounts = _total_quota()
 
     base: dict[str, Any] = {
         "daily_avg_consumption": round(daily_avg, 2),
@@ -100,11 +106,17 @@ def forecast_quota_depletion(alert_threshold_days: float = _DEFAULT_ALERT_THRESH
         "quota_accounts": quota_accounts,
         "window_days": _FORECAST_WINDOW_DAYS,
         "daily_series": series,
+        # 审查 P2-2：三条返回路径统一带阈值，避免前端"阈值 undefined 天"
+        "alert_threshold_days": alert_threshold_days,
     }
 
     if quota_accounts == 0:
-        # 无正向配额账号：要么全部无限配额，要么号池为空——都无法做耗尽预测
-        return {**base, "status": "unlimited", "days_until_depletion": None, "estimated_depletion_date": None, "should_alert": False}
+        if unlimited_accounts > 0:
+            # 存在无限配额账号（quota=-1），正常耗尽预测无意义
+            return {**base, "status": "unlimited", "days_until_depletion": None, "estimated_depletion_date": None, "should_alert": False}
+        # 号池为空 或 全部配额已耗尽（quota<=0）——审查 P2-3：与 unlimited 区分，
+        # 语义是"已耗尽/无可用配额"而非"无限"，前端走 quota_exhausted 语义展示
+        return {**base, "status": "exhausted", "days_until_depletion": 0, "estimated_depletion_date": None, "should_alert": False}
 
     if total_calls == 0:
         # 零消耗：不会在可预见未来耗尽

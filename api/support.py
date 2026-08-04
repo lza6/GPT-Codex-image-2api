@@ -145,7 +145,7 @@ def start_proactive_probe(stop_event: Event) -> Thread | None:
                         "daily_avg_consumption": forecast.get("daily_avg_consumption"),
                     })
             except Exception as exc:  # noqa: BLE001 - 告警绝不阻塞探活
-                print(f"[proactive-probe] forecast alert fail {exc}")
+                logger.warning({"event": "proactive_probe_forecast_alert_failed", "error": str(exc)})
             stop_event.wait(interval_seconds)
 
     thread = Thread(target=worker, name="proactive-probe", daemon=True)

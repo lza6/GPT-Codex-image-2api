@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from services import image_task_service as its
 
 
@@ -151,3 +153,49 @@ def test_resume_poll_without_email_falls_back_to_anonymous(tmp_path) -> None:
         task = service._tasks[its._task_key(its._owner_id({"id": "u1"}), task_id)]
     assert task["status"] == its.TASK_STATUS_ERROR  # 匿名找不到图 → 失败，但流程走通
     assert "未找到图片" in str(task.get("error"))
+
+
+def test_resume_poll_rejects_second_concurrent_resume(tmp_path) -> None:
+    """审查 P2-5：resume_inflight 竞态守卫——首次 resume 进行中，第二次并发 resume 必须拒绝，
+    防双线程轮询同一 conversation（双扣配额/双写结果）。"""
+    import threading
+
+    service = _make_service(tmp_path)
+    task_id = _seed_error_task(service, email="plus@example.com")
+
+    hold = threading.Event()
+
+    class _SlowBackend:
+        def __init__(self, token: str = "") -> None:
+            pass
+
+        def _poll_image_results(self, *a, **k):  # noqa: ANN002, ANN003
+            hold.wait(3)  # 让线程保持运行，resume_inflight 持续置位
+            return ([], [])
+
+        def close(self) -> None:
+            pass
+
+    with patch("services.openai_backend_api.OpenAIBackendAPI", _SlowBackend):
+        # 第一次 resume 启动后台线程（resume_inflight=True）
+        service.resume_poll({"id": "u1"}, task_id, extra_timeout_secs=5.0)
+        # 第二次必须被拦截
+        with pytest.raises(ValueError, match="already being resumed"):
+            service.resume_poll({"id": "u1"}, task_id, extra_timeout_secs=5.0)
+        hold.set()  # 放行后台线程结束
+
+    import time
+
+    # 等待后台线程结束（inflight 在 finally 清除，需等它——状态先置 ERROR 后清 inflight）
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        with service._lock:
+            task = service._tasks[its._task_key(its._owner_id({"id": "u1"}), task_id)]
+        if "resume_inflight" not in task:
+            break
+        time.sleep(0.05)
+    # 线程结束后 resume_inflight 被 finally 清除 → 再次 resume 不再报"already"
+    with service._lock:
+        task = service._tasks[its._task_key(its._owner_id({"id": "u1"}), task_id)]
+    assert "resume_inflight" not in task, "resume 结束后必须清除 in-flight 标记"
+    assert task["status"] == its.TASK_STATUS_ERROR

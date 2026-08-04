@@ -6,7 +6,7 @@ import time
 import unittest
 from pathlib import Path
 
-from services.image_task_service import ImageTaskService
+from services.image_task_service import ImageTaskService, _owner_id, _task_key
 
 OWNER = {"id": "owner-1", "name": "Owner", "role": "admin"}
 OTHER_OWNER = {"id": "owner-2", "name": "Other", "role": "user"}
@@ -142,6 +142,67 @@ class ImageTaskServiceTests(unittest.TestCase):
 
             self.assertEqual([item["status"] for item in result["items"]], ["error", "error"])
             self.assertTrue(all("已中断" in item.get("error", "") for item in result["items"]))
+
+    def test_load_preserves_conversation_id_and_account_email(self):
+        """审查 P2-5：_load_locked 必须保留 conversation_id/account_email（resume_poll 依赖），
+        此前白名单丢弃这两个字段会打穿 C9 原账号优先修复。"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "image_tasks.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "tasks": [
+                            {
+                                "id": "timeout-task",
+                                "owner_id": "owner-1",
+                                "status": "error",
+                                "mode": "generate",
+                                "model": "gpt-image-2",
+                                "conversation_id": "conv-abc-123",
+                                "account_email": "plus@example.com",
+                                "error": "ChatGPT 生图超时",
+                                "created_at": "2026-08-01 00:00:00",
+                                "updated_at": "2026-08-01 00:00:00",
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            service = self.make_service(path)
+            result = service.list_tasks(OWNER, ["timeout-task"])
+            item = result["items"][0]
+            self.assertEqual(item["conversation_id"], "conv-abc-123")
+            self.assertEqual(item["account_email"], "plus@example.com")
+
+    def test_update_task_save_failure_does_not_raise(self):
+        """审查 P2-5：_update_task 落盘失败必须只记日志不抛出（内存态先更新），
+        否则 _run_task 的 except 分支二次崩溃，任务永久卡死 RUNNING。"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            from unittest.mock import patch
+
+            service = self.make_service(Path(tmp_dir) / "image_tasks.json")
+            service.submit_generation(
+                OWNER,
+                client_task_id="save-fail-task",
+                prompt="cat",
+                model="gpt-image-2",
+                size=None,
+                base_url="http://local.test",
+            )
+            wait_for_task(service, OWNER, "save-fail-task", "success")
+
+            with patch.object(ImageTaskService, "_save_locked", side_effect=OSError("disk full")):
+                # 不应抛异常
+                service._update_task(
+                    _task_key(_owner_id(OWNER), "save-fail-task"),
+                    status="error",
+                    error="manual",
+                )
+            # 内存态已更新（即使落盘失败）
+            result = service.list_tasks(OWNER, ["save-fail-task"])
+            self.assertEqual(result["items"][0]["error"], "manual")
 
 
 if __name__ == "__main__":

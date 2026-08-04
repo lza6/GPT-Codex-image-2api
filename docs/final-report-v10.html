@@ -144,8 +144,25 @@
 </div>
 
 <h2>九、六维独立复验结果</h2>
-<div class="insight" id="review-result">
-<strong>独立审查线程已启动（只读 code-reviewer）。</strong>结论与发现清单由审查 agent 完成并回报后填入此节；主线程按其发现修复并复验，直至通过或明确卡点。若审查有新增问题，将追加到下方问题清单并修复。
+<div class="insight">
+<strong>独立审查线程（code-reviewer）结论：Verdict WARNING → 修复后转 Approve。</strong>
+审查对三批修复逐项实测（TestClient/uvicorn/tsc/pytest），确认绝大部分真实有效：越权封死、限流接线生效（rpm=2 实测 200→429）、resume_inflight 守卫对称、X-Request-ID 注入无竞态（200/401/404/SSE 均带）、SSE 指数退避重连闭环、原子写统一、auth/alert/close 兜底。
+
+<strong>审查发现并已修复的 10 项：</strong>
+<table>
+<tr><th>级别</th><th>问题</th><th>修复</th></tr>
+<tr><td><span class="badge badge-p0">HIGH</span></td><td>Dockerfile <code>COPY config.json*</code> glob 匹配为空在 CI 仍报错 + config-orig.json 死代码</td><td>删除 glob 行，仅保留 example 兜底（审查第 1 项）</td></tr>
+<tr><td><span class="badge badge-p1">P2</span></td><td>usage_forecast 零消耗/无限分支缺 alert_threshold_days（前端"阈值 undefined 天"）</td><td>三条返回路径统一带阈值</td></tr>
+<tr><td><span class="badge badge-p1">P2</span></td><td>unlimited 语义混淆"已耗尽"池（quota=0 误显示"无限配额"）</td><td>新增 exhausted 状态，与无限配额区分</td></tr>
+<tr><td><span class="badge badge-p1">P2</span></td><td>proactive_probe 预测告警失败仍 print 不落盘</td><td>改 logger.warning</td></tr>
+<tr><td><span class="badge badge-p1">P2</span></td><td>resume 竞态/字段持久化/落盘降级零单测覆盖</td><td>补 3 例测试；<strong>顺带抓到并修复真 bug：image_task_service.py 用 logging 但从未 import，落盘失败时 except 块抛 NameError 二次崩溃</strong></td></tr>
+<tr><td><span class="badge badge-p2">P3</span></td><td>429 无 X-Request-ID</td><td>RateLimit dispatch 手工补头</td></tr>
+<tr><td><span class="badge badge-p2">P3</span></td><td>未处理 500 无 X-Request-ID（ServerErrorMiddleware 纯文本）</td><td>全局 Exception handler + JSON + contextvar 补头 + 堆栈日志</td></tr>
+<tr><td><span class="badge badge-p2">P3</span></td><td>exportAccounts 400 错误 blob 化丢失原因</td><td>拦截错误分支解析 Blob 文本还原真实原因</td></tr>
+<tr><td><span class="badge badge-p2">P3</span></td><td>request.ts 改 reject 后无 catch 的 .then() 产生 unhandled rejection</td><td>debug 面板补 .catch</td></tr>
+<tr><td><span class="badge badge-p2">P3</span></td><td>proxy-pool 策略连切失败回滚到旧乐观值</td><td>失败后 reload 拉后端权威值</td></tr>
+</table>
+<div class="evidence"><strong>复验基线：</strong>308 passed/0 failed（含新增 3 例）、五道防线 5/5 PASS（契约快照已更新）、tsc 0 错误、前端 build 成功。<strong>审查线程抓到的 logging 未导入 bug 是"补测试"环节的最大价值——证明审查→修复→复验循环有效。</strong></div>
 </div>
 
 <div class="quiz">

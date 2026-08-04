@@ -138,15 +138,15 @@ function ProxyPoolContent() {
   };
 
   const handleStrategyChange = async (value: string) => {
-    const previous = strategyValue;
     setStrategyValue(value);
     try {
       await setStrategy(value);
       toast.success("调度策略已更新");
     } catch (e) {
-      // P1-6：乐观更新失败必须回滚到后端真实值，避免下拉框显示"已切换"但实际未生效
-      setStrategyValue(previous);
+      // P1-6：乐观更新失败必须回滚。P3-10：连续快速切换时 previous 是上次乐观值而非
+      // 后端真实值——失败后直接 reload 拉后端权威值，避免回滚到错误的中间态
       toast.error("设置失败: " + String(e));
+      void load();
     }
   };
 

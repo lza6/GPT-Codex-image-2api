@@ -642,11 +642,23 @@ export async function downloadImages(paths: string[]) {
 // C-P0：导出账号走后端 /api/accounts/export（含 refresh_token/id_token 三件套 + zip/json），
 // 修复此前前端纯客户端裸 access_token 下载导致的"假导出"死代码
 export async function exportAccounts(accessTokens: string[], format: "json" | "zip") {
-  const response = await request.post(
-    "/api/accounts/export",
-    { access_tokens: accessTokens, format },
-    { responseType: "blob" },
-  );
+  let response;
+  try {
+    response = await request.post(
+      "/api/accounts/export",
+      { access_tokens: accessTokens, format },
+      { responseType: "blob" },
+    );
+  } catch (error) {
+    // P3-8：blob 响应下 400 错误体（"没有可导出的完整账号…"）以 Blob 形式存在，
+    // 拦截器 errorMessageFromValue 解析不到 → toast 只显示通用 status。这里解析 Blob 文本还原真实原因。
+    const axiosErr = error as { response?: { status?: number; data?: unknown } };
+    if (axiosErr.response?.status === 400 && axiosErr.response.data instanceof Blob) {
+      const text = await axiosErr.response.data.text();
+      throw new Error(text || "导出失败：没有可导出的完整账号");
+    }
+    throw error;
+  }
   const blob = response.data as Blob;
   const disposition = String(response.headers?.["content-disposition"] || "");
   const match = disposition.match(/filename="?([^";]+)"?/);
@@ -1050,7 +1062,7 @@ export function fetchUsageStats() {
 }
 
 export type UsageForecast = {
-  status: "ok" | "insufficient_data" | "unlimited";
+  status: "ok" | "insufficient_data" | "unlimited" | "exhausted";
   daily_avg_consumption: number;
   total_remaining_quota: number;
   quota_accounts: number;
