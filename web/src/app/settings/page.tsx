@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { LoaderCircle } from "lucide-react";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -73,11 +73,25 @@ function SettingsDataController() {
 }
 
 function SettingsPageContent() {
+  // P1-4：Tab 受控 + URL 同步——刷新/深链后保留当前页签，而非回到默认 basic
+  const validTabs = settingsTabs.map((t) => t.value);
+  const initialTab = typeof window !== "undefined" && validTabs.includes(window.location.hash.slice(1))
+    ? window.location.hash.slice(1)
+    : "basic";
+  const [activeTab, setActiveTab] = useState<string>(initialTab);
+
+  useEffect(() => {
+    // 同步 hash，便于刷新/分享深链保持页签
+    if (window.location.hash !== `#${activeTab}`) {
+      window.history.replaceState(null, "", `#${activeTab}`);
+    }
+  }, [activeTab]);
+
   return (
     <>
       <SettingsDataController />
       <SettingsHeader />
-      <Tabs defaultValue="basic" className="space-y-4">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <div className="sticky top-3 z-20 overflow-x-auto rounded-xl border border-white/80 bg-white/90 px-3 py-2 shadow-sm backdrop-blur">
           <TabsList variant="line" className="min-w-max justify-start">
             {settingsTabs.map((tab) => (
