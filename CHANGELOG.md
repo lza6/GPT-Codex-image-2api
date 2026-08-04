@@ -1,3 +1,9 @@
+## 2.4.1 - 2026-08-05 (E2E 冒烟验收工具固化)
+
+**工程效能（无功能变更）：**
++ [E2E] 新增 `scripts/e2e_smoke.cjs` 浏览器冒烟验收（playwright-core + 系统 Edge，免下载浏览器）：登录 → /logs 账号筛选 → /accounts 单账号时间线 → /dashboard 档位筛选，5 项断言；`web` 引入 playwright-core devDep + SKILL.md 记录用法
++ [验收] 真实服务 E2E 已跑通并留证据：后端 TestClient 全 ASGI 栈 7/7（缺参/精确过滤/模糊匹配/聚合 usage/forecast/落盘/401）、浏览器 E2E 6/6、冒烟脚本 5/5；E2E 测试数据已清理，production data/ 无残留
+
 ## 2.4.0 - 2026-08-05 (下一步改进指南首批落地：慢查询根治 / 账号洞察 / 编码容错 / 看板可见性 / Redis 一键)
 
 **v3.0 路线第 1 批（P1/P2 落地，向后兼容）：**

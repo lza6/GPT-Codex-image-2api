@@ -183,6 +183,15 @@ chatgpt2api/
 
 报告落盘 `reports/<防线>/`（已 gitignore）。任何防线 FAIL 不许交付。
 
+### E2E 冒烟验收（前端改动后跑 `scripts/e2e_smoke.cjs`）
+
+真实浏览器验证前端交互链（playwright-core + 系统 Edge channel，免下载浏览器）：
+1. 起后端：`CHATGPT2API_AUTH_KEY=<临时key> uv run python main.py`（23456）
+2. 起前端：`cd web && npm run dev`（3000）
+3. 跑：`cd web && NODE_PATH=./node_modules E2E_AUTH_KEY=<临时key> node ../scripts/e2e_smoke.cjs`
+4. 断言：登录跳转 / logs 账号筛选（account_email 网络请求）/ accounts 时间线抽屉 / dashboard 档位筛选激活态，5/5 PASS
+5. 收尾：停两服务，删除 E2E 期间注入的测试数据（`data/usage_agg.json` 可删除让下次启动重建）
+
 ### 终局交付门禁（声称"完成"前必须逐项打勾）
 - [ ] **需求追踪**：本轮需求在 workflow_status.md 有矩阵行，每行有证据（文件/命令/测试），无证据标"未闭环"
 - [ ] **反向批判**：主动写出"我自己最可能错在哪"，至少攻击 3 个假设并逐一验证或修复
