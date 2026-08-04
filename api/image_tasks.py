@@ -17,6 +17,7 @@ class ImageGenerationTaskRequest(BaseModel):
     model: str = "gpt-image-2"
     size: str | None = None
     quality: str = "auto"
+    seed: int | None = None  # 3.1.3：固定随机种子（实验性）
 
 
 class ResumePollRequest(BaseModel):
@@ -63,6 +64,7 @@ def create_router() -> APIRouter:
                 model=body.model,
                 size=body.size,
                 quality=body.quality,
+                seed=body.seed,
                 base_url=resolve_image_base_url(request),
             )
         except ValueError as exc:
@@ -84,6 +86,15 @@ def create_router() -> APIRouter:
         images = await read_image_sources(image_sources)
         masks = await read_image_sources(mask_sources) if mask_sources else None
         try:
+            seed_raw = payload.get("seed")
+            seed = None
+            if seed_raw not in (None, ""):
+                try:
+                    seed = int(seed_raw)
+                except (TypeError, ValueError):
+                    seed = None
+            if seed is not None and seed < 0:
+                seed = None  # -1 表示随机
             return await run_in_threadpool(
                 image_task_service.submit_edit,
                 identity,
@@ -92,6 +103,7 @@ def create_router() -> APIRouter:
                 model=model,
                 size=payload["size"],
                 quality=payload["quality"],
+                seed=seed,
                 base_url=resolve_image_base_url(request),
                 images=images,
                 masks=masks,

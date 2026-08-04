@@ -347,6 +347,7 @@ class ConversationRequest:
     n: int = 1
     size: str | None = None
     quality: str = "auto"
+    seed: int | None = None  # 3.1.3：固定随机种子（best-effort 透传上游，实验性）
     response_format: str = "b64_json"
     base_url: str | None = None
     message_as_error: bool = False
@@ -1408,6 +1409,7 @@ def stream_codex_image_outputs(
         images=request.images or [],
         size=request.size,
         quality=request.quality,
+        seed=request.seed,
     )))
     if not images:
         raise ImageGenerationError("No image result found in response")

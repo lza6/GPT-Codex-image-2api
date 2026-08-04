@@ -54,6 +54,38 @@ def _evict_stale_tokens() -> dict[str, Any]:
     return {"stale": len(stale), "evicted": evicted}
 
 
+def _batch_evict_stale(ids: list[str]) -> dict[str, Any]:
+    """按选中 ids 驱逐失效 token：仅对「异常」状态账号执行 remove_invalid_token。"""
+    evicted = 0
+    for token in ids:
+        account = account_service.get_account(token)
+        if account and str(account.get("status") or "") == "异常":
+            try:
+                if account_service.remove_invalid_token(token, "evict_stale", quiet=True):
+                    evicted += 1
+            except Exception:
+                continue
+    return {"action": "evict_stale", "processed": len(ids), "evicted": evicted}
+
+
+def _batch_label(ids: list[str], label: str) -> dict[str, Any]:
+    """批量打标签：给选中账号设置 label 字段（复用 update_account，未知字段原样保留）。"""
+    label = str(label or "").strip()
+    if not label:
+        raise HTTPException(status_code=400, detail={"error": "label 不能为空"})
+    updated = 0
+    for token in ids:
+        if account_service.update_account(token, {"label": label}, quiet=True):
+            updated += 1
+    return {"action": "label", "processed": len(ids), "updated": updated}
+
+
+def _batch_export(ids: list[str]) -> dict[str, Any]:
+    """批量导出：复用 build_export_items，返回导出数据（前端触发下载）。"""
+    items = account_service.build_export_items(ids)
+    return {"action": "export", "count": len(items), "items": items}
+
+
 class UserKeyCreateRequest(BaseModel):
     name: str = ""
 
@@ -80,6 +112,14 @@ class AccountRefreshRequest(BaseModel):
 class AccountExportRequest(BaseModel):
     access_tokens: list[str] = Field(default_factory=list)
     format: Literal["json", "zip"] = "json"
+
+
+class AccountBatchRequest(BaseModel):
+    """3.1.2：批量操作表驱动请求。action: evict_stale / label / export。"""
+
+    action: str = ""
+    ids: list[str] = Field(default_factory=list)
+    label: str = ""
 
 
 class AccountUpdateRequest(BaseModel):
@@ -358,6 +398,22 @@ def create_router() -> APIRouter:
             media_type="application/json",
             headers={"Content-Disposition": f'attachment; filename="codex-accounts-{timestamp}.json"'},
         )
+
+    @router.post("/api/accounts/batch")
+    async def batch_accounts(body: AccountBatchRequest, authorization: str | None = Header(default=None)):
+        """3.1.2：批量操作表驱动分发（evict_stale / label / export），复用既有单点逻辑。"""
+        require_admin(authorization)
+        ids = _unique_tokens(body.ids)
+        if not ids:
+            raise HTTPException(status_code=400, detail={"error": "ids 不能为空"})
+        action = str(body.action or "").strip()
+        if action == "evict_stale":
+            return await run_in_threadpool(_batch_evict_stale, ids)
+        if action == "label":
+            return await run_in_threadpool(_batch_label, ids, str(body.label or ""))
+        if action == "export":
+            return await run_in_threadpool(_batch_export, ids)
+        raise HTTPException(status_code=400, detail={"error": f"未知 action: {action}"})
 
     @router.post("/api/accounts/update")
     async def update_account(body: AccountUpdateRequest, authorization: str | None = Header(default=None)):

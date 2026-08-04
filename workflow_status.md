@@ -15,21 +15,24 @@
 | E | 3.7.2 调度排行榜风险账号可见性 | ✅ | dashboard/page.tsx 档位筛选（全部/风险+温存/仅风险）+ 筛选显示该档位全部（风险档不被 slice(0,10) 截断） |
 | F | 3.3.2 Redis 共享限流一键化 | ✅ | scripts/init_redis_state.py（幂等写 redis_url+连通性校验）+ docker-compose.local.yml redis 服务 + README/onboarding 文档段；复用 test_shared_state.py |
 | G | 规模项登记远期（不拆分） | ✅ | 计划书 1.2 已登记（openai_backend_api 2974/account_service 1993/conversation 1884；image/accounts/settings 前端页）；本轮不拆防回归 |
+| H | 3.1.2 账号批量操作（批量驱逐失效 / 批量打标签 / 批量导出） | ✅ | api/accounts.py `POST /api/accounts/batch`（表驱动 evict_stale/label/export，复用既有逻辑）+ 账号加 label 字段（JSON/SQLite JSON 列自动持久化）+ accounts 页工具栏 3 按钮 + 标签输入 Dialog + 列表 label badge；test_accounts_batch.py 8 用例；契约快照 --update |
+| I | 3.1.3 图片工作台增强（seed / 负向提示 / 宽高比预设） | ✅ | seed 后端透传（generations/edits 请求 → image_task_service → protocol → 上游 payload tools[0].seed）；前端 ImageComposer 加固定种子输入（-1 随机）+ 负向提示输入（best-effort 拼入 prompt）+ 宽高比预设（已有 SIZE_PRESETS）；test_generations_seed.py 5 用例（live 标记 1 条）；tsc 0 错误 |
 
 ## 五道防线状态
 
 | 批次 | 契约守卫 | SQL | 慢查询 | 变异 | 施压 |
 |------|---------|-----|--------|------|------|
 | 第十二轮 | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 十二轮补 2 | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 > 慢查询热点从 7 处 → 6 处（「用量统计全量读」已由聚合缓存根治）；变异探针 caught=6 escaped=0，还原后全量=OK（3.3.4 后稳定）。
 
 ## 当前 git 状态
 
-- 测试：**324 passed / 0 failed**（30 live/redis 排除）
-- 前端：tsc 0 错误 + build 成功（logs/accounts/dashboard 三页改动）
-- 契约：断链=0 漂移=0（/api/logs 新增 account_email 参数，快照已 --update）
-- 版本：**v2.4.0（已发版）**
+- 测试：**337 passed / 0 failed**（31 live/redis 排除）
+- 前端：tsc 0 错误 + build 成功（logs/accounts/dashboard/image 页改动）
+- 契约：断链=0 漂移=0（/api/accounts/batch 新端点 + image-tasks seed 参数，快照已 --update）
+- 版本：**v2.5.0（已发版）**
 
 ## 边界声明（诚实）
 

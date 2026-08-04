@@ -1,3 +1,11 @@
+## 2.5.0 - 2026-08-05 (3.1.2 账号批量操作 + 3.1.3 图片工作台增强)
+
+**新功能（计划书 3.1.2/3.1.3）：**
++ [批量操作] `POST /api/accounts/batch`：表驱动分发 `evict_stale`（按选中 ids 驱逐失效 token）/ `label`（批量打标签，账号新增 `label` 字段，JSON/SQLite JSON 列自动持久化，无 schema 迁移）/ `export`（复用 build_export_items）；accounts 页工具栏 3 按钮（批量驱逐失效/批量打标签/导出选中）+ 标签输入 Dialog + 列表标签徽章
++ [图片工作台] 固定种子（`-1` 随机 / 非负固定，seed 全链路透传至上游 payload `tools[0].seed`，实验性 best-effort）+ 负向提示（上游无原生字段，best-effort 拼入 prompt 语义降级）+ 宽高比预设（既有 SIZE_PRESETS 保留）
++ [契约] `/api/accounts/batch` 新端点 + image-tasks `seed` 参数；快照 --update（断链=0 漂移=0）
++ [测试] `test_accounts_batch.py` 8 用例 + `test_generations_seed.py` 5 用例（live 1 条默认跳过）；全量 337 passed / 0 failed
+
 ## 2.4.1 - 2026-08-05 (E2E 冒烟验收工具固化)
 
 **工程效能（无功能变更）：**

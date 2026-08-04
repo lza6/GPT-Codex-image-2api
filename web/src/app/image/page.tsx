@@ -87,6 +87,21 @@ function parseImageSize(size: string) {
   return match ? { width: match[1], height: match[2] } : { width: "1024", height: "1024" };
 }
 
+// 3.1.3：seed 解析（-1/空/非法 → undefined 随机；非负整数 → 固定）
+function resolveImageSeed(raw: string): number | undefined {
+  const trimmed = (raw ?? "").trim();
+  if (!trimmed || trimmed === "-1") return undefined;
+  const value = Number(trimmed);
+  return Number.isInteger(value) && value >= 0 ? value : undefined;
+}
+
+// 3.1.3：负向提示 best-effort 拼入 prompt（上游无原生字段，语义降级）
+function buildEffectiveImagePrompt(prompt: string, negative: string): string {
+  const trimmed = (negative ?? "").trim();
+  if (!trimmed) return prompt;
+  return `${prompt}\n\n请确保画面中不要出现：${trimmed}`;
+}
+
 const activeConversationQueueIds = new Set<string>();
 let pollAbortController: AbortController | null = null;
 
@@ -471,6 +486,13 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
   const [imageWidth, setImageWidth] = useState("1024");
   const [imageHeight, setImageHeight] = useState("1024");
   const [imageQuality, setImageQuality] = useState("auto");
+  // 3.1.3：seed（-1 随机）/ 负向提示（best-effort 拼入 prompt，实验性）
+  const [imageSeed, setImageSeed] = useState("-1");
+  const [imageNegativePrompt, setImageNegativePrompt] = useState("");
+  const imageSeedRef = useRef(imageSeed);
+  const imageNegativePromptRef = useRef(imageNegativePrompt);
+  const updateImageSeed = (value: string) => { imageSeedRef.current = value; setImageSeed(value); };
+  const updateImageNegativePrompt = (value: string) => { imageNegativePromptRef.current = value; setImageNegativePrompt(value); };
   const [imageModel, setImageModel] = useState<ImageModel>("gpt-image-2");
   const [imageModels, setImageModels] = useState<ImageModel[]>(["gpt-image-2"]);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
@@ -1241,9 +1263,11 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
         const submitted = await Promise.all(
           pendingImages.map((image) => {
             const taskId = image.taskId || image.id;
+            const seedValue = resolveImageSeed(imageSeedRef.current);
+            const effectivePrompt = buildEffectiveImagePrompt(activeTurn.prompt, imageNegativePromptRef.current);
             return activeTurn.mode === "edit"
-              ? createImageEditTask(taskId, referenceFiles, activeTurn.prompt, activeTurn.model, activeTurn.size, activeTurn.quality)
-              : createImageGenerationTask(taskId, activeTurn.prompt, activeTurn.model, activeTurn.size, activeTurn.quality);
+              ? createImageEditTask(taskId, referenceFiles, effectivePrompt, activeTurn.model, activeTurn.size, activeTurn.quality, seedValue)
+              : createImageGenerationTask(taskId, effectivePrompt, activeTurn.model, activeTurn.size, activeTurn.quality, seedValue);
           }),
         );
         await applyTasks(submitted);
@@ -1294,8 +1318,8 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
               const resubmitted = await Promise.all(
                 missingImages.map((image) =>
                   activeTurn.mode === "edit"
-                    ? createImageEditTask(image.taskId || image.id, referenceFiles, activeTurn.prompt, activeTurn.model, activeTurn.size, activeTurn.quality)
-                    : createImageGenerationTask(image.taskId || image.id, activeTurn.prompt, activeTurn.model, activeTurn.size, activeTurn.quality),
+                    ? createImageEditTask(image.taskId || image.id, referenceFiles, buildEffectiveImagePrompt(activeTurn.prompt, imageNegativePromptRef.current), activeTurn.model, activeTurn.size, activeTurn.quality, resolveImageSeed(imageSeedRef.current))
+                    : createImageGenerationTask(image.taskId || image.id, buildEffectiveImagePrompt(activeTurn.prompt, imageNegativePromptRef.current), activeTurn.model, activeTurn.size, activeTurn.quality, resolveImageSeed(imageSeedRef.current)),
                 ),
               );
               if (resubmitted.length > 0) {
@@ -1744,6 +1768,10 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
             onImageHeightChange={setImageHeight}
             onImageQualityChange={setImageQuality}
             onImageModelChange={setImageModel}
+            imageSeed={imageSeed}
+            imageNegativePrompt={imageNegativePrompt}
+            onImageSeedChange={updateImageSeed}
+            onImageNegativePromptChange={updateImageNegativePrompt}
             onSubmit={handleSubmit}
             onPickReferenceImage={() => fileInputRef.current?.click()}
             onReferenceImageChange={handleReferenceImageChange}

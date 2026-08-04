@@ -138,6 +138,7 @@ class ImageTaskService:
         size: str | None,
         quality: str = "auto",
         base_url: str = "",
+        seed: int | None = None,  # 3.1.3：固定随机种子（实验性）
     ) -> dict[str, Any]:
         payload = {
             "prompt": prompt,
@@ -145,6 +146,7 @@ class ImageTaskService:
             "n": 1,
             "size": size,
             "quality": quality,
+            "seed": seed,
             "response_format": "url",
             "base_url": base_url,
         }
@@ -162,6 +164,7 @@ class ImageTaskService:
         base_url: str = "",
         images: list[tuple[bytes, str, str]] | None = None,
         masks: list[tuple[bytes, str, str]] | None = None,
+        seed: int | None = None,  # 3.1.3：固定随机种子（实验性）
     ) -> dict[str, Any]:
         payload = {
             "prompt": prompt,
@@ -171,6 +174,7 @@ class ImageTaskService:
             "n": 1,
             "size": size,
             "quality": quality,
+            "seed": seed,
             "response_format": "url",
             "base_url": base_url,
         }

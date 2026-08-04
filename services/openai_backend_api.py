@@ -899,6 +899,7 @@ class OpenAIBackendAPI:
             images: list[str] | None = None,
             size: str | None = None,
             quality: str = "auto",
+            seed: int | None = None,  # 3.1.3：固定随机种子（best-effort，实验性）
     ) -> Iterator[dict[str, Any]]:
         if not self.access_token:
             raise RuntimeError("access_token is required for codex image endpoints")
@@ -920,6 +921,9 @@ class OpenAIBackendAPI:
             "tool_choice": {"type": "image_generation"},
             "stream": True,
         }
+        # 3.1.3：seed 固定（上游支持时复现；不支持时上游忽略，不破坏请求）
+        if seed is not None:
+            payload["tools"][0]["seed"] = int(seed)
         account = account_service.get_account(self.access_token) or {}
         token_payload = account_service._decode_jwt_payload(self.access_token)
         auth_claim = token_payload.get("https://api.openai.com/auth")
@@ -2574,7 +2578,6 @@ class OpenAIBackendAPI:
 
         metadata = img_msg.get("metadata") or {}
         content = img_msg.get("content") or {}
-        author = img_msg.get("author") or {}
 
         is_error = metadata.get("is_error", False)
         is_text_only = content.get("content_type") == "text"

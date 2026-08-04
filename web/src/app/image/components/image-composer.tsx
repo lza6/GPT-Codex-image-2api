@@ -20,6 +20,8 @@ type ImageComposerProps = {
   imageQuality: string;
   imageModel: ImageModel;
   imageModels: ImageModel[];
+  imageSeed: string;
+  imageNegativePrompt: string;
   availableQuota: string;
   activeTaskCount: number;
   referenceImages: Array<{ name: string; dataUrl: string }>;
@@ -33,6 +35,8 @@ type ImageComposerProps = {
   onImageHeightChange: (value: string) => void;
   onImageQualityChange: (value: string) => void;
   onImageModelChange: (value: ImageModel) => void;
+  onImageSeedChange: (value: string) => void;
+  onImageNegativePromptChange: (value: string) => void;
   onSubmit: () => void | Promise<void>;
   onPickReferenceImage: () => void;
   onReferenceImageChange: (files: File[]) => void | Promise<void>;
@@ -90,6 +94,8 @@ export function ImageComposer({
   imageQuality,
   imageModel,
   imageModels,
+  imageSeed,
+  imageNegativePrompt,
   availableQuota,
   activeTaskCount,
   referenceImages,
@@ -103,6 +109,8 @@ export function ImageComposer({
   onImageHeightChange,
   onImageQualityChange,
   onImageModelChange,
+  onImageSeedChange,
+  onImageNegativePromptChange,
   onSubmit,
   onPickReferenceImage,
   onReferenceImageChange,
@@ -443,6 +451,32 @@ export function ImageComposer({
                               />
                             </div>
                           </div>
+                        </div>
+                        <div className="mb-3">
+                          <div className="mb-2 flex items-center gap-1.5 text-sm font-medium text-stone-900">
+                            固定种子 <Info className="size-3.5 text-stone-400" />
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Input
+                              type="text"
+                              value={imageSeed}
+                              onChange={(event) => onImageSeedChange(event.target.value)}
+                              placeholder="-1 随机"
+                              className="h-9 w-32 rounded-lg border-stone-200 bg-white text-sm"
+                            />
+                            <span className="text-xs text-stone-400">相同 seed 复现结果（实验性，取决于上游支持）</span>
+                          </div>
+                        </div>
+                        <div className="mb-3">
+                          <div className="mb-2 flex items-center gap-1.5 text-sm font-medium text-stone-900">
+                            负向提示 <Info className="size-3.5 text-stone-400" />
+                          </div>
+                          <Input
+                            value={imageNegativePrompt}
+                            onChange={(event) => onImageNegativePromptChange(event.target.value)}
+                            placeholder="希望画面中避免的内容，例如：模糊、水印"
+                            className="h-9 rounded-lg border-stone-200 bg-white text-sm"
+                          />
                         </div>
                         <div className="mb-3">
                           <div className="mb-2 flex items-center gap-1.5 text-sm font-medium text-stone-900">

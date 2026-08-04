@@ -39,6 +39,8 @@ export type Account = {
   image_inflight?: number;
   last_used_at?: string | null;
   proxy?: string | null;
+  /** 3.1.2：账号标签（批量打标签写入）。 */
+  label?: string;
   /** 健康档位（healthy/warm/risky）。 */
   tier?: SchedulerTier;
   /** 调度分。 */
@@ -399,6 +401,17 @@ export async function evictStaleAccounts() {
   });
 }
 
+/** 3.1.2：批量操作表驱动分发（evict_stale / label / export），按选中 ids。 */
+export type AccountBatchAction = "evict_stale" | "label" | "export";
+export async function batchAccounts(action: AccountBatchAction, ids: string[], label = "") {
+  return httpRequest<
+    { action: string; processed: number; evicted?: number; updated?: number; count?: number; items?: unknown[] }
+  >("/api/accounts/batch", {
+    method: "POST",
+    body: { action, ids, label },
+  });
+}
+
 /** 熔断状态：token 末 8 位 -> 熔断器状态（仅含非 closed 账号）。 */
 export type CircuitBreakerStatus = {
   breakers: Record<string, { state: string; recover_in_seconds: number }>;
@@ -492,7 +505,14 @@ export async function editImage(files: File | File[], prompt: string, model?: Im
   );
 }
 
-export async function createImageGenerationTask(clientTaskId: string, prompt: string, model?: ImageModel, size?: string, quality = "auto") {
+export async function createImageGenerationTask(
+  clientTaskId: string,
+  prompt: string,
+  model?: ImageModel,
+  size?: string,
+  quality = "auto",
+  seed?: number,
+) {
   return httpRequest<ImageTask>("/api/image-tasks/generations", {
     method: "POST",
     body: {
@@ -501,6 +521,7 @@ export async function createImageGenerationTask(clientTaskId: string, prompt: st
       ...(model ? { model } : {}),
       ...(size ? { size } : {}),
       quality,
+      ...(seed !== undefined ? { seed } : {}),
     },
   });
 }
@@ -512,6 +533,7 @@ export async function createImageEditTask(
   model?: ImageModel,
   size?: string,
   quality = "auto",
+  seed?: number,
 ) {
   const formData = new FormData();
   const uploadFiles = Array.isArray(files) ? files : [files];
@@ -528,6 +550,9 @@ export async function createImageEditTask(
     formData.append("size", size);
   }
   formData.append("quality", quality);
+  if (seed !== undefined) {
+    formData.append("seed", String(seed));
+  }
 
   return httpRequest<ImageTask>("/api/image-tasks/edits", {
     method: "POST",

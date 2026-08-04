@@ -18,6 +18,7 @@ import {
   Pencil,
   RefreshCw,
   Search,
+  Tag,
   Trash2,
   UserRound,
 } from "lucide-react";
@@ -44,6 +45,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  batchAccounts,
   deleteAccounts,
   evictStaleAccounts,
   exportAccounts,
@@ -211,6 +213,10 @@ function AccountsPageContent() {
   const [isUpdating, setIsUpdating] = useState(false);
   const [isRelogining, setIsRelogining] = useState(false);
   const [isEvicting, setIsEvicting] = useState(false);
+  // 3.1.2：批量操作（按选中 ids 分发到 /api/accounts/batch）
+  const [isBatchAction, setIsBatchAction] = useState(false);
+  const [labelDialogOpen, setLabelDialogOpen] = useState(false);
+  const [labelValue, setLabelValue] = useState("");
   // P1-3：ref 级防重入锁——React setState 异步生效，同一帧双击"一键刷新/删除"会双发请求，
   // 按钮 disabled 拦不住（下帧才生效）。用 ref 同步拦截。
   const busyRef = useRef(false);
@@ -388,6 +394,64 @@ function AccountsPageContent() {
         }
       },
     });
+  };
+
+  // 3.1.2：批量驱逐失效 token（仅选中账号中状态为「异常」的）
+  const handleBatchEvictStale = () => {
+    if (selectedTokens.length === 0) {
+      toast.error("请先勾选账号");
+      return;
+    }
+    setConfirmAction({
+      title: `批量驱逐选中账号的失效 Token？`,
+      description: `将对选中的 ${selectedTokens.length} 个账号执行失效驱逐（仅处理状态为「异常」的），不可恢复。`,
+      run: async () => {
+        setIsBatchAction(true);
+        try {
+          const data = await batchAccounts("evict_stale", selectedTokens);
+          toast.success(`已处理 ${data.processed} 个，驱逐 ${data.evicted ?? 0} 个失效 token`);
+          await loadAccounts(true);
+        } catch (error) {
+          toast.error(error instanceof Error ? error.message : "批量驱逐失败");
+        } finally {
+          setIsBatchAction(false);
+        }
+      },
+    });
+  };
+
+  // 3.1.2：批量打标签（Dialog 输入标签 → label action）
+  const handleBatchLabelSubmit = async () => {
+    const label = labelValue.trim();
+    if (!label) {
+      toast.error("请输入标签");
+      return;
+    }
+    if (selectedTokens.length === 0) {
+      toast.error("请先勾选账号");
+      return;
+    }
+    setIsBatchAction(true);
+    try {
+      const data = await batchAccounts("label", selectedTokens, label);
+      toast.success(`已为 ${data.updated ?? 0}/${data.processed} 个账号设置标签「${label}」`);
+      setLabelDialogOpen(false);
+      setLabelValue("");
+      await loadAccounts(true);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "批量打标签失败");
+    } finally {
+      setIsBatchAction(false);
+    }
+  };
+
+  // 3.1.2：批量导出选中（复用 export 接口三件套下载）
+  const handleBatchExport = () => {
+    if (selectedTokens.length === 0) {
+      toast.error("请先勾选账号");
+      return;
+    }
+    void downloadTokens(accounts.filter((item) => selectedTokens.includes(item.access_token)));
   };
 
   const handleDeleteTokens = (tokens: string[]) => {
@@ -995,6 +1059,47 @@ function AccountsPageContent() {
         </DialogContent>
       </Dialog>
 
+      {/* 3.1.2：批量打标签输入 Dialog */}
+      <Dialog open={labelDialogOpen} onOpenChange={setLabelDialogOpen}>
+        <DialogContent showCloseButton={false} className="rounded-2xl p-6">
+          <DialogHeader className="gap-2">
+            <DialogTitle>批量打标签</DialogTitle>
+            <DialogDescription className="text-sm leading-6">
+              为选中的 {selectedTokens.length} 个账号设置同一标签（显示在账号列表）。
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            value={labelValue}
+            onChange={(event) => setLabelValue(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                void handleBatchLabelSubmit();
+              }
+            }}
+            placeholder="例如：vip / 备用 / 团队A"
+            className="h-11 rounded-xl border-stone-200 bg-white"
+          />
+          <DialogFooter className="pt-2">
+            <Button
+              variant="secondary"
+              className="h-10 rounded-xl bg-stone-100 px-5 text-stone-700 hover:bg-stone-200"
+              onClick={() => setLabelDialogOpen(false)}
+              disabled={isBatchAction}
+            >
+              取消
+            </Button>
+            <Button
+              className="h-10 rounded-xl bg-stone-950 px-5 text-white hover:bg-stone-800"
+              onClick={() => void handleBatchLabelSubmit()}
+              disabled={isBatchAction}
+            >
+              {isBatchAction ? <LoaderCircle className="size-4 animate-spin" /> : null}
+              应用标签
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <section className="space-y-3">
         <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
           {metricCards.map((item) => {
@@ -1215,6 +1320,34 @@ function AccountsPageContent() {
                 </Button>
                 <Button
                   variant="ghost"
+                  className="h-8 rounded-lg px-3 text-orange-500 hover:bg-orange-50 hover:text-orange-600"
+                  onClick={() => void handleBatchEvictStale()}
+                  disabled={selectedTokens.length === 0 || isBatchAction}
+                  title="按选中账号批量驱逐失效 token（仅处理状态为「异常」的）"
+                >
+                  {isBatchAction ? <LoaderCircle className="size-4 animate-spin" /> : <Ban className="size-4" />}
+                  批量驱逐失效
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="h-8 rounded-lg px-3 text-violet-500 hover:bg-violet-50 hover:text-violet-600"
+                  onClick={() => { setLabelValue(""); setLabelDialogOpen(true); }}
+                  disabled={selectedTokens.length === 0 || isBatchAction}
+                >
+                  <Tag className="size-4" />
+                  批量打标签
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="h-8 rounded-lg px-3 text-stone-500 hover:bg-stone-100"
+                  onClick={() => void handleBatchExport()}
+                  disabled={selectedTokens.length === 0 || isBatchAction}
+                >
+                  <Download className="size-4" />
+                  导出选中
+                </Button>
+                <Button
+                  variant="ghost"
                   className="h-8 rounded-lg px-3 text-rose-500 hover:bg-rose-50 hover:text-rose-600"
                   onClick={() => void handleDeleteTokens(selectedTokens)}
                   disabled={selectedTokens.length === 0 || isDeleting}
@@ -1333,6 +1466,13 @@ function AccountsPageContent() {
                         </td>
                         <td className="px-4 py-3">
                           <div className="text-xs leading-5 text-stone-500">{account.email ?? "—"}</div>
+                          {account.label ? (
+                            <div className="mt-0.5">
+                              <Badge variant="outline" className="rounded-md px-1.5 py-0 text-[10px] text-violet-600">
+                                {account.label}
+                              </Badge>
+                            </div>
+                          ) : null}
                         </td>
                         <td className="px-4 py-3 text-xs leading-5 text-stone-500">
                           {(() => {
