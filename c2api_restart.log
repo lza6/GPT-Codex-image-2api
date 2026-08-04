@@ -1,6 +1,0 @@
-INFO:     Started server process [20412]
-INFO:     Waiting for application startup.
-INFO:     Application startup complete.
-INFO:     Uvicorn running on http://0.0.0.0:23456 (Press CTRL+C to quit)
-[DEBUG] {"event": "backend_user_info_account_payload", "plan_type": "free", "account_user_role": "account-owner", "account_id": "db0c555c-7873-4235-b959-99417ba11e59", "is_deactivated": false, "has_active_subscription": false, "subscription_plan": "chatgptfreeplan"}
-[DEBUG] {"event": "backend_user_info_result", "email": "q13645947407@gmail.com", "user_id": "user-l99GNCx8BfoNi1VmRCBOOoMo", "type": "free", "quota": 0, "default_model_slug": "auto", "restore_at": "2026-08-05T10:49:14.010154+00:00", "status": "ÏÞÁ÷"}
