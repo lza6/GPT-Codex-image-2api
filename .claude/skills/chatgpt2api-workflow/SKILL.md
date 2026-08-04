@@ -241,6 +241,18 @@ chatgpt2api/
 | 池化形同虚设（已修） | services/openai_backend_api.py | 池化 Session 的 close() 必须转 release()，否则 finally close 每次拆连接 |
 | 前端断链假功能（已修） | web/src/lib/api.ts + settings 孤儿组件 | 前端调了后端从未注册的 /api/proxy——删组件必须连带删 api.ts 封装函数；契约守卫可自动抓此类断链 |
 | 熔断默认阈值无人看守（已修） | test/test_circuit_breaker.py | 测试全用自定义阈值(3)，默认 5 变异曾逃逸——关键默认值必须有显式回归测试 |
+| 假接口=后端有端点但前端零消费（已修） | 多文件 | 后端实现≠已闭环。每加一个端点要追前端是否调用/展示；契约守卫 DYNAMIC_KEY_ENDPOINTS 要覆盖新端点。本轮抓出 usage-forecast/weighted_random/proactive 三个前端零接入假接口 |
+| 限流中间件从未接线（已修） | api/app.py | 定义了 RateLimitMiddleware 却从不 add_middleware → rate_limit_rpm 配置形同虚设。加配置项必须同时接线 |
+| resume_poll 双启动竞态（已修） | services/image_task_service.py | resume 成功改状态后锁释放，并发第二次 resume 双线程轮询同一 conversation 双扣配额。状态机变化需 in-flight 守卫（resume_inflight 置位/清除对称） |
+| 任务字段落盘白名单丢关键字段（已修） | services/image_task_service.py | _load_locked 只恢复白名单字段会丢 conversation_id/account_email → 重启后 resume_poll 失效。持久化字段必须读写对称 |
+| 落盘失败二次崩溃卡死任务（已修） | services/image_task_service.py | _update_task 内 _save_locked 抛异常会让 except 分支再崩→任务永久 RUNNING。落盘失败只记日志不抛出（内存态先更新） |
+| 前端双重 toast（已修） | web/src/lib/request.ts | 拦截器 toast + 调用方 catch 再 toast = 每错弹两条。拦截器不 toast，改 error.userMessage 由调用方统一展示；401 返回 reject 而非 never-resolving（否则轮询挂起） |
+| 乐观更新不回滚（已修） | web/src/app/proxy-pool/page.tsx | 策略切换先 setState 后请求，失败不回滚→UI 显示已切换实际未生效。乐观更新必须存 previous 失败回滚 |
+| 刷新复活失败图片（已修） | web/src/app/image/page.tsx | 刷新恢复对 error+taskId 图片重新 fetch，后端已成功会把"失败"翻"成功"。恢复只轮询 loading，error 保留快照 |
+| 破坏性操作无确认（已修） | 多组件 | 有损/不可逆操作（图片压缩/清理、备份删除、连接删除）必须二次确认，与既有删除确认模式一致 |
+| 告警去重表每实例重建（已修） | services/alert_service.py | _build_from_config 每次重建实例→去重表清空→告警风暴。去重态提升到模块级共享 |
+| 原子写非统一（已修） | services/image_task_service.py + editable_file_task_service.py | 固定 .tmp 名并发覆盖、崩溃半写。统一复用 json_storage._atomic_write_text（唯一 tmp+重试） |
+| 文档与真实不一致（已修） | README.md + docs/api/ | 限流"已移除"vs 实际接线、/metrics"无需鉴权"vs 实际 401——改代码必须同步改文档，否则反向误导调用方 |
 
 ## 关键文件速查
 
@@ -249,15 +261,20 @@ chatgpt2api/
 | 调度 | services/account_service.py |
 | 熔断 | services/circuit_breaker.py |
 | 连接池 | services/session_pool.py |
-| 指标 | services/metrics_service.py + api/metrics_middleware.py |
+| 指标 | services/metrics_service.py（X-Request-ID 头在 api/app.py 中间件注入） |
 | 代理池 | services/proxy_pool.py + api/proxy_pool.py |
-| 限流 | api/rate_limit.py |
+| 限流 | api/rate_limit.py（已接线 api/app.py，默认 0 关闭） |
+| 用量预测 | services/usage_forecast.py + /api/dashboard/usage-forecast + dashboard 看板横幅 |
+| 主动探活 | api/support.py start_proactive_probe（默认关，proactive_probe_enabled） |
 | 配置 | services/config.py |
 | 日志 | services/log_service.py |
 | 看板 | api/dashboard.py + web/src/app/dashboard/page.tsx |
 | IP 池 | web/src/app/proxy-pool/page.tsx |
 | API 文档 | docs/api/* |
-| 五道防线 | scripts/run_all_guards.py（contract_guard/sql_audit/slow_query_report/mutation_probe/stress_test） |
+| 五道防线 | scripts/run_all_guards.py（contract_guard/sql_audit/slow_query_report/mutation_probe/stress_test，带执行锁防双跑） |
+| 备份演练 | scripts/verify_backup_roundtrip.py（打包/解包 sha256 往返，不触网） |
+| live 测试 | scripts/run_live_tests.py（dry-run 预检 + --go 执行，防误跑烧配额） |
+| 规格保鲜 | scripts/refresh_spec.py（生成 docs/project-spec.md，会话启动判断过时） |
 | 黄金范例 | docs/golden-examples.md |
 | 产品策略 | docs/product-strategy.md |
 | ADR | docs/adr/index.md |
