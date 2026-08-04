@@ -4,8 +4,8 @@
 
 | # | 文件 | 为什么重要 | 何时读 |
 |---|------|-----------|--------|
-| 1 | `main.py`（52 行） | 应用入口：多 Worker 决策（JSON 后端强制回退 workers=1）、`PROMETHEUS_MULTIPROC_DIR` 初始化、uvicorn 启动。**端口 23456 唯一定义点** | 第一天 |
-| 2 | `api/app.py` | FastAPI app 工厂：6 个 router 注册 + 5 个中间件装配顺序（Metrics → CORS → 请求大小 → 限流 → 安全头） | 第一天 |
+| 1 | `main.py` | 应用入口：多 Worker 决策（JSON 后端强制回退 workers=1）、`PROMETHEUS_MULTIPROC_DIR` 初始化、uvicorn 启动、data/ 可写性检测。**端口 23456 唯一定义点** | 第一天 |
+| 2 | `api/app.py` | FastAPI app 工厂：6 个 router 注册 + 中间件（X-Request-ID 注入 → 限流 → CORS） | 第一天 |
 | 3 | `config.json`（117 行） | 全部运行时配置：调度模式、限流、代理、图片任务、缓存、备份。**仓库不提交，首次自建** | 搭建日 |
 | 4 | `services/config.py` | 配置加载 + schema 校验（报错带行号）+ 环境变量覆盖（`CHATGPT2API_*` 全表在此）。改 config.json 结构必同步此处 | 改配置前 |
 | 5 | `pyproject.toml` | 依赖清单、pytest 标记定义（live/redis/unit + 默认 `-m 'not live and not redis'`）、ruff（E/F/I/UP，line-length 120）、mypy、阿里云镜像源 | 加依赖前 |
@@ -23,7 +23,7 @@
 | 12 | `services/protocol/openai_v1_image_generations.py` | 请求/响应转换 + SSE 流。**前后端契约源头** | 改字段前 |
 | 13 | `services/image_task_service.py` | 图片任务生命周期：轮询、硬超时（SSE 流可配上限）、重试 | 改任务逻辑 |
 | 14 | `services/storage/base.py` + `factory.py` | 存储抽象（6 个抽象方法：load/save accounts、load/save auth_keys、health_check、get_backend_info）；json/sqlite/postgres/git 经 factory 切换 | 加后端前 |
-| 15 | `api/metrics_middleware.py` + `services/metrics_service.py` + `services/prometheus_metrics.py` | Prometheus 指标三件套；middleware 曾因异常路径 `UnboundLocalError` 崩溃重写（P0 修复点）；request_id 经 contextvars 全链路传递（N17） | 改观测性 |
+| 15 | `services/metrics_service.py` + `services/prometheus_metrics.py` | Prometheus 指标（metrics_middleware.py 已删除，X-Request-ID 头改在 api/app.py 中间件注入）；request_id 经 contextvars 全链路传递 | 改观测性 |
 
 ## 前端
 
@@ -48,7 +48,7 @@
 | `services/account_service.py` 调度算法 | 🔴 高 | 影响全部请求路由；8/8 调度单测必须保持绿 |
 | `services/circuit_breaker.py` 状态机 | 🔴 高 | 误标 success 曾导致坏账号被当好账号用（P1） |
 | `services/storage/base.py` 接口签名 | 🔴 高 | 4 个后端实现同时受影响，需全量回归 |
-| `api/app.py` 中间件装配顺序 | 🟡 中 | 顺序决定 metrics/限流/安全头作用域 |
+| `api/app.py` 中间件装配顺序 | 🟡 中 | X-Request-ID 注入 / 限流(默认关) / CORS 作用域；metrics_middleware 已删勿引用 |
 | `config.json` 字段删除/改名 | 🟡 中 | schema 校验拒绝启动；需同步 `services/config.py` + `.env.example` + compose 注释 |
 | `api/errors.py` 错误格式 | 🟡 中 | 前端按此解析；改动需契约探测验证 |
 | `启动chatgpt2api.bat` | 🟡 中 | 必须保持 **GBK 编码 + CRLF + 无 BOM**，否则中文乱码/启动失败 |
