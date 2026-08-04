@@ -51,6 +51,20 @@ COPY utils ./utils
 COPY scripts ./scripts
 COPY --from=web-build /app/web/out ./web_dist
 
+# E6/P1-4：非 root 运行——内网自用也避免容器内提权面；data/ 由 volume 挂载
+RUN useradd --create-home --uid 10001 appuser \
+    && mkdir -p /app/data \
+    && chown -R appuser:appuser /app/data
+USER appuser
+
+# E6/P1-5：健康检查 + 优雅停机
+# 探测端点：GET / 若返回首页（或任何 200）视为存活；4xx/连接失败均算不健康
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:80/', timeout=4).status < 400 else 1)" || exit 1
+
 EXPOSE 80
+
+# stop_grace_period：给 uvicorn 优雅停机时间（收尾在途请求、归还连接池）
+STOPSIGNAL SIGTERM
 
 CMD ["uv", "run", "python", "main.py"]

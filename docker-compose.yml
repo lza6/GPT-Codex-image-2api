@@ -5,6 +5,9 @@ services:
     restart: unless-stopped
     ports:
       - "23456:80"
+    # E6/P1-4/P1-5：非 root 容器配合 SIGTERM 优雅停机
+    stop_grace_period: 20s
+    init: true
     volumes:
       - ./data:/app/data
       - ./config.json:/app/config.json

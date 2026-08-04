@@ -4,16 +4,38 @@
 用法：
     .venv/Scripts/python.exe scripts/run_all_guards.py
 退出码：任一防线 FAIL = 1。各防线详细报告在 reports/<防线名>/ 下。
+E2：执行锁——reports/.guards.lock 文件互斥，防 CI 与本地并发双跑导致防线互相污染。
 """
 
 from __future__ import annotations
 
+import os
 import subprocess
-import time
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+_LOCK_PATH = ROOT / "reports" / ".guards.lock"
+
+
+def _acquire_lock() -> bool:
+    """原子建锁（O_EXCL）。拿到锁才返回 True；已被占用返回 False。"""
+    try:
+        ROOT.joinpath("reports").mkdir(parents=True, exist_ok=True)
+        fd = os.open(str(_LOCK_PATH), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.write(fd, f"pid={os.getpid()} started={time.time()}".encode())
+        os.close(fd)
+        return True
+    except FileExistsError:
+        return False
+
+
+def _release_lock() -> None:
+    try:
+        _LOCK_PATH.unlink()
+    except FileNotFoundError:
+        pass
 # 优先 sys.executable（POSIX/Docker 无 .venv/Scripts）；Windows .venv 存在时用之
 _VENV_PY = ROOT / ".venv" / "Scripts" / "python.exe"
 PY = str(_VENV_PY) if _VENV_PY.exists() else sys.executable
@@ -28,6 +50,16 @@ GUARDS = [
 
 
 def main() -> int:
+    if not _acquire_lock():
+        print("[guards] 另一实例正在运行（reports/.guards.lock 存在）——已退出，避免防线并发双跑")
+        return 2
+    try:
+        return _run_guards()
+    finally:
+        _release_lock()
+
+
+def _run_guards() -> int:
     results: list[tuple[str, bool, float]] = []
     for name, script, extra in GUARDS:
         print(f"\n===== [{name}] {script} =====")

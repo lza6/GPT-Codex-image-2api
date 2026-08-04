@@ -381,33 +381,60 @@ class ConfigStore:
         self._validate_schema(data)
         return data
 
+    # E4/P: 配置校验表驱动化——新增数值/布尔配置项只需在此登记，类型+范围 fail-fast 自动覆盖
+    _INT_FIELDS: tuple[tuple[str, tuple[int, int] | None], ...] = (
+        ("workers", (1, 64)),
+        ("rate_limit_rpm", (0, 1_000_000)),
+        ("rate_limit_per_ip_rpm", (0, 100_000)),
+        ("refresh_account_interval_minute", (1, 1440)),
+        ("image_retention_days", (1, 3650)),
+        ("image_account_concurrency", (1, 1024)),
+        ("sqlite_busy_timeout_ms", (0, 300_000)),
+        ("progress_ttl_seconds", (1, 86400)),
+        ("alert_webhook_timeout", (1, 300)),
+        ("proactive_probe_interval_minute", (5, 1440)),
+    )
+    _BOOL_FIELDS: tuple[str, ...] = (
+        "sqlite_wal_mode",
+        "ssrf_allow_private_ips",
+        "proactive_probe_enabled",
+    )
+    _ENUM_FIELDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+        ("scheduler_mode", ("round_robin", "remaining_quota", "weighted_random")),
+    )
+
     @staticmethod
-    def _validate_schema(data: dict[str, object]) -> None:
-        """启动时校验关键配置项类型，改配置易出错时给出清晰报错。"""
+    def _check_int_field(field: str, bounds: tuple[int, int] | None, data: dict[str, object], errors: list[str]) -> None:
+        value = data.get(field)
+        if value is None:
+            return
+        if not isinstance(value, int) or isinstance(value, bool):
+            errors.append(f"{field} 必须是整数，当前为 {value!r} ({type(value).__name__})")
+            return
+        if value < 0:
+            errors.append(f"{field} 不能为负数，当前为 {value}")
+            return
+        if bounds is not None and not (bounds[0] <= value <= bounds[1]):
+            errors.append(f"{field} 超出允许范围 [{bounds[0]}, {bounds[1]}]，当前为 {value}")
+
+    @classmethod
+    def _validate_schema(cls, data: dict[str, object]) -> None:
+        """启动时校验关键配置项类型与范围（表驱动，fail-fast）。"""
         errors: list[str] = []
-        # scheduler_mode 枚举
-        mode = data.get("scheduler_mode")
-        if mode is not None and mode not in ("round_robin", "remaining_quota", "weighted_random"):
-            errors.append(f"scheduler_mode 必须是 round_robin、remaining_quota 或 weighted_random，当前为 {mode!r}")
-        # 数值型配置
-        int_fields = ["workers", "rate_limit_rpm", "rate_limit_per_ip_rpm", "refresh_account_interval_minute", "image_retention_days", "image_account_concurrency", "sqlite_busy_timeout_ms", "progress_ttl_seconds", "alert_webhook_timeout", "proactive_probe_interval_minute"]
-        for field in int_fields:
-            value = data.get(field)
-            if value is None:
-                continue
-            if not isinstance(value, int) or isinstance(value, bool):
-                errors.append(f"{field} 必须是整数，当前为 {value!r} ({type(value).__name__})")
-            elif value < 0:
-                errors.append(f"{field} 不能为负数，当前为 {value}")
+        for field, bounds in cls._INT_FIELDS:
+            cls._check_int_field(field, bounds, data, errors)
+        for field, allowed in cls._ENUM_FIELDS:
+            mode = data.get(field)
+            if mode is not None and mode not in allowed:
+                errors.append(f"{field} 必须是 {'、'.join(allowed)} 之一，当前为 {mode!r}")
+        for field in cls._BOOL_FIELDS:
+            bval = data.get(field)
+            if bval is not None and not isinstance(bval, bool):
+                errors.append(f"{field} 必须是布尔值，当前为 {bval!r} ({type(bval).__name__})")
         # trusted_proxies 类型校验（list[str] 或逗号分隔 str）
         tp = data.get("trusted_proxies")
         if tp is not None and not isinstance(tp, (list, str)):
             errors.append(f"trusted_proxies 必须是数组或逗号分隔字符串，当前为 {tp!r} ({type(tp).__name__})")
-        # sqlite_wal_mode / ssrf_allow_private_ips 布尔校验
-        for field in ("sqlite_wal_mode", "ssrf_allow_private_ips", "proactive_probe_enabled"):
-            bval = data.get(field)
-            if bval is not None and not isinstance(bval, bool):
-                errors.append(f"{field} 必须是布尔值，当前为 {bval!r} ({type(bval).__name__})")
         # scheduler_priority 必须为 dict[str, int]
         sp = data.get("scheduler_priority")
         if sp is not None and not isinstance(sp, dict):

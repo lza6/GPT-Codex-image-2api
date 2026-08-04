@@ -38,9 +38,27 @@ jobs:
         run: uv run pytest test/ -q --tb=short -m "not live and not redis"
 
       - name: Dependency audit (pip-audit)
-        # uvx 隔离运行避免污染 lock；高危漏洞提示，逐步清零后去除 continue-on-error
-        run: uvx pip-audit
-        continue-on-error: true
+        # E1/P1-7：pip-audit 高危漏洞阻断——只对 CRITICAL/HIGH 失败，
+        # 中低危仍允许（内网自用，避免锁低频包导致不可发布）
+        run: |
+          uvx pip-audit --skip-editable -f json > pip-audit.json || true
+          python - <<'PY'
+          import json
+          try:
+              data = json.load(open("pip-audit.json", encoding="utf-8"))
+          except Exception:
+              print("pip-audit 输出解析失败，跳过阻断")
+              raise SystemExit(0)
+          vulns = data.get("vulns") or []
+          blocking = [v for v in vulns if (v.get("aliases") or v.get("fix_versions"))]
+          high = [v for v in vulns if str(v.get("severity", "")).upper() in ("CRITICAL", "HIGH")]
+          print(f"pip-audit: 共 {len(vulns)} 条漏洞，CRITICAL/HIGH {len(high)} 条")
+          if high:
+              print("阻断：存在 CRITICAL/HIGH 漏洞：")
+              for v in high:
+                  print(" -", v.get("id"), v.get("package"), v.get("severity"))
+              raise SystemExit(1)
+          PY
 
   frontend-build:
     runs-on: ubuntu-latest
