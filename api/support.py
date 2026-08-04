@@ -4,6 +4,7 @@ from pathlib import Path
 from threading import Event, Thread
 
 from fastapi import HTTPException, Request
+from utils.log import logger
 
 from services.account_service import account_service
 from services.auth_service import auth_service
@@ -99,8 +100,9 @@ def start_limited_account_watcher(stop_event: Event) -> Thread:
                     result = account_service.keepalive_refresh_tokens(keepalive_tokens)
                     if result.get("errors"):
                         print(f"[account-watcher] keepalive errors: {result['errors']}")
-            except Exception as exc:
-                print(f"[account-watcher] fail {exc}")
+            except Exception as exc:  # noqa: BLE001
+                # S-R7：后台线程异常改走 logger（原 print 不进 server.log，bat 下无迹可寻）
+                logger.warning({"event": "account_watcher_failed", "error": str(exc)})
             stop_event.wait(interval_seconds)
 
     thread = Thread(target=worker, name="account-watcher", daemon=True)
@@ -127,7 +129,7 @@ def start_proactive_probe(stop_event: Event) -> Thread | None:
                     print(f"[proactive-probe] probing {len(tokens)} accounts")
                     account_service.refresh_accounts(tokens)
             except Exception as exc:  # noqa: BLE001 - 探活异常不阻塞主服务
-                print(f"[proactive-probe] fail {exc}")
+                logger.warning({"event": "proactive_probe_failed", "error": str(exc)})
             # F1：探活后顺带做一次配额耗尽预测，临近耗尽发 webhook 告警（含去重）
             try:
                 from services.usage_forecast import forecast_quota_depletion

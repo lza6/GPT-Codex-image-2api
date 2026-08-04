@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse
 
 from api import accounts, ai, dashboard, image_tasks, proxy_pool, system
 from api.errors import install_exception_handlers
+from api.rate_limit import RateLimitMiddleware
 from api.support import resolve_web_asset, start_limited_account_watcher, start_proactive_probe
 from services.backup_service import backup_service
 from services.config import config
@@ -42,6 +43,15 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title="chatgpt2api", version=app_version, lifespan=lifespan)
     install_exception_handlers(app)
+    # S-R15：注册限流中间件（此前 RateLimitMiddleware 定义了但从未接线，
+    # rate_limit_rpm 配置形同虚设）。0 表示关闭；基于 BaseHTTPMiddleware，
+    # 需在 CORS 之前注册成最外层。
+    # 注意：多 worker 下进程内限流不共享，如需全局精确限流应配 Redis（shared_state）。
+    app.add_middleware(
+        RateLimitMiddleware,
+        global_rpm=config.rate_limit_rpm,
+        per_ip_rpm=config.rate_limit_per_ip_rpm,
+    )
     # CORS：配置驱动
     cors_origins = config.cors_origins
     app.add_middleware(

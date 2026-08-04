@@ -14,7 +14,7 @@ from fastapi import APIRouter, Header
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import PlainTextResponse, StreamingResponse
 
-from api.support import require_identity
+from api.support import require_admin
 from services.account_service import AccountService, account_service
 from services.circuit_breaker import circuit_breaker_registry
 from services.config import DATA_DIR, config
@@ -207,7 +207,7 @@ def create_router() -> APIRouter:
     @router.get("/api/dashboard/scheduler")
     async def scheduler_dashboard(authorization: str | None = Header(default=None)):
         """调度看板：账号健康分布 + 实时并发 + 调度分排名。"""
-        require_identity(authorization)
+        require_admin(authorization)
         accounts = account_service.list_accounts()
         health = _collect_account_health(accounts)
         # 更新 prometheus 账号池指标
@@ -246,25 +246,25 @@ def create_router() -> APIRouter:
     @router.get("/api/dashboard/circuit_breakers")
     async def circuit_breakers(authorization: str | None = Header(default=None)):
         """熔断状态：token 末 8 位 -> 熔断器状态（供账号页标注当前被熔断账号）。"""
-        require_identity(authorization)
+        require_admin(authorization)
         return await run_in_threadpool(_collect_circuit_breaker_status)
 
     @router.get("/api/dashboard/ops")
     async def ops_overview(authorization: str | None = Header(default=None)):
         """运维概览：CPU/内存/磁盘/账号池/日志统计。"""
-        require_identity(authorization)
+        require_admin(authorization)
         return await run_in_threadpool(_collect_ops_overview)
 
     @router.get("/api/dashboard/usage")
     async def usage_stats(authorization: str | None = Header(default=None)):
         """用量统计：近 24h 调用量 + 按类型分布 + 最近记录。"""
-        require_identity(authorization)
+        require_admin(authorization)
         return await run_in_threadpool(_collect_log_stats)
 
     @router.get("/api/dashboard/usage-forecast")
     async def usage_forecast_stats(authorization: str | None = Header(default=None)):
         """F2/A2：用量预测——按近 7 天趋势线性外推号池配额耗尽时间 + 提前告警。"""
-        require_identity(authorization)
+        require_admin(authorization)
         from services.usage_forecast import forecast_quota_depletion
 
         return await run_in_threadpool(forecast_quota_depletion)
@@ -272,13 +272,13 @@ def create_router() -> APIRouter:
     @router.get("/api/dashboard/latency")
     async def latency_stats(authorization: str | None = Header(default=None)):
         """请求延迟统计：总请求/错误率/平均延迟/按路径分布/在途。"""
-        require_identity(authorization)
+        require_admin(authorization)
         return metrics_service.get_summary()
 
     @router.get("/api/dashboard/metrics_summary")
     async def metrics_summary(authorization: str | None = Header(default=None)):
         """看板聚合指标：请求速率/错误率/P95 延迟。"""
-        require_identity(authorization)
+        require_admin(authorization)
         return _build_metrics_summary()
 
     @router.get("/metrics", include_in_schema=False)
@@ -290,7 +290,7 @@ def create_router() -> APIRouter:
         """
         if not authorization and token:
             authorization = f"Bearer {token}"
-        require_identity(authorization)
+        require_admin(authorization)
         from services.prometheus_metrics import generate_metrics
 
         content, content_type = generate_metrics()
@@ -304,7 +304,7 @@ def create_router() -> APIRouter:
         """
         if not authorization and token:
             authorization = f"Bearer {token}"
-        require_identity(authorization)
+        require_admin(authorization)
 
         async def event_generator():
             try:

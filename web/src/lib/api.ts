@@ -183,8 +183,10 @@ export type SettingsConfig = {
   auto_remove_rate_limited_accounts?: boolean;
   auto_relogin_after_refresh?: boolean;
   log_levels?: string[];
-  scheduler_mode?: "round_robin" | "remaining_quota";
+  scheduler_mode?: "round_robin" | "remaining_quota" | "weighted_random";
   scheduler_priority?: Record<string, number>;
+  proactive_probe_enabled?: boolean;
+  proactive_probe_interval_minute?: number;
   rate_limit_rpm?: number;
   rate_limit_per_ip_rpm?: number;
   workers?: number;
@@ -637,6 +639,28 @@ export async function downloadImages(paths: string[]) {
   URL.revokeObjectURL(url);
 }
 
+// C-P0：导出账号走后端 /api/accounts/export（含 refresh_token/id_token 三件套 + zip/json），
+// 修复此前前端纯客户端裸 access_token 下载导致的"假导出"死代码
+export async function exportAccounts(accessTokens: string[], format: "json" | "zip") {
+  const response = await request.post(
+    "/api/accounts/export",
+    { access_tokens: accessTokens, format },
+    { responseType: "blob" },
+  );
+  const blob = response.data as Blob;
+  const disposition = String(response.headers?.["content-disposition"] || "");
+  const match = disposition.match(/filename="?([^";]+)"?/);
+  const filename = match ? match[1] : `codex-accounts-${Date.now()}.${format}`;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 export async function downloadSingleImage(path: string) {
   const response = await request.get(`/api/images/download/${path}`, { responseType: "blob" });
   const blob = response.data as Blob;
@@ -1023,6 +1047,23 @@ export function fetchOpsOverview() {
 
 export function fetchUsageStats() {
   return httpRequest<UsageStats>("/api/dashboard/usage");
+}
+
+export type UsageForecast = {
+  status: "ok" | "insufficient_data" | "unlimited";
+  daily_avg_consumption: number;
+  total_remaining_quota: number;
+  quota_accounts: number;
+  window_days: number;
+  daily_series: Array<{ date: string; calls: number }>;
+  days_until_depletion: number | null;
+  estimated_depletion_date: string | null;
+  should_alert: boolean;
+  alert_threshold_days: number;
+};
+
+export function fetchUsageForecast() {
+  return httpRequest<UsageForecast>("/api/dashboard/usage-forecast");
 }
 
 // ---------- 延迟统计 / 连接池并发 ----------

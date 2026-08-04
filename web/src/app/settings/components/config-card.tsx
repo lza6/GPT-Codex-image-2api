@@ -35,6 +35,8 @@ export function ConfigCard() {
   const setAutoRemoveRateLimitedAccounts = useSettingsStore((state) => state.setAutoRemoveRateLimitedAccounts);
   const setAutoReloginAfterRefresh = useSettingsStore((state) => state.setAutoReloginAfterRefresh);
   const setSchedulerMode = useSettingsStore((state) => state.setSchedulerMode);
+  const setProactiveProbeEnabled = useSettingsStore((state) => state.setProactiveProbeEnabled);
+  const setProactiveProbeIntervalMinute = useSettingsStore((state) => state.setProactiveProbeIntervalMinute);
   const setRateLimitRpm = useSettingsStore((state) => state.setRateLimitRpm);
   const setRateLimitPerIpRpm = useSettingsStore((state) => state.setRateLimitPerIpRpm);
   const setWorkers = useSettingsStore((state) => state.setWorkers);
@@ -231,16 +233,17 @@ export function ConfigCard() {
           </div>
           <div className="space-y-2">
             <label className="text-sm text-stone-700">调度模式</label>
-            <Select value={config?.scheduler_mode || "round_robin"} onValueChange={(v) => setSchedulerMode(v as "round_robin" | "remaining_quota")}>
+            <Select value={config?.scheduler_mode || "round_robin"} onValueChange={(v) => setSchedulerMode(v as "round_robin" | "remaining_quota" | "weighted_random")}>
               <SelectTrigger className="h-10 rounded-xl border-stone-200 bg-white">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="round_robin">轮询（round_robin）</SelectItem>
                 <SelectItem value="remaining_quota">按剩余配额（remaining_quota）</SelectItem>
+                <SelectItem value="weighted_random">加权随机（weighted_random）</SelectItem>
               </SelectContent>
             </Select>
-            <p className="text-xs text-stone-500">账号调度策略：轮询或按剩余配额优先。</p>
+            <p className="text-xs text-stone-500">账号调度策略：轮询 / 按剩余配额优先 / 档位内按调度分加权随机（摊平磨损）。</p>
           </div>
           <div className="space-y-2">
             <label className="text-sm text-stone-700">全局限流 (RPM)</label>
@@ -281,6 +284,26 @@ export function ConfigCard() {
               <span className="text-sm text-stone-700">SQLite WAL 模式</span>
             </div>
             <p className="text-xs text-stone-500">多 Worker 并发写安全，建议保持开启；仅 SQLite 存储后端生效，重启后生效。</p>
+          </div>
+          <div className="space-y-2">
+            <div className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-4 py-3">
+              <Checkbox
+                checked={Boolean(config?.proactive_probe_enabled)}
+                onCheckedChange={(checked) => setProactiveProbeEnabled(Boolean(checked))}
+              />
+              <span className="text-sm text-stone-700">低频主动探活</span>
+            </div>
+            <p className="text-xs text-stone-500">周期性刷新全部账号，把哑死账号（限流/失效）提前剔除，避免首次请求才踩坑；默认关闭以省配额。</p>
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm text-stone-700">主动探活间隔（分钟）</label>
+            <Input
+              value={String(config?.proactive_probe_interval_minute ?? 30)}
+              onChange={(event) => setProactiveProbeIntervalMinute(event.target.value)}
+              placeholder="30"
+              className="h-10 rounded-xl border-stone-200 bg-white"
+            />
+            <p className="text-xs text-stone-500">最小 5 分钟；过短会消耗上游配额。仅探活开启时生效，重启后生效。</p>
           </div>
           <div className="space-y-2">
             <label className="text-sm text-stone-700">SQLite 锁等待超时</label>

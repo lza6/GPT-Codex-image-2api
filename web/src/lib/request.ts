@@ -1,5 +1,4 @@
 import axios, {AxiosError, type AxiosRequestConfig} from "axios";
-import {toast} from "sonner";
 
 import webConfig from "@/constants/common-env";
 import {clearStoredAuthSession, getStoredAuthKey} from "@/store/auth";
@@ -56,9 +55,9 @@ request.interceptors.response.use(
             if (!window.location.pathname.startsWith("/login")) {
                 await clearStoredAuthSession();
                 window.location.replace("/login");
-                // Return a never-resolving promise to prevent further error handling
-                // while the browser navigates away
-                return new Promise(() => {});
+                // S-R9 修复：返回 reject 而非 never-resolving promise——
+                // 否则调用方 await 永久挂起（轮询进度条 spinning 永不结束）
+                return Promise.reject(new Error("未登录，正在跳转登录页"));
             }
         }
 
@@ -70,22 +69,22 @@ request.interceptors.response.use(
             error.message ||
             `请求失败 (${status || 500})`;
 
-        // 统一错误提示：429 限流、5xx 带 request-id 后 8 位
+        // S-R9 修复：不再在拦截器 toast（调用方 catch 里已 toast，避免双重提示），
+        // 而是把用户可读信息挂到 error.userMessage，由调用方统一展示。
+        // 429/5xx 的 request-id 仍在 message 中保留。
         if (status === 429) {
             message = "请求过于频繁（限流），请稍后重试";
-            toast.error(message);
         } else if (status && status >= 500) {
             const requestId = error.response?.headers?.["x-request-id"] || error.response?.headers?.["X-Request-ID"];
             if (requestId) {
                 const shortId = String(requestId).slice(-8);
                 message = `${message} (请求ID: ${shortId})`;
             }
-            toast.error(message);
-        } else if (status === 400) {
-            toast.error(message);
         }
 
-        return Promise.reject(new Error(message));
+        const rejected = new Error(message) as Error & { userMessage?: string };
+        rejected.userMessage = message;
+        return Promise.reject(rejected);
     },
 );
 

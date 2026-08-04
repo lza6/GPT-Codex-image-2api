@@ -45,6 +45,7 @@ import {
 import {
   deleteAccounts,
   evictStaleAccounts,
+  exportAccounts,
   fetchAccounts,
   fetchCircuitBreakers,
   fetchModels,
@@ -155,15 +156,14 @@ function maskToken(token?: string) {
   return `${token.slice(0, 16)}...${token.slice(-8)}`;
 }
 
-function downloadTokens(accounts: Account[]) {
-  const content = `${accounts.map((account) => account.access_token).join("\n")}\n`;
-  const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `accounts-${Date.now()}.txt`;
-  link.click();
-  URL.revokeObjectURL(url);
+async function downloadTokens(accounts: Account[]) {
+  // C-P0：走后端 /api/accounts/export（三件套 JSON），不再前端裸 token 拼接。
+  // 后端对无 refresh_token 的账号会整体 400 提示，避免"导出成功但不可迁移"的假导出。
+  try {
+    await exportAccounts(accounts.map((account) => account.access_token), "json");
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : "导出账号失败");
+  }
 }
 
 function displayAccountType(account: Account) {

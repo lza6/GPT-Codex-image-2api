@@ -384,7 +384,15 @@ class ImageTaskService:
             task.update(updates)
             task["updated_at"] = _now_iso()
             task["updated_ts"] = time.time()
-            self._save_locked()
+            # B4：落盘失败（磁盘满/文件占用）只记日志不抛出——内存态已更新，
+            # 若此处抛异常会让 _run_task 的 except 分支二次崩溃，任务卡死 RUNNING
+            try:
+                self._save_locked()
+            except Exception:
+                logging.getLogger(__name__).warning(
+                    "image task save failed (in-memory state kept): key=%s", key,
+                    exc_info=True,
+                )
 
     def _load_locked(self) -> dict[str, dict[str, Any]]:
         if not self.path.exists():
@@ -422,6 +430,14 @@ class ImageTaskService:
                 "started_ts": item.get("started_ts"),
                 "duration_ms": item.get("duration_ms"),
             }
+            # D-B1：加载时保留 conversation_id / account_email（resume_poll 依赖的关键字段）。
+            # 此前白名单丢弃这两个字段 → 重启后旧超时任务无法 resume（打穿 C9 原账号优先修复）
+            conversation_id = _clean(item.get("conversation_id"))
+            if conversation_id:
+                task["conversation_id"] = conversation_id
+            account_email = _clean(item.get("account_email"))
+            if account_email:
+                task["account_email"] = account_email
             data = item.get("data")
             if isinstance(data, list):
                 task["data"] = data
@@ -488,8 +504,12 @@ class ImageTaskService:
                 raise ValueError("task has no conversation_id")
             mode = task.get("mode", "generate")
             model = task.get("model", "gpt-image-2")
+            # B1 竞态守卫：resume_inflight 置位期间拒绝再次 resume，
+            # 防并发重试导致双线程轮询同一 conversation（双扣配额/双写结果）
+            if task.get("resume_inflight"):
+                raise ValueError("task is already being resumed")
             # 将任务状态重置为 running
-            self._update_task(key, status=TASK_STATUS_RUNNING, error="")
+            self._update_task(key, status=TASK_STATUS_RUNNING, error="", resume_inflight=True)
 
         # 启动新线程继续轮询
         thread = threading.Thread(
@@ -591,6 +611,15 @@ class ImageTaskService:
                 error=error_message,
             )
         finally:
+            # B1：无论成败，结束续轮询后清除 in-flight 标记，允许再次 resume
+            try:
+                with self._lock:
+                    current = self._tasks.get(key)
+                    if current is not None:
+                        current.pop("resume_inflight", None)
+                        self._save_locked()
+            except Exception:
+                pass  # 落盘失败不阻塞 backend 关闭
             if backend is not None:
                 backend.close()
 

@@ -19,6 +19,11 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_EVENTS = ["circuit_breaker_open", "backup_failure", "account_invalid", "quota_exhausted", "quota_forecast_depletion"]
 
+# S-R6：模块级去重状态（跨实例共享）。_build_from_config 每次重建 AlertService，
+# 若去重表是实例字段则每重建一次清空一次 → 告警风暴。这里提升到模块级。
+_GLOBAL_SENT_AT: dict[str, float] = {}
+_GLOBAL_LOCK = threading.Lock()
+
 
 class AlertService:
     def __init__(
@@ -32,8 +37,10 @@ class AlertService:
         self.timeout_seconds = max(1, int(timeout_seconds))
         self.events = set(events or DEFAULT_EVENTS)
         self.dedupe_window = max(1.0, float(dedupe_window_seconds))
-        self._sent_at: dict[str, float] = {}
-        self._lock = threading.Lock()
+        # S-R6：去重表升级为模块级共享——原实现是每实例内存态，而 send_alert 每次
+        # _build_from_config 重建实例 → 去重表被清空，熔断高频触发时同账号告警刷屏
+        self._sent_at = _GLOBAL_SENT_AT
+        self._lock = _GLOBAL_LOCK
 
     @property
     def enabled(self) -> bool:

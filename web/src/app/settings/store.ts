@@ -160,7 +160,9 @@ function normalizeConfig(config: SettingsConfig): SettingsConfig {
     auto_remove_invalid_accounts: Boolean(config.auto_remove_invalid_accounts),
     auto_remove_rate_limited_accounts: Boolean(config.auto_remove_rate_limited_accounts),
     auto_relogin_after_refresh: Boolean(config.auto_relogin_after_refresh),
-    scheduler_mode: config.scheduler_mode === "remaining_quota" ? "remaining_quota" : "round_robin",
+    scheduler_mode: ["round_robin", "remaining_quota", "weighted_random"].includes(config.scheduler_mode ?? "") ? (config.scheduler_mode as "round_robin" | "remaining_quota" | "weighted_random") : "round_robin",
+    proactive_probe_enabled: Boolean(config.proactive_probe_enabled),
+    proactive_probe_interval_minute: Number(config.proactive_probe_interval_minute ?? 30),
     scheduler_priority: config.scheduler_priority || {},
     rate_limit_rpm: Number(config.rate_limit_rpm || 0),
     rate_limit_per_ip_rpm: Number(config.rate_limit_per_ip_rpm || 0),
@@ -295,7 +297,9 @@ type SettingsStore = {
   setAutoRemoveInvalidAccounts: (value: boolean) => void;
   setAutoRemoveRateLimitedAccounts: (value: boolean) => void;
   setAutoReloginAfterRefresh: (value: boolean) => void;
-  setSchedulerMode: (value: "round_robin" | "remaining_quota") => void;
+  setSchedulerMode: (value: "round_robin" | "remaining_quota" | "weighted_random") => void;
+  setProactiveProbeEnabled: (value: boolean) => void;
+  setProactiveProbeIntervalMinute: (value: string) => void;
   setRateLimitRpm: (value: string) => void;
   setRateLimitPerIpRpm: (value: string) => void;
   setWorkers: (value: string) => void;
@@ -568,6 +572,14 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
 
   setSchedulerMode: (value) => {
     set((state) => state.config ? { config: { ...state.config, scheduler_mode: value } } : {});
+  },
+
+  setProactiveProbeEnabled: (value) => {
+    set((state) => state.config ? { config: { ...state.config, proactive_probe_enabled: value } } : {});
+  },
+
+  setProactiveProbeIntervalMinute: (value) => {
+    set((state) => state.config ? { config: { ...state.config, proactive_probe_interval_minute: Math.max(5, Number(value)) } } : {});
   },
 
   setRateLimitRpm: (value) => {

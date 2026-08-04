@@ -63,10 +63,13 @@ class AuthService:
     def _load(self) -> list[dict[str, object]]:
         try:
             items = self.storage.load_auth_keys()
-        except Exception:
-            return []
+        except Exception as exc:  # noqa: BLE001
+            # S-R1：原实现损坏时静默返回 [] → 所有用户密钥"消失"且无法定位根因。
+            # 改为显式失败（与 json_storage 损坏抛错拒启语义一致），
+            # 避免"所有登录失败但列表为空"的诡异状态。
+            raise ValueError(f"auth_keys.json 读取失败：{exc}。请检查文件是否损坏。") from exc
         if not isinstance(items, list):
-            return []
+            raise ValueError("auth_keys.json 结构错误：应为列表")
         return [normalized for item in items if (normalized := self._normalize_item(item)) is not None]
 
     def _save(self) -> None:

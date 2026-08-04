@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Activity, Cpu, Database, HardDrive, RefreshCw, Server, Timer, Users } from "lucide-react";
+import { Activity, AlertTriangle, Cpu, Database, HardDrive, RefreshCw, Server, Timer, TrendingDown, Users } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import {
   fetchMetricsSummary,
   fetchOpsOverview,
   fetchSchedulerDashboard,
+  fetchUsageForecast,
   fetchUsageStats,
   type LatencySummary,
   type MetricsSummary,
@@ -19,11 +20,12 @@ import {
   type SchedulerAccount,
   type SchedulerDashboard,
   type SchedulerTier,
+  type UsageForecast,
   type UsageStats,
 } from "@/lib/api";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 import { getStoredAuthKey } from "@/store/auth";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from "recharts";
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from "recharts";
 
 const TIER_LABELS: Record<SchedulerTier, string> = {
   healthy: "健康",
@@ -64,11 +66,12 @@ function StatCard({ icon: Icon, label, value, sub }: { icon: typeof Cpu; label: 
 }
 
 function DashboardContent() {
-  useAuthGuard();
+  useAuthGuard(["admin"]);
 
   const [scheduler, setScheduler] = useState<SchedulerDashboard | null>(null);
   const [ops, setOps] = useState<OpsOverview | null>(null);
   const [usage, setUsage] = useState<UsageStats | null>(null);
+  const [forecast, setForecast] = useState<UsageForecast | null>(null);
   const [latency, setLatency] = useState<LatencySummary | null>(null);
   const [metrics, setMetrics] = useState<MetricsSummary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -77,18 +80,20 @@ function DashboardContent() {
   const load = useCallback(async () => {
     setIsRefreshing(true);
     try {
-      const [sched, opsData, usageData, latencyData, metricsData] = await Promise.all([
+      const [sched, opsData, usageData, latencyData, metricsData, forecastData] = await Promise.all([
         fetchSchedulerDashboard(),
         fetchOpsOverview(),
         fetchUsageStats(),
         fetchLatencySummary(),
         fetchMetricsSummary(),
+        fetchUsageForecast(),
       ]);
       setScheduler(sched);
       setOps(opsData);
       setUsage(usageData);
       setLatency(latencyData);
       setMetrics(metricsData);
+      setForecast(forecastData);
     } catch (error) {
       // 网络层失败（拦截器未覆盖）也给出反馈，避免永久骨架屏 + 静默轮询 rejection
       toast.error(error instanceof Error ? error.message : "加载看板失败");
@@ -234,6 +239,48 @@ function DashboardContent() {
           {isRefreshing ? "刷新中" : "刷新"}
         </Button>
       </div>
+
+      {/* 用量预测告警（F2/A2）：临近配额耗尽提前预警 */}
+      {forecast && forecast.status === "ok" && (
+        <div className={`rounded-2xl border p-4 ${forecast.should_alert ? "border-amber-300 bg-amber-50" : "border-stone-200 bg-white"}`}>
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+            <div className="flex items-center gap-2">
+              {forecast.should_alert ? (
+                <AlertTriangle className="h-5 w-5 text-amber-600" />
+              ) : (
+                <TrendingDown className="h-5 w-5 text-emerald-600" />
+              )}
+              <span className={`text-sm font-medium ${forecast.should_alert ? "text-amber-800" : "text-stone-700"}`}>
+                {forecast.should_alert
+                  ? `配额预计 ${forecast.days_until_depletion} 天后耗尽（${forecast.estimated_depletion_date}）`
+                  : `按当前速率约 ${forecast.days_until_depletion ?? "∞"} 天后耗尽配额`}
+              </span>
+            </div>
+            <span className="text-xs text-stone-500">
+              近{forecast.window_days}天日均消耗 {forecast.daily_avg_consumption} · 剩余配额 {forecast.total_remaining_quota}（{forecast.quota_accounts} 个账号）
+            </span>
+            <span className="text-xs text-stone-400">阈值 {forecast.alert_threshold_days} 天</span>
+          </div>
+          {forecast.daily_series.length > 0 && (
+            <div className="mt-3 h-20">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={forecast.daily_series} margin={{ top: 4, right: 8, left: 8, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={(v: string) => v.slice(5)} />
+                  <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+                  <Tooltip />
+                  <Line type="monotone" dataKey="calls" stroke={forecast.should_alert ? "#d97706" : "#059669"} strokeWidth={2} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </div>
+      )}
+      {forecast && (forecast.status === "unlimited" || forecast.status === "insufficient_data") && (
+        <div className="rounded-2xl border border-stone-200 bg-white p-4 text-sm text-stone-500">
+          {forecast.status === "unlimited" ? "号池全部为无限配额账号，无需耗尽预测。" : "用量数据不足，暂无法预测配额耗尽时间。"}
+        </div>
+      )}
 
       {/* 账号池总览 */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">

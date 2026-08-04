@@ -89,6 +89,8 @@
   "image_parallel_generation": true,
   "scheduler_mode": "round_robin",
   "scheduler_priority": {},
+  "proactive_probe_enabled": false,
+  "proactive_probe_interval_minute": 30,
   "rate_limit_rpm": 0,
   "rate_limit_per_ip_rpm": 0,
   "workers": 1,

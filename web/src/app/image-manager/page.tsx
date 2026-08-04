@@ -91,6 +91,8 @@ function ImageManagerContent() {
   const deleteTargetRef = useRef<ManagedImage | null>(null);
   const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
   const [deleteMode, setDeleteMode] = useState<"selected" | "filtered" | "byDate" | null>(null);
+  // C-P1：压缩/清理至"一键不可逆"操作加确认态（复用 deleteMode 对话框模式）
+  const [dangerAction, setDangerAction] = useState<"compress" | "cleanTo" | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
 
   const filteredItems = selectedTags.length > 0
@@ -369,23 +371,14 @@ function ImageManagerContent() {
                 <RefreshCw className={`size-3 mr-1 ${storageLoading ? "animate-spin" : ""}`} />刷新
               </Button>
               <Button size="sm" variant="outline" className="h-7 text-xs"
-                onClick={async () => {
-                  try { const r = await compressAllImages(); setCompressResult(`已压缩${r.saved_mb}MB`); void loadStorage(); }
-                  catch { setCompressResult("压缩失败"); }
-                }}>
+                onClick={() => setDangerAction("compress")}>
                 🗜️ 压缩优化
               </Button>
               <Button size="sm" variant="outline" className="h-7 text-xs border-rose-200 text-rose-600"
                 onClick={() => setDeleteMode("byDate")}>
                 🗑️ 按日期删除
               </Button>
-              <form onSubmit={async (e) => { e.preventDefault();
-                try {
-                  const r = await deleteToTarget(targetFreeMb);
-                  toast.success(`已删除 ${r.removed} 张图片，释放 ${r.freed_mb ?? 0}MB`);
-                  void loadStorage();
-                } catch { toast.error("清理失败"); }
-              }} className="flex items-center gap-1">
+              <form onSubmit={(e) => { e.preventDefault(); setDangerAction("cleanTo"); }} className="flex items-center gap-1">
                 <Button size="sm" variant="outline" className="h-7 text-xs border-amber-200 text-amber-700" type="submit">
                   🧹 清理至
                 </Button>
@@ -432,6 +425,57 @@ function ImageManagerContent() {
               }}>
               {isDeleting ? <LoaderCircle className="size-4 animate-spin" /> : null}
               确认删除
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* C-P1：压缩优化 / 清理至——"一键不可逆"操作二次确认 */}
+      <Dialog open={dangerAction !== null} onOpenChange={(open) => (!open ? setDangerAction(null) : null)}>
+        <DialogContent className="max-w-md rounded-2xl">
+          <DialogHeader>
+            <DialogTitle>
+              {dangerAction === "compress" ? "确认压缩优化全部图片？" : `确认清理至 ${targetFreeMb} MB 剩余？`}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 py-2">
+            {dangerAction === "compress" ? (
+              <p className="text-sm text-stone-500">压缩是有损且不可逆的操作，所有图片将被重新编码。请确认。</p>
+            ) : (
+              <p className="text-sm text-stone-500">
+                将按磁盘空间批量永久删除最旧图片，直到剩余 {targetFreeMb} MB。此操作不可恢复。
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setDangerAction(null)}>取消</Button>
+            <Button
+              variant={dangerAction === "compress" ? "default" : "destructive"}
+              disabled={isDeleting}
+              onClick={async () => {
+                const action = dangerAction;
+                setDangerAction(null);
+                if (!action) return;
+                try {
+                  setIsDeleting(true);
+                  if (action === "compress") {
+                    const r = await compressAllImages();
+                    setCompressResult(`已压缩 ${r.saved_mb}MB`);
+                    toast.success(`已压缩 ${r.saved_mb}MB`);
+                  } else {
+                    const r = await deleteToTarget(targetFreeMb);
+                    toast.success(`已删除 ${r.removed} 张图片，释放 ${r.freed_mb ?? 0}MB`);
+                  }
+                  void loadStorage();
+                } catch {
+                  toast.error(action === "compress" ? "压缩失败" : "清理失败");
+                } finally {
+                  setIsDeleting(false);
+                }
+              }}
+            >
+              {isDeleting ? <LoaderCircle className="size-4 animate-spin" /> : null}
+              确认执行
             </Button>
           </DialogFooter>
         </DialogContent>

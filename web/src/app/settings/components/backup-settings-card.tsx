@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import webConfig from "@/constants/common-env";
 import { fetchBackupDetail, getBackupDownloadUrl, type BackupDetail, type BackupInclude } from "@/lib/api";
@@ -76,6 +76,8 @@ const includeLabels: Array<{ key: keyof BackupInclude; label: string }> = [
 
 export function BackupSettingsCard() {
   const [detailOpen, setDetailOpen] = useState(false);
+  // C-P1：R2 远端备份删除不可恢复，加二次确认
+  const [pendingDeleteKey, setPendingDeleteKey] = useState<string | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detail, setDetail] = useState<BackupDetail | null>(null);
   const config = useSettingsStore((state) => state.config);
@@ -354,10 +356,10 @@ export function BackupSettingsCard() {
                         type="button"
                         variant="outline"
                         className="h-9 rounded-xl border-rose-200 bg-white px-4 text-rose-700"
-                        onClick={() => void removeBackup(item.key)}
-                        disabled={isDeleting}
+                        onClick={() => setPendingDeleteKey(item.key)}
+                        disabled={deletingBackupKey !== null}
                       >
-                        {isDeleting ? <LoaderCircle className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+                        {deletingBackupKey !== null ? <LoaderCircle className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
                         删除
                       </Button>
                     </div>
@@ -369,6 +371,42 @@ export function BackupSettingsCard() {
           </div>
         </CardContent>
       </Card>
+
+      {/* C-P1：备份删除二次确认（R2 远端对象不可恢复） */}
+      <Dialog open={pendingDeleteKey !== null} onOpenChange={(open) => (!open ? setPendingDeleteKey(null) : null)}>
+        <DialogContent className="max-w-md rounded-2xl">
+          <DialogHeader>
+            <DialogTitle>确认删除备份？</DialogTitle>
+          </DialogHeader>
+          <div className="py-2">
+            <p className="text-sm text-stone-500">
+              将永久删除 Cloudflare R2 上的远端备份对象
+              {pendingDeleteKey ? `（${pendingDeleteKey.split("/").pop()}）` : ""}，删除后无法恢复。
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setPendingDeleteKey(null)}>取消</Button>
+            <Button
+              variant="destructive"
+              disabled={deletingBackupKey !== null}
+              onClick={async () => {
+                const key = pendingDeleteKey;
+                setPendingDeleteKey(null);
+                if (!key) return;
+                try {
+                  await removeBackup(key);
+                  toast.success("备份已删除");
+                } catch (error) {
+                  toast.error(error instanceof Error ? error.message : "删除备份失败");
+                }
+              }}
+            >
+              {deletingBackupKey !== null ? <LoaderCircle className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+              确认删除
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
         <DialogContent className="flex max-h-[85vh] max-w-3xl flex-col overflow-hidden rounded-2xl border-white/80 bg-white">

@@ -328,8 +328,8 @@ def _auto_cleanup_worker(stop_event: threading.Event) -> None:
                 logger.info({"event": "image_auto_cleanup", "free_mb": free_mb, "min_free_mb": min_free_mb})
                 result = delete_to_target(min_free_mb)
                 logger.info({"event": "image_auto_cleanup_done", **result})
-        except Exception:
-            pass
+        except Exception as exc:  # noqa: BLE001 - 清理线程绝不阻塞主服务，但必须留痕
+            logger.warning({"event": "image_auto_cleanup_failed", "error": str(exc), "exc_type": type(exc).__name__})
 
 
 def start_image_cleanup_scheduler(stop_event: threading.Event) -> threading.Thread:

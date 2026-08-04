@@ -290,13 +290,20 @@ class OpenAIBackendAPI:
         if getattr(session, "_chatgpt2api_pooled", False):
             try:
                 session_pool.release(session)
-            except Exception:
-                pass
+                return
+            except Exception as exc:  # noqa: BLE001
+                # S-R13：release 失败（锁竞争/池满）时原实现静默吞掉 → 连接既不回池也不关闭，
+                # 高并发下 FD/TLS 逐步泄漏。失败必须真 close 兜底并留痕。
+                logger.warning({"event": "session_pool_release_failed", "error": str(exc)})
+            try:
+                session.close()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning({"event": "session_close_failed_after_release_error", "error": str(exc)})
             return
         try:
             session.close()
-        except Exception:
-            pass
+        except Exception as exc:  # noqa: BLE001
+            logger.warning({"event": "session_close_failed", "error": str(exc)})
 
     def __del__(self):
         self.close()

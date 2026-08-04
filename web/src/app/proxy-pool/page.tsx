@@ -80,7 +80,7 @@ function formatTime(ts: number) {
 }
 
 function ProxyPoolContent() {
-  useAuthGuard();
+  useAuthGuard(["admin"]);
   const [data, setData] = useState<ProxyPoolData | null>(null);
   const [loading, setLoading] = useState(true);
   const [newUrl, setNewUrl] = useState("");
