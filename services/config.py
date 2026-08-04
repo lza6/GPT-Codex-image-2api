@@ -567,28 +567,6 @@ class ConfigStore:
         return ["*"]
 
     @property
-    def max_request_body_mb_chat(self) -> int:
-        """chat/responses 类请求体上限（MB）。⚠️ request_size_limit 中间件已移除，当前无消费方（历史遗留）。"""
-        try:
-            return max(1, int(
-                os.getenv("CHATGPT2API_MAX_REQUEST_BODY_MB_CHAT")
-                or self.data.get("max_request_body_mb_chat", 10)
-            ))
-        except (TypeError, ValueError):
-            return 10
-
-    @property
-    def max_request_body_mb_image(self) -> int:
-        """图片编辑类请求体上限（MB，base64 图占体积）。⚠️ request_size_limit 中间件已移除，当前无消费方（历史遗留）。"""
-        try:
-            return max(1, int(
-                os.getenv("CHATGPT2API_MAX_REQUEST_BODY_MB_IMAGE")
-                or self.data.get("max_request_body_mb_image", 50)
-            ))
-        except (TypeError, ValueError):
-            return 50
-
-    @property
     def storage_backend_type(self) -> str:
         return str(os.getenv("STORAGE_BACKEND") or self.data.get("storage_backend") or "json").strip().lower()
 

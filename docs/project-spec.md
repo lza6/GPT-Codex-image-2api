@@ -1,6 +1,6 @@
 # ChatGPT2API 项目规格
 
-> 自动生成（2026-08-04 20:33:02 UTC）——由 scripts/refresh_spec.py 保鲜，手动改动会被覆盖。
+> 自动生成（2026-08-04 20:40:11 UTC）——由 scripts/refresh_spec.py 保鲜，手动改动会被覆盖。
 > 保鲜机制：会话启动前跑 `python scripts/refresh_spec.py`，输出 [REFRESHED] 说明已过期需重读。
 
 ## 版本与部署
@@ -9,7 +9,7 @@
 - 存储后端：json / sqlite / postgres / git（config.storage_backend）
 - 部署：Windows bat 一键启动 / Docker Compose（非 root + HEALTHCHECK + 优雅停机）
 
-## 配置项（57 个）
+## 配置项（55 个）
 
 | 配置 | 说明 |
 |------|------|
@@ -52,8 +52,6 @@
 | `image_thumbnails_dir` |  |
 | `images_dir` |  |
 | `log_levels` |  |
-| `max_request_body_mb_chat` | chat/responses 类请求体上限（MB）。⚠️ request_size_limit 中间件已移除，当前无消费方（历史遗留）。 |
-| `max_request_body_mb_image` | 图片编辑类请求体上限（MB，base64 图占体积）。⚠️ request_size_limit 中间件已移除，当前无消费方（历史遗留）。 |
 | `proactive_probe_enabled` | 低频主动探活开关（F4/B6，默认关）：周期性 fetch_remote_info 探活全部账号， |
 | `proactive_probe_interval_minute` | 主动探活周期分钟数（默认 30，最小 5，防过度消耗配额）。 |
 | `progress_ttl_seconds` | 进度记录（刷新/重登）在内存中的存活秒数（默认 3600，配置层最小 1s；亚秒级仅供测试经构造参数传入）。 |

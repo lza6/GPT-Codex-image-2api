@@ -61,7 +61,7 @@ flowchart TD
 | 密钥管理 | 环境变量覆盖 config.json（`CHATGPT2API_AUTH_KEY` 等），config.json 不进容器镜像而是挂载 | `services/config.py:362` |
 | 注入面 | 无 SQL 拼接（SQLAlchemy ORM）；存储层统一走 `storage/base.py` | `services/storage/` |
 | 限流 | 全局 RPM + 单 IP RPM 滑动窗口（默认 0 关闭） | `api/rate_limit.py`（`api/app.py` 已接线，S-R15） |
-| 请求大小 | 配置项 `max_request_body_mb_*` 仍在 config 但 **request_size_limit 中间件已移除，无消费方**（历史清理残留，见 `services/config.py:570`） | 无 |
+| 请求大小 | 已移除（`request_size_limit` 中间件与 `max_request_body_mb_*` 死配置已一并清理） | 无 |
 | 安全头 | 已移除（`api/security_headers.py` 已删除；企业内网自用，安全由调用方处理） | 无 |
 | SSRF 防护 | 图片 URL 抓取前校验协议白名单 + 内网 IP 段（`CHATGPT2API_SSRF_ALLOW_PRIVATE_IPS` 可回退，默认拒绝内网） | `services/ssrf_guard.py`（`api/image_inputs.py:261` 消费） |
 | 备份 | OpenSSL 加密 + HMAC；用户配置入口为 config.json 的 `backup.passphrase`（环境变量仅为内部子进程传参） | `services/backup_service.py` |
