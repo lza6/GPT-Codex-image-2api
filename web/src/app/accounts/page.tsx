@@ -1377,6 +1377,7 @@ function AccountsPageContent() {
                     <th className="w-28 px-4 py-3">类型</th>
                     <th className="w-24 px-4 py-3">来源</th>
                     <th className="w-24 px-4 py-3">状态</th>
+                    <th className="w-24 px-4 py-3">寿命</th>
                     <th className="w-24 px-4 py-3">熔断</th>
                     <th className="w-56 px-4 py-3">账号信息</th>
                     <th className="w-32 px-4 py-3">创建时间</th>
@@ -1445,6 +1446,26 @@ function AccountsPageContent() {
                             <StatusIcon className="size-3.5" />
                             {account.status}
                           </Badge>
+                        </td>
+                        <td className="px-4 py-3">
+                          {(() => {
+                            const level = (account.lifetime_risk ?? "low") as string;
+                            const colors: Record<string, string> = {
+                              low: "bg-emerald-100 text-emerald-700",
+                              medium: "bg-amber-100 text-amber-700",
+                              high: "bg-orange-100 text-orange-700",
+                              critical: "bg-rose-100 text-rose-700",
+                            };
+                            const labels: Record<string, string> = {
+                              low: "健康", medium: "关注", high: "偏高", critical: "濒危",
+                            };
+                            return (
+                              <Badge className={`rounded-md ${colors[level] ?? colors.low}`}>
+                                {labels[level] ?? "健康"}
+                                {account.lifetime_eta_days != null ? ` · ${account.lifetime_eta_days}d` : ""}
+                              </Badge>
+                            );
+                          })()}
                         </td>
                         <td className="px-4 py-3">
                           {(() => {

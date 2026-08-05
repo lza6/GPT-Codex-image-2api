@@ -181,7 +181,13 @@ class AccountService:
 
     @classmethod
     def _account_health_tier(cls, account: dict) -> str:
-        """按状态 + 最近错误 + 配额比例计算健康档位。"""
+        """按状态 + 最近错误 + 配额比例计算健康档位（5.1 起含寿命预测降档）。"""
+        tier = cls._account_health_tier_base(account)
+        return cls._lifetime_downgrade(tier, account)
+
+    @classmethod
+    def _account_health_tier_base(cls, account: dict) -> str:
+        """基础档位（不含寿命预测降档）——供调度分与测试复用。"""
         if not isinstance(account, dict):
             return cls._RISKY
         status = account.get("status")
@@ -205,6 +211,25 @@ class AccountService:
         if quota < 5 or (total >= 3 and fail / total > 0.2):
             return cls._WARM
         return cls._HEALTHY
+
+    @classmethod
+    def _lifetime_downgrade(cls, tier: str, account: dict) -> str:
+        """5.1：账号寿命预测降档——濒危→risky、高→warm，低/中不降。
+
+        只降不升（健康账号不会因预测被抬升）；最小观测窗口守卫在
+        account_lifetime 内部完成，避免「瞬间封禁/复活抖动」。
+        """
+        try:
+            from services.account_lifetime import LEVEL_CRITICAL, LEVEL_HIGH, compute_lifetime_risk
+        except Exception:  # pragma: no cover - 模块缺失时降级为原档位
+            return tier
+        risk = compute_lifetime_risk(account)
+        level = risk.get("level")
+        if level == LEVEL_CRITICAL:
+            return cls._RISKY
+        if level == LEVEL_HIGH and tier == cls._HEALTHY:
+            return cls._WARM
+        return tier
 
     @classmethod
     def _account_dispatch_score(cls, account: dict, tier: str | None = None) -> float:
@@ -1472,11 +1497,18 @@ class AccountService:
         return None
 
     def _record_refresh_success(self, access_token: str) -> None:
+        was_invalid = False
         with self._lock:
             access_token = self._resolve_access_token_locked(access_token)
             current = self._accounts.get(access_token)
             if current is None:
                 return
+            # 5.3：仅在确实从失效态恢复时触发恢复事件（防每次刷新都发告警）
+            was_invalid = (
+                int(current.get("invalid_count") or 0) > 0
+                or bool(current.get("last_invalid_at"))
+                or bool(current.get("last_refresh_error_at"))
+            )
             next_item = dict(current)
             next_item["invalid_count"] = 0
             next_item["last_invalid_at"] = None
@@ -1485,6 +1517,19 @@ class AccountService:
             account = self._normalize_account(next_item)
             if account is not None:
                 self._accounts[access_token] = account
+        if was_invalid:
+            try:
+                from services.alert_service import send_alert
+
+                send_alert(
+                    "account_recovered",
+                    {
+                        "token_suffix": str(access_token)[-8:],
+                        "account": str((current or {}).get("email") or str(access_token)[-8:]),
+                    },
+                )
+            except Exception:  # noqa: BLE001 - 告警绝不阻塞账号刷新主流程
+                logger.warning("账号恢复告警发送失败", exc_info=True)
 
     def _should_defer_invalid_token(self, account: dict | None, now: datetime) -> bool:
         if not isinstance(account, dict):

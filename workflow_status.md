@@ -1,4 +1,46 @@
-# ChatGPT2API 工作流状态 — 第十三轮（4.1 日志按天轮转切分：慢查询根治落地）
+# ChatGPT2API 工作流状态 — 第十四轮（v3.1 账号寿命预测/容量报表/告警恢复 + v3.2 前端体验）
+
+> 最后更新：2026-08-05
+> 模式：v3.1 产品功能增强 + v3.2 前端体验升级 —— 计划书 5.1/5.2/5.3 + 6.1/6.2/6.3
+> 基线：f2edc2a（v2.6.0 收尾）
+
+## 本轮完成清单
+
+| 编号 | 事项 | 状态 | 证据 |
+|------|------|------|------|
+| A | 5.1 账号寿命预测（EWMA+连续失效窗口双信号） | ✅ | services/account_lifetime.py（compute_lifetime_risk 纯函数 + now 可注入）；_account_health_tier 降档接入（濒危→risky、高→warm，只降不升）；test_account_lifetime.py 17 用例 |
+| B | 5.1 看板/账号页展示 | ✅ | /api/dashboard/scheduler 排名加 lifetime_risk/eta_days、/api/accounts 附加 lifetime 字段；dashboard 濒危卡片 + 排行榜寿命列 + accounts 寿命徽章；契约断链=0 |
+| C | 5.2 容量规划报表 | ✅ | /api/dashboard/capacity（usage_agg 聚合缓存；mock 断言不调 log_service.list）；test_capacity_report.py 5 用例（空数据/单账号/零增长不除零） |
+| D | 5.3 告警降级与恢复 | ✅ | circuit_breaker_closed（半开恢复触发）+ account_recovered（失效清零触发）；alert_events 默认含新事件；设置页多选补 4 项；test_recovery_alerts.py 3 用例（含去重） |
+| E | 6.1 全局交互反馈 | ✅ | ui/async-button.tsx（AsyncButton：isLoading 禁用+spinner+成功清态）；dashboard 刷新接入；e2e_smoke.cjs 新增 2 项断言（loading 态+禁用），7/7 PASS |
+| F | 6.2 骨架屏 | ✅ | ui/skeleton.tsx（Skeleton/SkeletonTable/SkeletonCards）；dashboard + image-manager 加载态改统一骨架（消 CLS） |
+| G | 6.3 账号列表分页 | ✅ | /api/accounts?page=&page_size= 服务端分页（可选向后兼容）+ total；test_accounts_pagination.py 5 用例 |
+| H | 验证全绿 | ✅ | pytest 377 passed / 0 failed；五道防线全 PASS；tsc 0 错误 + build 成功；E2E 7/7 |
+
+## 五道防线状态
+
+| 批次 | 契约守卫 | SQL | 慢查询 | 变异 | 施压 |
+|------|---------|-----|--------|------|------|
+| 第十四轮 | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+> 契约守卫 /api/accounts 快照字段含 total/lifetime（新增字段不漂移，断链=0）。变异探针 caught=6 escaped=0。
+
+## 当前 git 状态
+
+- 测试：**377 passed / 0 failed**（31 live/redis 排除）
+- 前端：tsc 0 错误 + build 成功（dashboard/accounts/image-manager/async-button/skeleton）
+- 契约：断链=0 漂移=0
+- 版本：**v2.7.0（已发版）**
+
+## 边界声明（诚实）
+
+- 账号寿命预测是**趋势信号**（非精确到期）：EWMA 失败率 + 连续失效窗口，数据量小时不引入统计回归；无限配额账号 eta_days 按风险档位给保守上限（1/7/30 天）
+- 6.3 虚拟滚动未引入：账号 <1k 时既有前端分页已满足，引入虚拟滚动是过度工程（YAGNI）；服务端分页参数已就位，账号量级突破 1k 后可切
+- 5.4 Redis 精确限流部署实测未在本轮做（需真实多 worker + redis 环境），README 边界声明保留
+
+---
+
+## 第十三轮历史（4.1 日志按天轮转切分：慢查询根治落地）
 
 > 最后更新：2026-08-05
 > 模式：v3.0 路线第 2 批 —— 计划书 4.1 性能根治（日志按天切分 + usage_agg 多文件适配）

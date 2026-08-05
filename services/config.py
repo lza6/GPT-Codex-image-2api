@@ -631,7 +631,7 @@ class ConfigStore:
     @property
     def alert_events(self) -> list[str]:
         """启用的告警事件列表。"""
-        default = ["circuit_breaker_open", "backup_failure", "account_invalid", "quota_exhausted", "quota_forecast_depletion"]
+        default = ["circuit_breaker_open", "circuit_breaker_closed", "backup_failure", "account_invalid", "account_recovered", "quota_exhausted", "quota_forecast_depletion"]
         raw = os.getenv("CHATGPT2API_ALERT_EVENTS")
         if raw is not None:
             return [e.strip() for e in str(raw).split(",") if e.strip()]

@@ -373,9 +373,12 @@ export function ConfigCard() {
             <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
               {[
                 ["circuit_breaker_open", "熔断开启"],
+                ["circuit_breaker_closed", "熔断恢复"],
                 ["backup_failure", "备份失败"],
                 ["account_invalid", "账号失效"],
+                ["account_recovered", "账号恢复"],
                 ["quota_exhausted", "配额耗尽"],
+                ["quota_forecast_depletion", "配额将耗尽"],
               ].map(([eventKey, label]) => (
                 <label key={eventKey} className="flex items-center gap-2 text-sm text-stone-700">
                   <Checkbox

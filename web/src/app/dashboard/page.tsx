@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Activity, AlertTriangle, Cpu, Database, HardDrive, RefreshCw, Server, Timer, TrendingDown, Users } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
+import { AsyncButton } from "@/components/ui/async-button";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -24,6 +25,7 @@ import {
   type UsageStats,
 } from "@/lib/api";
 import { useAuthGuard } from "@/lib/use-auth-guard";
+import { Skeleton, SkeletonCards } from "@/components/ui/skeleton";
 import { getStoredAuthKey } from "@/store/auth";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from "recharts";
 
@@ -254,21 +256,32 @@ function DashboardContent() {
     return scheduler.accounts.filter((a) => a.quota <= 0 && a.status !== "禁用" && a.status !== "异常");
   }, [scheduler]);
 
+  // 5.1：濒危账号（寿命预测 high/critical）
+  const criticalAccounts = useMemo(() => {
+    if (!scheduler) return [];
+    return scheduler.accounts.filter((a) => a.lifetime_risk === "high" || a.lifetime_risk === "critical");
+  }, [scheduler]);
+
+  const LIFETIME_LABELS: Record<string, string> = {
+    low: "健康",
+    medium: "关注",
+    high: "偏高",
+    critical: "濒危",
+  };
+  const LIFETIME_COLORS: Record<string, string> = {
+    low: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300",
+    medium: "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300",
+    high: "bg-orange-100 text-orange-800 dark:bg-orange-950/40 dark:text-orange-300",
+    critical: "bg-rose-100 text-rose-800 dark:bg-rose-950/40 dark:text-rose-300",
+  };
+
   if (loading && !scheduler) {
     return (
       <div className="space-y-6">
-        <div className="h-8 w-40 animate-pulse rounded-lg bg-stone-200 dark:bg-stone-700" />
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-          {[...Array(4)].map((_, i) => (
-            <div key={i} className="h-24 animate-pulse rounded-xl bg-stone-100 dark:bg-stone-800" />
-          ))}
-        </div>
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-          {[...Array(4)].map((_, i) => (
-            <div key={i} className="h-24 animate-pulse rounded-xl bg-stone-100 dark:bg-stone-800" />
-          ))}
-        </div>
-        <div className="h-64 animate-pulse rounded-xl bg-stone-100 dark:bg-stone-800" />
+        <Skeleton className="h-8 w-40" />
+        <SkeletonCards count={4} />
+        <SkeletonCards count={4} />
+        <Skeleton className="h-64 w-full" />
       </div>
     );
   }
@@ -282,10 +295,9 @@ function DashboardContent() {
           <h1 className="text-2xl font-semibold text-stone-900">运维看板</h1>
           <p className="text-sm text-stone-500">调度健康度 · 资源占用 · 用量统计</p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => void load()} disabled={isRefreshing}>
-          <RefreshCw className={`mr-1 h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
+        <AsyncButton variant="outline" size="sm" onClick={() => load()} isLoading={isRefreshing} icon={<RefreshCw className="h-4 w-4" />}>
           {isRefreshing ? "刷新中" : "刷新"}
-        </Button>
+        </AsyncButton>
       </div>
 
       {/* 用量预测告警（F2/A2）：临近配额耗尽提前预警 */}
@@ -339,6 +351,30 @@ function DashboardContent() {
         <StatCard icon={Timer} label="在途图片" value={String(health?.total_inflight ?? 0)} sub={`并发上限 ${ops?.image_account_concurrency ?? "-"}`} />
         <StatCard icon={Activity} label="近24h调用" value={String(usage?.total_24h ?? 0)} sub={`成功 ${usage?.success_24h ?? 0} · 失败 ${usage?.failed_24h ?? 0}`} />
       </div>
+
+      {/* 5.1：濒危账号预警（寿命预测 high/critical） */}
+      {criticalAccounts.length > 0 && (
+        <div className="rounded-2xl border border-rose-200 bg-rose-50/70 p-4 dark:border-rose-800 dark:bg-rose-950/30">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-5 w-5 text-rose-600" />
+            <span className="text-sm font-semibold text-rose-800 dark:text-rose-300">
+              濒危账号预警（{criticalAccounts.length} 个）
+            </span>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {criticalAccounts.map((account) => (
+              <Badge
+                key={account.email ?? account.score}
+                className="bg-white text-rose-700 ring-1 ring-rose-200 dark:bg-rose-950/40 dark:text-rose-300"
+              >
+                {account.email ?? "-"}
+                {account.lifetime_eta_days != null ? ` · 约 ${account.lifetime_eta_days} 天` : ""}
+              </Badge>
+            ))}
+          </div>
+          <p className="mt-2 text-xs text-rose-500">基于失败率趋势 + 连续失效窗口预测，建议提前处理或补号。</p>
+        </div>
+      )}
 
       {/* 资源占用 */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
@@ -472,6 +508,7 @@ function DashboardContent() {
                 <TableHead>类型</TableHead>
                 <TableHead>状态</TableHead>
                 <TableHead>档位</TableHead>
+                <TableHead>寿命</TableHead>
                 <TableHead className="text-right">配额</TableHead>
                 <TableHead className="text-right">调度分</TableHead>
                 <TableHead className="text-right">在途</TableHead>
@@ -481,7 +518,7 @@ function DashboardContent() {
             <TableBody>
               {topAccounts.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="py-8 text-center text-stone-400">
+                  <TableCell colSpan={9} className="py-8 text-center text-stone-400">
                     暂无可用账号
                   </TableCell>
                 </TableRow>
@@ -493,6 +530,12 @@ function DashboardContent() {
                     <TableCell>{account.status ?? "-"}</TableCell>
                     <TableCell>
                       <Badge className={TIER_COLORS[account.tier]}>{TIER_LABELS[account.tier]}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Badge className={LIFETIME_COLORS[account.lifetime_risk ?? "low"]}>
+                        {LIFETIME_LABELS[account.lifetime_risk ?? "low"]}
+                        {account.lifetime_eta_days != null ? ` · ${account.lifetime_eta_days}d` : ""}
+                      </Badge>
                     </TableCell>
                     <TableCell className="text-right">{account.quota}</TableCell>
                     <TableCell className="text-right font-semibold">{account.score.toFixed(1)}</TableCell>

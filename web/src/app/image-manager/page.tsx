@@ -13,6 +13,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Skeleton } from "@/components/ui/skeleton";
 import { compressAllImages, deleteImageTag, deleteManagedImages, deleteToTarget, downloadImages, downloadSingleImage, fetchImageStorage, fetchImageTags, fetchManagedImages, setImageTags, type ImageStorageStats, type ManagedImage } from "@/lib/api";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 
@@ -517,7 +518,16 @@ function ImageManagerContent() {
             </div>
           </div>
           <div className="grid gap-0 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {currentRows.map((item) => {
+            {isLoading && currentRows.length === 0
+              ? Array.from({ length: 8 }).map((_, i) => (
+                  <div key={i} className="border-r border-b border-stone-100 p-4">
+                    <div className="relative">
+                      <Skeleton className="aspect-square w-full" />
+                      <Skeleton className="mt-2 h-4 w-3/4" />
+                    </div>
+                  </div>
+                ))
+              : currentRows.map((item) => {
               const imageIndex = filteredItems.findIndex((row) => row.url === item.url);
               return (
               <div key={item.rel} className="group border-r border-b border-stone-100 p-4 transition hover:bg-stone-50 dark:hover:bg-white/5">
@@ -662,7 +672,8 @@ function ImageManagerContent() {
                   </div>
                 </div>
               </div>
-            )})}
+            );
+            })}
           </div>
           <div className="flex items-center justify-end gap-2 border-t border-stone-100 px-4 py-3 text-sm text-stone-500">
             <span>第 {safePage} / {pageCount} 页，共 {filteredItems.length} 张</span>

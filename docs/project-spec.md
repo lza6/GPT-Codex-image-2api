@@ -1,10 +1,10 @@
 # ChatGPT2API 项目规格
 
-> 自动生成（2026-08-04 23:47:35 UTC）——由 scripts/refresh_spec.py 保鲜，手动改动会被覆盖。
+> 自动生成（2026-08-05 07:45:45 UTC）——由 scripts/refresh_spec.py 保鲜，手动改动会被覆盖。
 > 保鲜机制：会话启动前跑 `python scripts/refresh_spec.py`，输出 [REFRESHED] 说明已过期需重读。
 
 ## 版本与部署
-- 应用版本：`2.6.0`
+- 应用版本：`2.7.0`
 - 端口：23456（Docker 80 映射）
 - 存储后端：json / sqlite / postgres / git（config.storage_backend）
 - 部署：Windows bat 一键启动 / Docker Compose（非 root + HEALTHCHECK + 优雅停机）
@@ -69,7 +69,7 @@
 | `trusted_proxies` | 可信反向代理 IP 白名单（默认仅回环）；仅这些来源的 XFF 头被信任。 |
 | `workers` | uvicorn worker 进程数（高并发时调大，多核利用）。 |
 
-## API 路由（82 个）
+## API 路由（83 个）
 
 - `/api/accounts`
 - `/api/accounts/batch`
@@ -94,6 +94,7 @@
 - `/api/cpa/pools/{pool_id}`
 - `/api/cpa/pools/{pool_id}/files`
 - `/api/cpa/pools/{pool_id}/import`
+- `/api/dashboard/capacity`
 - `/api/dashboard/circuit_breakers`
 - `/api/dashboard/latency`
 - `/api/dashboard/metrics_summary`
@@ -154,10 +155,11 @@
 - `/v1/search`
 - `/version`
 
-## 服务模块（29 个）
+## 服务模块（30 个）
 
 | 模块 | 用途 |
 |------|------|
+| `account_lifetime.py` | 5.1：账号寿命预测——把「已消费的同一批信号」改写成趋势形态，事前预警账号衰亡。 |
 | `account_service.py` |  |
 | `alert_service.py` | 主动告警 webhook（D18）：熔断/备份失败/账号失效/配额耗尽事件推送到运维通道。 |
 | `auth_service.py` |  |

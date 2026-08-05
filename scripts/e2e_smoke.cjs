@@ -72,6 +72,20 @@ async function main() {
   const cls = (await page.locator('button:has-text("仅风险")').getAttribute('class')) || '';
   check('仅风险筛选激活态', cls.includes('bg-stone-900'), cls.slice(0, 60));
 
+  // ---- 5. 6.1 交互反馈：异步按钮点击 → loading/禁用态出现（防"点了没反应"） ----
+  await page.click('button:has-text("刷新")');
+  // AsyncButton：loading 时渲染 spinner（animate-spin）并禁用
+  const spinnerSeen = await page
+    .waitForSelector('button:has-text("刷新中")', { timeout: 5000 })
+    .then(() => true)
+    .catch(() => false);
+  check('异步按钮点击后进入 loading 态', spinnerSeen, '刷新中 spinner/文本');
+  const refreshDisabled = await page
+    .locator('button:has-text("刷新中")')
+    .isDisabled()
+    .catch(() => false);
+  check('异步按钮 loading 时禁用', refreshDisabled, 'disabled 属性');
+
   await browser.close();
   const passed = results.filter((r) => r.pass).length;
   console.log(`\n===== 前端 E2E 冒烟结果 =====\n${passed}/${results.length} PASS`);

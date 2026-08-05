@@ -63,6 +63,14 @@ class CircuitBreaker:
                     # 半开连续成功，恢复闭合
                     self._state = CircuitState.CLOSED
                     self._failure_count = 0
+                    # 5.3：熔断恢复 → 推送恢复事件（复用告警通道 + 去重机制）
+                    if self._key:
+                        try:
+                            from services.alert_service import send_alert
+
+                            send_alert("circuit_breaker_closed", {"token_suffix": str(self._key)[-8:]})
+                        except Exception:  # noqa: BLE001 - 告警绝不阻塞熔断主流程
+                            pass
             elif self._state == CircuitState.OPEN:
                 # C7/P1-2 竞态修复：请求放行时已判 OPEN 拒绝，若此后另一条路径把状态
                 # 推进到 OPEN（并发 record_failure 触发熔断），迟到的 record_success 不得

@@ -13,9 +13,12 @@
   "alert_webhook_timeout": 10,
   "alert_events": [
     "circuit_breaker_open",
+    "circuit_breaker_closed",
     "backup_failure",
     "account_invalid",
-    "quota_exhausted"
+    "account_recovered",
+    "quota_exhausted",
+    "quota_forecast_depletion"
   ],
   "image_retention_days": 15,
   "image_poll_timeout_secs": 120,

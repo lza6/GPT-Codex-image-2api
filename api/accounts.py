@@ -267,9 +267,36 @@ def create_router() -> APIRouter:
         return {"items": auth_service.list_keys(role="user")}
 
     @router.get("/api/accounts")
-    async def get_accounts(authorization: str | None = Header(default=None)):
+    async def get_accounts(page: int = 0, page_size: int = 0, authorization: str | None = Header(default=None)):
+        """账号列表。
+
+        6.3：支持服务端分页（page 从 1 起，page_size>0 时启用；默认 0/0 = 全量返回，
+        向后兼容旧调用方）。响应含 total 便于前端渲染总数。
+        """
         require_admin(authorization)
-        return {"items": account_service.list_accounts()}
+        items = account_service.list_accounts()
+        # 5.1：附加寿命预测字段（lifetime_risk / lifetime_eta_days），供账号页徽章展示
+        try:
+            from services.account_lifetime import compute_lifetime_risk
+
+            enriched = []
+            for account in items:
+                risk = compute_lifetime_risk(account)
+                enriched.append({
+                    **account,
+                    "lifetime_risk": risk.get("level", "low"),
+                    "lifetime_eta_days": risk.get("eta_days"),
+                    "lifetime_score": risk.get("score", 0.0),
+                })
+            items = enriched
+        except Exception:  # pragma: no cover - 预测失败退回原始账号列表
+            pass
+        total = len(items)
+        if page_size > 0:
+            page = max(1, int(page))
+            start = (page - 1) * page_size
+            items = items[start : start + page_size]
+        return {"items": items, "total": total}
 
     @router.post("/api/accounts")
     async def create_accounts(body: AccountCreateRequest, authorization: str | None = Header(default=None)):

@@ -17,7 +17,10 @@ from curl_cffi import requests
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_EVENTS = ["circuit_breaker_open", "backup_failure", "account_invalid", "quota_exhausted", "quota_forecast_depletion"]
+DEFAULT_EVENTS = [
+    "circuit_breaker_open", "circuit_breaker_closed", "backup_failure",
+    "account_invalid", "account_recovered", "quota_exhausted", "quota_forecast_depletion",
+]
 
 # S-R6：模块级去重状态（跨实例共享）。_build_from_config 每次重建 AlertService，
 # 若去重表是实例字段则每重建一次清空一次 → 告警风暴。这里提升到模块级。

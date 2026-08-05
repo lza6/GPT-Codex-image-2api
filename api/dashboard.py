@@ -8,6 +8,7 @@ import os
 import platform
 import shutil
 import time
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Header
 from fastapi.concurrency import run_in_threadpool
@@ -171,6 +172,67 @@ def _collect_circuit_breaker_status() -> dict[str, object]:
 _PROCESS_START_TIME = time.time()
 
 
+def _collect_capacity(windows_days: int = 7) -> dict[str, object]:
+    """5.2：容量规划——日均请求 / 活跃账号 / 单账号日均消耗 / 外推需新号数。
+
+    数据源为 usage_agg 聚合缓存（禁止全量扫 logs.jsonl），口径与用量统计一致。
+    边界：空数据 / 单账号 / 零增长率不除零崩溃（日均与账号数为 0 时给占位值）。
+    """
+    from services.usage_agg import usage_agg
+
+    series = usage_agg.daily_success_series(windows_days)
+    if not series:
+        return {"days": windows_days, "avg_daily_requests": 0, "active_accounts": 0, "per_account_daily": 0, "growth_rate": 0.0, "suggested_new_accounts": 0, "series": series}
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    active_series = [s for s in series if s["date"] < today]  # 不含今天（不完整），避免拉低日均
+    if not active_series:
+        active_series = series
+    total = sum(int(s["calls"]) for s in active_series)
+    avg_daily = total / max(1, len(active_series))
+
+    # 活跃账号：近 windows_days 天有 success 或最近使用过的账号
+    accounts = account_service.list_accounts()
+    active_accounts = 0
+    for account in accounts:
+        if int(account.get("success") or 0) > 0:
+            active_accounts += 1
+            continue
+        last_used = account.get("last_used_at") or ""
+        if last_used[:10] >= (datetime.now() - timedelta(days=windows_days)).strftime("%Y-%m-%d"):
+            active_accounts += 1
+
+    per_account_daily = round(avg_daily / active_accounts, 1) if active_accounts else 0.0
+
+    # 增长率：最近一半窗口 vs 前一半窗口（线性外推日均），零/负增长按 0 处理
+    half = len(active_series) // 2
+    if half >= 1:
+        recent = sum(int(s["calls"]) for s in active_series[half:])
+        earlier = sum(int(s["calls"]) for s in active_series[:half])
+        growth_rate = round((recent - earlier) / max(1.0, earlier), 3) if earlier > 0 else 0.0
+    else:
+        growth_rate = 0.0
+
+    # 外推：按当前日均 + 增长率，若要扛 target 张/天，缺多少新号（每人按 per_account_daily）
+    suggested_new_accounts = 0
+    if active_accounts and per_account_daily > 0 and avg_daily > 0:
+        # 假设目标为当前日均的 2 倍（可解释为"翻倍容量"），需新增账号数 = (目标-当前)/单号日均
+        target_daily = avg_daily * 2
+        gap = target_daily - avg_daily
+        if gap > 0:
+            suggested_new_accounts = int(gap / per_account_daily) + (1 if gap % per_account_daily else 0)
+
+    return {
+        "days": windows_days,
+        "avg_daily_requests": round(avg_daily, 1),
+        "active_accounts": active_accounts,
+        "per_account_daily": per_account_daily,
+        "growth_rate": growth_rate,
+        "suggested_new_accounts": suggested_new_accounts,
+        "series": series,
+    }
+
+
 def create_router() -> APIRouter:
     router = APIRouter()
 
@@ -196,6 +258,13 @@ def create_router() -> APIRouter:
             token = str(account.get("access_token") or "")
             tier = AccountService._account_health_tier(account)
             score = AccountService._account_dispatch_score(account, tier)
+            # 5.1：寿命预测（含风险档位 + 预估剩余天数）
+            lifetime = {}
+            try:
+                from services.account_lifetime import compute_lifetime_risk
+                lifetime = compute_lifetime_risk(account)
+            except Exception:  # pragma: no cover - 预测失败不影响排名
+                lifetime = {"level": "low", "eta_days": None}
             ranked.append(
                 {
                     "email": account.get("email"),
@@ -208,6 +277,9 @@ def create_router() -> APIRouter:
                     "tier": tier,
                     "score": score,
                     "priority": account_service._priority_for_token(token),
+                    "lifetime_risk": lifetime.get("level", "low"),
+                    "lifetime_eta_days": lifetime.get("eta_days"),
+                    "lifetime_score": lifetime.get("score", 0.0),
                 }
             )
         ranked.sort(key=lambda item: (item["tier"] != "healthy", -item["score"]))
@@ -238,6 +310,13 @@ def create_router() -> APIRouter:
         from services.usage_forecast import forecast_quota_depletion
 
         return await run_in_threadpool(forecast_quota_depletion)
+
+    @router.get("/api/dashboard/capacity")
+    async def capacity_stats(authorization: str | None = Header(default=None), days: int = 7):
+        """5.2：容量规划——日均请求/活跃账号/单账号日均消耗/外推需新号数（基于聚合缓存）。"""
+        require_admin(authorization)
+        window = max(1, min(int(days), 90))
+        return await run_in_threadpool(_collect_capacity, window)
 
     @router.get("/api/dashboard/latency")
     async def latency_stats(authorization: str | None = Header(default=None)):

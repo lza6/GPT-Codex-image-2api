@@ -261,6 +261,7 @@ chatgpt2api/
 | 刷新复活失败图片（已修） | web/src/app/image/page.tsx | 刷新恢复对 error+taskId 图片重新 fetch，后端已成功会把"失败"翻"成功"。恢复只轮询 loading，error 保留快照 |
 | 破坏性操作无确认（已修） | 多组件 | 有损/不可逆操作（图片压缩/清理、备份删除、连接删除）必须二次确认，与既有删除确认模式一致 |
 | 告警去重表每实例重建（已修） | services/alert_service.py | _build_from_config 每次重建实例→去重表清空→告警风暴。去重态提升到模块级共享 |
+| 寿命预测降档勿误封（5.1 警示） | services/account_lifetime.py + account_service._lifetime_downgrade | 预测只降不升（濒危→risky/高→warm），低/中不降；最小观测窗口守卫（success+fail<3 且无明确失效→low）防「瞬间封禁/复活抖动」；禁止把 high 直接封禁 |
 | 原子写非统一（已修） | services/image_task_service.py + editable_file_task_service.py | 固定 .tmp 名并发覆盖、崩溃半写。统一复用 json_storage._atomic_write_text（唯一 tmp+重试） |
 | 文档与真实不一致（已修） | README.md + docs/api/ | 限流"已移除"vs 实际接线、/metrics"无需鉴权"vs 实际 401——改代码必须同步改文档，否则反向误导调用方 |
 
@@ -275,6 +276,9 @@ chatgpt2api/
 | 代理池 | services/proxy_pool.py + api/proxy_pool.py |
 | 限流 | api/rate_limit.py（已接线 api/app.py，默认 0 关闭） |
 | 用量预测 | services/usage_forecast.py + /api/dashboard/usage-forecast + dashboard 看板横幅 |
+| 账号寿命预测 | services/account_lifetime.py（5.1：EWMA 失败率+连续失效窗口双信号，输出 lifetime_risk 档位+eta_days；account_service._account_health_tier 降档接入，只降不升+最小观测窗口防抖动；scheduler/accounts API 附加 lifetime_* 字段） |
+| 容量规划 | /api/dashboard/capacity（5.2：基于 usage_agg 聚合缓存，禁止全量扫 logs；空数据/单账号/零增长不除零） |
+| 告警恢复事件 | services/alert_service.py + circuit_breaker.record_success 半开恢复 + account_service._record_refresh_success（5.3：circuit_breaker_closed / account_recovered，复用去重窗口） |
 | 日志聚合缓存 | services/usage_agg.py（usage/usage_forecast 数据源；按小时桶增量聚合+90 天窗口+原子落盘，后台线程每 60s ingest；4.1 起日志路径传 DATA_DIR 目录扫描 logs-*.jsonl 多文件增量；full_scan_* 为旧口径参考） |
 | 批量账号操作 | api/accounts.py `POST /api/accounts/batch`（3.1.2：evict_stale/label/export 表驱动分发，复用既有单点逻辑；账号 `label` 字段 JSON/SQLite JSON 列自动持久化） |
 | 图片 seed 透传 | services/protocol/openai_v1_image_generations.py → ConversationRequest.seed → 上游 payload tools[0].seed（3.1.3 实验性；负向提示前端拼入 prompt 降级） |

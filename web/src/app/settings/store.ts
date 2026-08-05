@@ -174,7 +174,7 @@ function normalizeConfig(config: SettingsConfig): SettingsConfig {
     trusted_proxies: Array.isArray(config.trusted_proxies) ? config.trusted_proxies : ["127.0.0.1", "::1"],
     alert_webhook_url: typeof config.alert_webhook_url === "string" ? config.alert_webhook_url : "",
     alert_webhook_timeout: Number(config.alert_webhook_timeout ?? 10),
-    alert_events: Array.isArray(config.alert_events) ? config.alert_events : ["circuit_breaker_open", "backup_failure", "account_invalid", "quota_exhausted"],
+    alert_events: Array.isArray(config.alert_events) ? config.alert_events : ["circuit_breaker_open", "circuit_breaker_closed", "backup_failure", "account_invalid", "account_recovered", "quota_exhausted", "quota_forecast_depletion"],
     log_levels: Array.isArray(config.log_levels) ? config.log_levels : [],
     proxy: typeof config.proxy === "string" ? config.proxy : "",
     base_url: typeof config.base_url === "string" ? config.base_url : "",

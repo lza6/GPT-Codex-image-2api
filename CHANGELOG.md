@@ -1,3 +1,21 @@
+## 2.7.0 - 2026-08-05 (v3.1 账号寿命预测/容量报表/告警恢复 + v3.2 前端体验)
+
+**产品功能增强（5.1/5.2/5.3）：**
++ [5.1 账号寿命预测] `services/account_lifetime.py`：EWMA 失败率 + 连续失效窗口双信号，输出 risk（low/medium/high/critical）+ 预估剩余天数（有限配额按消耗速率外推）；`_account_health_tier` 降档接入（濒危→risky、高→warm，只降不升 + 最小观测窗口防抖动）；调度排名/账号列表附加 `lifetime_risk`/`lifetime_eta_days`；dashboard 濒危账号预警卡片 + 排行榜「寿命」列 + accounts 页寿命徽章
++ [5.2 容量规划] `GET /api/dashboard/capacity?days=`：基于 usage_agg 聚合缓存的日均请求/活跃账号/单账号日均消耗/增长率/外推需新号数；mock 断言不触发 log_service.list（慢查询守卫）；空数据/单账号/零增长不除零
++ [5.3 告警恢复] 新增 `circuit_breaker_closed`（熔断半开成功恢复触发）+ `account_recovered`（账号从失效态刷新成功清零触发）事件，复用告警通道 + 去重窗口；`alert_events` 默认含新事件；设置页告警事件多选补 4 项
+
+**前端体验升级（6.1/6.2/6.3）：**
++ [6.1 异步按钮] `web/src/components/ui/async-button.tsx`：`isLoading` 禁用 + spinner + 成功后清态；dashboard 刷新按钮接入；e2e 新增 2 项交互反馈断言（点击后 loading 态 + 禁用）
++ [6.2 骨架屏] `web/src/components/ui/skeleton.tsx`（Skeleton/SkeletonTable/SkeletonCards）；dashboard 与 image-manager 加载态改统一骨架（消 CLS）
++ [6.3 账号列表分页] `/api/accounts?page=&page_size=` 服务端分页（可选，默认全量向后兼容），响应含 `total`；前端 `AccountListResponse` 加 total 字段
+
+**质量：**
+- 新增 test_account_lifetime.py（17 例）/test_capacity_report.py（5 例）/test_recovery_alerts.py（3 例）/test_accounts_pagination.py（5 例）；全量 **377 passed / 0 failed**
+- 五道防线全 PASS（契约断链=0 漂移=0 / SQL 0 / 慢查询 2 处 / 变异 caught=6 escaped=0 / 施压 8/8）
+- 前端 tsc 0 错误 + build 成功；E2E 冒烟 **7/7 PASS**（含新增交互反馈断言）
+- 边界声明：账号寿命预测为趋势信号（非精确到期），无限配额账号 eta_days 按风险档位给保守上限；6.3 虚拟滚动未引入（账号 <1k 时前端分页已满足，YAGNI）
+
 ## 2.6.0 - 2026-08-05 (4.1 日志按天轮转切分：慢查询根治落地)
 
 **性能根治（计划书 4.1）：**

@@ -45,6 +45,11 @@ export type Account = {
   tier?: SchedulerTier;
   /** 调度分。 */
   score?: number;
+  /** 5.1：账号寿命预测风险档位（low/medium/high/critical）。 */
+  lifetime_risk?: "low" | "medium" | "high" | "critical";
+  /** 5.1：预估剩余可用天数。 */
+  lifetime_eta_days?: number | null;
+  lifetime_score?: number;
 };
 
 export type AccountImportPayload = {
@@ -68,6 +73,8 @@ export type Model = {
 
 type AccountListResponse = {
   items: Account[];
+  /** 6.3：服务端分页时返回账号总数（默认全量返回也带 total，兼容旧字段）。 */
+  total?: number;
 };
 
 type ModelListResponse = {
@@ -1025,6 +1032,9 @@ export type SchedulerAccount = {
   tier: SchedulerTier;
   score: number;
   priority: number;
+  lifetime_risk?: "low" | "medium" | "high" | "critical";
+  lifetime_eta_days?: number | null;
+  lifetime_score?: number;
 };
 
 export type SchedulerDashboard = {
