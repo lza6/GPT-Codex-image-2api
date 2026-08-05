@@ -14,6 +14,8 @@
 
 **质量：** 全量 **410 passed**（+12 新用例）；ruff 0 错误；tsc 0 错误 + build 成功；五道防线全 PASS；E2E 10/10 PASS
 
+**E2E 实测报告：** `reports/v2.8.1-password-import-e2e-report.md`（真实 txt 100 条导入 + 文生图/图生图/文本 API + 负载均衡 + 延迟，完整数据可复现）
+
 **复用既有能力：** `_login_with_password`（OpenAI OAuth 密码登录，含 sentinel）、`re_login_accounts`（密码重登流程）、`_add_account_payloads`（入库）——无新增上游调用路径
 
 ## 2.8.0 - 2026-08-05 (3.2 审计日志：管理操作留痕闭环)

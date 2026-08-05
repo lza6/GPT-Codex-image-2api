@@ -14,6 +14,7 @@
 | D | 单元测试 12 用例 | ✅ | test/test_account_password_import.py（分流 4 + add_password_accounts 6 + pending 保护 2） |
 | E | E2E 真实验收 | ✅ | scripts/e2e_smoke.cjs 新增「账号密码导入」断言链 10/10 PASS；真实 txt 验证：池中有 email→skipped 去重，池中无 email→真实触发 _login_with_password→失败 pending 占位入库（凭据保留可 re-login） |
 | F | 验证全绿 | ✅ | pytest **410 passed**（+12 新用例，1 flaky 单跑 pass）；ruff 0 错误；tsc 0 + build 成功；五道防线全 PASS；契约探测通过 |
+| G | E2E 实测报告 | ✅ | `reports/v2.8.1-password-import-e2e-report.md`（真实 txt 100 条导入 + 文生图/图生图/文本 API + 负载均衡 + 延迟，完整数据可复现，避免下次反复回归） |
 
 ## 五道防线状态
 
