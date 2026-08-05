@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.8.1 - 2026-08-05 (账号密码导入：自动登录抓 Token + 失败保留待登录凭据)
+
+**用户场景：** 后续导入以"邮箱----密码"凭据为主，不一定能拿到 Token。
+
++ [后端] `services/account_service.py` 新增 `add_password_accounts(credentials)`：逐条调既有 `_login_with_password` 自动登录抓 Token；成功 → 正常入库（token 作 key，保留 email/password/source_type=password）；失败（OTP/风控/网络/密码错）→ 以 `pending:{email}` 占位入库（status=待登录，quota=0，保留 email/password 与 login_error），可用 `re_login_accounts` 重试。新增 `_PENDING_PREFIX` 常量；`list_tokens` 过滤 pending 前缀避免误刷/误调度；`_find_account_by_email` 按 email 去重（含 pending）
++ [后端] `api/accounts.py` `create_accounts` 分流：`accounts` payload 中无 access_token 的纯 email+password 项走 `add_password_accounts`，有 access_token 的仍走原 `add_account_items`；混合输入分别处理；纯凭据导入不再因 `tokens` 为空而 400。返回新增 `pending`/`failed` 统计与 errors（每条含 email/error/detail）
++ [前端] `web/src/app/accounts/components/account-import-dialog.tsx` 导入对话框新增「账号密码导入（自动登录抓 Token）」方式：每行 `邮箱----密码` 解析（`splitCredentials`），支持粘贴与 TXT 文件读取；菜单首位 MethodCard；标题/描述/提交按钮齐全
++ [前端] `web/src/lib/api.ts` `AccountImportPayload.access_token` 放宽为可选（纯凭据导入无 token）
++ [测试] 新增 `test/test_account_password_import.py` **12 用例**：分流（纯凭据/带 token/混合/纯凭据不强制 token）、add_password_accounts 成功路径、失败路径（pending 占位+login_error+保留凭据）、登录异常路径、缺字段跳过、重复 email 跳过、既有 email 跳过、list_tokens 过滤 pending、pending 账号可被 re_login_accounts 锁定重试
++ [E2E] `scripts/e2e_smoke.cjs` 新增「账号密码导入」断言链：打开导入对话框 → 选账号密码方式 → 粘贴 `邮箱----密码` → 提交 → 断言 POST /api/accounts body 含 email+password+source_type=password；**10/10 PASS**
++ [真实验收] 用用户真实 `账号密码.txt` 验证：池中已有 email 命中 skipped（去重正确）；池中无的账号 `cjbwfowtfoojv@outlook.com` 真实触发 `_login_with_password` → 密码验证失败返回 `password_verify_failed_401` → pending 占位入库（凭据保留，可 re-login 重试）
+
+**质量：** 全量 **410 passed**（+12 新用例）；ruff 0 错误；tsc 0 错误 + build 成功；五道防线全 PASS；E2E 10/10 PASS
+
+**复用既有能力：** `_login_with_password`（OpenAI OAuth 密码登录，含 sentinel）、`re_login_accounts`（密码重登流程）、`_add_account_payloads`（入库）——无新增上游调用路径
+
 ## 2.8.0 - 2026-08-05 (3.2 审计日志：管理操作留痕闭环)
 
 **安全纵深（计划书 3.2）：**

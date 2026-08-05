@@ -302,27 +302,45 @@ def create_router() -> APIRouter:
     async def create_accounts(body: AccountCreateRequest, authorization: str | None = Header(default=None)):
         require_admin(authorization)
         account_payloads = [item for item in body.accounts if isinstance(item, dict)]
-        payload_tokens = [_account_payload_token(item) for item in account_payloads]
-        tokens = _unique_tokens([*body.tokens, *payload_tokens])
-        if not tokens:
+        # 分流：无 access_token 的纯 email+password 凭据 → add_password_accounts 自动登录抓 token 入库
+        credential_items = [item for item in account_payloads if not _account_payload_token(item)]
+        token_items = [item for item in account_payloads if _account_payload_token(item)]
+        tokens = _unique_tokens([*body.tokens, *[_account_payload_token(item) for item in token_items]])
+        if not tokens and not credential_items:
             raise HTTPException(status_code=400, detail={"error": "tokens is required"})
-        if account_payloads:
-            result = account_service.add_account_items(account_payloads)
-            payload_token_set = set(_unique_tokens(payload_tokens))
+        if token_items:
+            result = account_service.add_account_items(token_items)
+            payload_token_set = set(_unique_tokens([_account_payload_token(item) for item in token_items]))
             extra_tokens = [token for token in tokens if token not in payload_token_set]
             if extra_tokens:
                 extra_result = account_service.add_accounts(extra_tokens)
                 result["added"] = int(result.get("added") or 0) + int(extra_result.get("added") or 0)
                 result["skipped"] = int(result.get("skipped") or 0) + int(extra_result.get("skipped") or 0)
-        else:
+        elif tokens:
             result = account_service.add_accounts(tokens)
-        refresh_result = account_service.refresh_accounts(tokens)
-        return {
-            **result,
-            "refreshed": refresh_result.get("refreshed", 0),
-            "errors": refresh_result.get("errors", []),
-            "items": refresh_result.get("items", result.get("items", [])),
-        }
+        else:
+            result = {"added": 0, "skipped": 0, "items": account_service.list_accounts()}
+        if tokens:
+            refresh_result = account_service.refresh_accounts(tokens)
+            result = {
+                **result,
+                "refreshed": refresh_result.get("refreshed", 0),
+                "errors": refresh_result.get("errors", []),
+                "items": refresh_result.get("items", result.get("items", [])),
+            }
+        else:
+            result.setdefault("refreshed", 0)
+            result.setdefault("errors", [])
+        # 纯凭据分流：自动登录抓 token 入库（失败保留待登录凭据）
+        if credential_items:
+            cred_result = account_service.add_password_accounts(credential_items)
+            result["added"] = int(result.get("added") or 0) + int(cred_result.get("added") or 0)
+            result["skipped"] = int(result.get("skipped") or 0) + int(cred_result.get("skipped") or 0)
+            result["pending"] = int(cred_result.get("pending") or 0)
+            result["failed"] = int(cred_result.get("failed") or 0)
+            result["errors"] = [*result.get("errors", []), *cred_result.get("errors", [])]
+            result["items"] = cred_result.get("items", result.get("items", []))
+        return result
 
     @router.delete("/api/accounts")
     async def delete_accounts(body: AccountDeleteRequest, authorization: str | None = Header(default=None)):

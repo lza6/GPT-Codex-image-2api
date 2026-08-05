@@ -1,26 +1,25 @@
-# ChatGPT2API 工作流状态 — 第十五轮（3.2 审计日志：管理操作留痕闭环）
+# ChatGPT2API 工作流状态 — 第十六轮（账号密码导入：自动登录抓 Token + 失败保留待登录凭据）
 
 > 最后更新：2026-08-05
-> 模式：v3.3 安全纵深 —— 计划书 3.2 审计日志
-> 基线：26155ce（v2.7.1 收尾）
+> 模式：用户需求 —— 兼容"邮箱----密码"凭据导入，自动登录抓 token，失败保留待登录
+> 基线：8ea9700（v2.8.0 审计日志收尾）
 
 ## 本轮完成清单
 
 | 编号 | 事项 | 状态 | 证据 |
 |------|------|------|------|
-| A | 3.2 审计服务（按天轮转+原子写+过期整删+operator 末8位脱敏） | ✅ | services/audit_service.py（AuditService；独立 audit-YYYY-MM-DD.jsonl；RLock 防并发丢行；90 天保留） |
-| B | require_admin 统一埋点（成功+失败留痕，dashboard 轮询降噪） | ✅ | api/support.py require_admin（401/403 必记；写操作与非轮询 GET 成功记；/api/dashboard/*、/metrics、/health 轮询 GET 成功跳过防刷爆）；中间件注入 path/method/ip（api/app.py → services/request_context.py） |
-| C | 读取端点 + 前端审计 tab | ✅ | GET /api/audit（days/limit/result/operator 过滤）；web logs 页「审计日志」tab（AuditSection：时间/方法/操作/结果/操作者/IP/请求ID）；api.ts AuditLog 类型 + fetchAuditLogs |
-| D | 指标 chatgpt2api_audit_actions_total{action,result} | ✅ | services/prometheus_metrics.py record_audit_action；audit_service.record 内 inc |
-| E | 契约守卫覆盖 /api/audit | ✅ | SNAPSHOT_ENDPOINTS + DYNAMIC_KEY 豁免；断链=0 漂移=0 |
-| F | login 审计（成功/失败留痕） | ✅ | api/system.py `/auth/login`：成功记录 success、失败（错误密钥 401）记录 unauthorized——越权/错误密钥尝试可追溯 |
-| G | 验证全绿 | ✅ | test/test_audit_service.py **20 用例**（+login 成功/失败留痕、当天超限裁剪）；pytest **399 passed / 0 failed**（396+3）；五道防线全 PASS（变异 caught=6 escaped=0）；tsc 0 + build 成功；E2E 冒烟新增审计 tab 断言 |
+| A | 后端 `add_password_accounts`（自动登录抓 token + 失败占位入库） | ✅ | services/account_service.py（`add_password_accounts` 逐条调 `_login_with_password`；成功入 token，失败入 `pending:{email}` status=待登录 quota=0 保留 email/password/login_error；`_PENDING_PREFIX` 常量；`list_tokens` 过滤 pending；`_find_account_by_email` 去重） |
+| B | 后端 `/api/accounts` 分流纯凭据 | ✅ | api/accounts.py `create_accounts`（无 access_token 的 email+password 项走 add_password_accounts，有 token 走原 add_account_items，混合分别处理；纯凭据不再因 tokens 空而 400；返回 pending/failed/errors） |
+| C | 前端导入对话框新增「账号密码导入」 | ✅ | web/src/app/accounts/components/account-import-dialog.tsx（MethodCard 首位；splitCredentials 解析 `邮箱----密码`；粘贴+TXT；标题/描述/提交按钮）；api.ts access_token 放宽可选 |
+| D | 单元测试 12 用例 | ✅ | test/test_account_password_import.py（分流 4 + add_password_accounts 6 + pending 保护 2） |
+| E | E2E 真实验收 | ✅ | scripts/e2e_smoke.cjs 新增「账号密码导入」断言链 10/10 PASS；真实 txt 验证：池中有 email→skipped 去重，池中无 email→真实触发 _login_with_password→失败 pending 占位入库（凭据保留可 re-login） |
+| F | 验证全绿 | ✅ | pytest **410 passed**（+12 新用例，1 flaky 单跑 pass）；ruff 0 错误；tsc 0 + build 成功；五道防线全 PASS；契约探测通过 |
 
 ## 五道防线状态
 
 | 批次 | 契约守卫 | SQL | 慢查询 | 变异 | 施压 |
 |------|---------|-----|--------|------|------|
-| 第十五轮 | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 第十六轮 | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 ## 当前 git 状态
 

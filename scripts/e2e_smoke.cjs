@@ -99,6 +99,30 @@ async function main() {
     .catch(() => false);
   check('异步按钮 loading 时禁用', refreshDisabled, 'disabled 属性');
 
+  // ---- 6. 账号密码导入：打开导入对话框 → 选"账号密码导入" → 粘贴 → 提交 → 断言后端分流 ----
+  // 用故意无效的凭据，避免真实登录；只验证前端解析 + 后端分流接住（pending 入库）
+  await page.goto(`${BASE}/accounts`, { waitUntil: 'domcontentloaded' });
+  const importReq = [];
+  page.on('request', (r) => {
+    if (r.url().includes('/api/accounts') && !r.url().includes('/api/accounts/') && r.method() === 'POST') {
+      importReq.push(r.postData() || '');
+    }
+  });
+  await page.click('button:has-text("导入")');
+  // 点击「账号密码导入」MethodCard（卡片标题按钮）
+  await page.locator('text=账号密码导入（自动登录抓 Token）').first().click().catch(() => {});
+  await page.waitForSelector('textarea', { timeout: 5000 });
+  await page.fill('textarea', 'e2e-password-test@example.com----invalidpw123');
+  await page.click('button:has-text("导入账号")');
+  await page.waitForTimeout(2500);
+  // 断言：前端确实发起了带 email+password 的 POST /api/accounts（分流到 add_password_accounts）
+  const importBody = importReq.length > 0 ? importReq[0] : '';
+  check(
+    '账号密码导入发起 /api/accounts 请求且带 email+password',
+    importBody.includes('"email"') && importBody.includes('"password"') && importBody.includes('"source_type":"password"'),
+    importBody.slice(0, 200),
+  );
+
   await browser.close();
   const passed = results.filter((r) => r.pass).length;
   console.log(`\n===== 前端 E2E 冒烟结果 =====\n${passed}/${results.length} PASS`);

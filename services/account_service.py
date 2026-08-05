@@ -38,6 +38,9 @@ class AccountService:
     _TOKEN_REFRESH_ERROR_BACKOFF_SECONDS = 5 * 60
     _OAUTH_TOKEN_URL = "https://auth.openai.com/oauth/token"
     _OAUTH_CLIENT_ID = "app_2SKx67EdpoN0G6j64rFvigXD"
+    # 邮箱+密码导入时登录失败账号的占位 access_token 前缀（不污染真实 token 空间，
+    # 调度/刷新遍历一律跳过；凭据保留，可用 re_login_accounts 重试）。
+    _PENDING_PREFIX = "pending:"
     _OAUTH_USER_AGENT = (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -1030,7 +1033,11 @@ class AccountService:
 
     def list_tokens(self) -> list[str]:
         with self._lock:
-            return list(self._accounts)
+            return [
+                token
+                for token in self._accounts
+                if token and not token.startswith(self._PENDING_PREFIX)
+            ]
 
     def _list_ready_candidate_tokens(
             self,
@@ -1398,6 +1405,105 @@ class AccountService:
             {"access_token": token, "source_type": self._normalize_source_type(source_type)}
             for token in tokens
         ])
+
+    def add_password_accounts(self, credentials: list[dict]) -> dict:
+        """邮箱+密码凭据批量导入：逐条自动登录抓 token 入库，失败保留待登录凭据。
+
+        - 登录成功：以 access_token 为 key 正常入库（source_type=password，保留 email/password 供 re-login）。
+        - 登录失败（OTP/风控/网络等）：以 `pending:{email}` 占位入库（status=待登录，quota=0，
+          保留 email/password 与 login_error），后续可用 re_login_accounts 重试。
+        不强制要求能抓到 token——凭据本身即入库，失败账号保留待登录。
+
+        返回 {added, skipped, pending, failed, errors, items}。errors 每条含 email/error/detail。
+        """
+        deduped: dict[str, dict] = {}
+        for item in credentials:
+            if not isinstance(item, dict):
+                continue
+            email = str(item.get("email") or "").strip()
+            password = str(item.get("password") or "").strip()
+            if not email or not password:
+                continue
+            key = email.lower()
+            if key not in deduped:
+                deduped[key] = {"email": email, "password": password, **item}
+
+        added = 0
+        skipped = 0
+        pending = 0
+        errors: list[dict] = []
+        for cred in deduped.values():
+            email = str(cred.get("email") or "").strip()
+            password = str(cred.get("password") or "").strip()
+            if self._find_account_by_email(email):
+                skipped += 1
+                continue
+            try:
+                result = self._login_with_password(email, password)
+            except Exception as exc:
+                result = {"ok": False, "error": f"login_exception:{type(exc).__name__}", "detail": {"message": str(exc)}}
+            if result.get("ok"):
+                payload = {
+                    "access_token": str(result.get("access_token") or "").strip(),
+                    "refresh_token": str(result.get("refresh_token") or "").strip(),
+                    "id_token": str(result.get("id_token") or "").strip(),
+                    "email": str(result.get("email") or email).strip(),
+                    "password": password,
+                    "source_type": str(result.get("source_type") or "password"),
+                    "type": "free",
+                    "status": "正常",
+                }
+                if result.get("expires_at"):
+                    payload["expires_at"] = result["expires_at"]
+                acc = self._add_account_payloads([payload])
+                if int(acc.get("added") or 0) > 0:
+                    added += 1
+                else:
+                    skipped += 1
+            else:
+                error_type = str(result.get("error") or "unknown")
+                pending += 1
+                self._add_account_payloads([{
+                    "access_token": f"{self._PENDING_PREFIX}{email}",
+                    "email": email,
+                    "password": password,
+                    "source_type": "password",
+                    "type": "free",
+                    "status": "待登录",
+                    "quota": 0,
+                    "login_error": error_type,
+                    "login_error_at": self._now(),
+                }])
+                errors.append({
+                    "email": email,
+                    "error": error_type,
+                    "detail": result.get("detail") if isinstance(result.get("detail"), dict) else None,
+                })
+        items = self.list_accounts()
+        log_service.add(
+            LOG_TYPE_ACCOUNT,
+            f"密码导入：新增 {added}，待登录 {pending}，跳过 {skipped}",
+            {"added": added, "pending": pending, "skipped": skipped},
+        )
+        return {
+            "added": added,
+            "skipped": skipped,
+            "pending": pending,
+            "failed": pending,
+            "errors": errors,
+            "items": items,
+        }
+
+    def _find_account_by_email(self, email: str) -> dict | None:
+        """按 email 查找已入库账号（含 pending 占位账号），用于导入去重。"""
+        low = str(email or "").strip().lower()
+        if not low:
+            return None
+        with self._lock:
+            for acc in self._accounts.values():
+                if str(acc.get("email") or "").strip().lower() == low:
+                    return acc
+        return None
 
     def _add_account_payloads(self, payloads: list[dict]) -> dict:
         deduped: dict[str, dict] = {}

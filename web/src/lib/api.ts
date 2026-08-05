@@ -53,8 +53,11 @@ export type Account = {
 };
 
 export type AccountImportPayload = {
-  access_token: string;
+  // 纯账号密码导入时无 access_token，后端会按 email+password 自动登录抓 token 入库。
+  access_token?: string;
   accessToken?: string;
+  email?: string;
+  password?: string;
   type?: string;
   export_type?: string;
   source_type?: string;

@@ -38,7 +38,7 @@ import {
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-type ImportMethod = "menu" | "token" | "session" | "codex-auth" | "account-json" | "oauth";
+type ImportMethod = "menu" | "token" | "session" | "codex-auth" | "account-json" | "oauth" | "password";
 
 type AccountImportDialogProps = {
   disabled?: boolean;
@@ -59,6 +59,27 @@ function splitTokens(value: string) {
     .split(/\r?\n/)
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+// 账号密码导入：每行 `邮箱----密码`（---- 为分隔符，密码取第二段）。
+function splitCredentials(value: string): AccountImportPayload[] {
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const parts = line.split("----");
+      if (parts.length < 2) {
+        return null;
+      }
+      const email = parts[0].trim();
+      const password = parts[1].trim();
+      if (!email.includes("@") || !password) {
+        return null;
+      }
+      return { email, password, source_type: "password" } as AccountImportPayload;
+    })
+    .filter((item): item is AccountImportPayload => Boolean(item));
 }
 
 function getSessionAccessToken(value: unknown) {
@@ -187,6 +208,7 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
   const [tokenInput, setTokenInput] = useState("");
   const [sessionInput, setSessionInput] = useState("");
   const [codexAuthInput, setCodexAuthInput] = useState("");
+  const [passwordInput, setPasswordInput] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [pendingAccountJsonImport, setPendingAccountJsonImport] = useState<PendingAccountJsonImport | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -197,12 +219,14 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
 
   const txtInputRef = useRef<HTMLInputElement | null>(null);
   const accountJsonInputRef = useRef<HTMLInputElement | null>(null);
+  const passwordTxtInputRef = useRef<HTMLInputElement | null>(null);
 
   const resetState = () => {
     setMethod("menu");
     setTokenInput("");
     setSessionInput("");
     setCodexAuthInput("");
+    setPasswordInput("");
     setPendingAccountJsonImport(null);
     setConfirmOpen(false);
     setOauthEmailHint("");
@@ -221,8 +245,8 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
   const submitTokens = async (tokens: string[], successText?: string, accountPayloads: AccountImportPayload[] = []) => {
     const normalizedTokens = tokens.map((item) => item.trim()).filter(Boolean);
 
-    if (normalizedTokens.length === 0) {
-      toast.error("请先提供至少一个可用 Token");
+    if (normalizedTokens.length === 0 && accountPayloads.length === 0) {
+      toast.error("请先提供至少一个可用 Token 或账号凭据");
       return;
     }
 
@@ -253,6 +277,43 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
 
   const handleImportTokenText = async () => {
     await submitTokens(splitTokens(tokenInput), "Access Token 导入完成");
+  };
+
+  const handleImportPassword = async () => {
+    const credentials = splitCredentials(passwordInput);
+    if (credentials.length === 0) {
+      toast.error("未识别到有效的账号凭据，格式应为：邮箱----密码");
+      return;
+    }
+    await submitTokens([], "账号密码导入完成", credentials);
+  };
+
+  const handlePasswordTxtSelected = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+
+    if (!file) {
+      return;
+    }
+
+    try {
+      const content = await readFileAsText(file);
+      const credentials = splitCredentials(content);
+
+      if (credentials.length === 0) {
+        toast.error("TXT 文件里没有识别到有效的账号凭据（邮箱----密码）");
+        return;
+      }
+
+      setPasswordInput((prev) => {
+        const merged = [...content.split(/\r?\n/).map((item) => item.trim()).filter(Boolean), ...prev.split(/\r?\n/).map((item) => item.trim()).filter(Boolean)];
+        return merged.join("\n");
+      });
+      toast.success(`已从 ${file.name} 读取 ${credentials.length} 个账号凭据`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "读取 TXT 文件失败";
+      toast.error(message);
+    }
   };
 
   // 起授权：拿 authorize URL，立刻在新窗口打开，方便用户登录
@@ -393,7 +454,7 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
         return;
       }
 
-      await submitTokens([account.access_token], "Codex 认证 JSON 导入完成", [account]);
+      await submitTokens([account.access_token ?? ""], "Codex 认证 JSON 导入完成", [account]);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Codex 认证 JSON 解析失败";
       toast.error(message);
@@ -421,7 +482,9 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
       );
 
       const accounts = results.flatMap((item) => item.accounts);
-      const tokens = accounts.map((item) => item.access_token);
+      const tokens = accounts
+        .map((item) => item.access_token)
+        .filter((token): token is string => Boolean(token));
       const parsedAccountCount = accounts.length;
       const errorCount = results.filter((item) => item.accounts.length === 0).length;
 
@@ -493,6 +556,65 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
             accept=".txt,text/plain"
             className="hidden"
             onChange={(event) => void handleTxtSelected(event)}
+          />
+        </div>
+      );
+    }
+
+    if (method === "password") {
+      const credentialCount = splitCredentials(passwordInput).length;
+
+      return (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => setMethod("menu")}
+              className="inline-flex items-center gap-1 text-sm text-stone-500 transition hover:text-stone-800"
+            >
+              <ArrowLeft className="size-4" />
+              返回导入方式
+            </button>
+            <span className="text-xs text-stone-400">当前识别 {credentialCount} 个账号凭据</span>
+          </div>
+          <div className="rounded-2xl border border-stone-200 bg-stone-50 p-4 text-sm leading-6 text-stone-600">
+            每行一个账号，格式 <code className="rounded bg-stone-200 px-1">邮箱----密码</code>。
+            导入后系统会自动登录抓取 Token 入库；暂时登录不上的账号会先入库为「待登录」，
+            可稍后重新登录，无需手动抓 Token。
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-stone-700">账号密码列表</label>
+            <Textarea
+              placeholder={"每行一个账号，例如：\nexample@outlook.com----AbCdEfGh1234"}
+              value={passwordInput}
+              onChange={(event) => setPasswordInput(event.target.value)}
+              className="min-h-56 resize-none rounded-xl border-stone-200 font-mono text-xs"
+            />
+          </div>
+          <div className="rounded-2xl border border-dashed border-stone-200 bg-stone-50 p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="space-y-1">
+                <div className="text-sm font-medium text-stone-800">从 TXT 文件导入</div>
+                <div className="text-sm leading-6 text-stone-500">支持 `.txt`，文件内容也是一行一个 `邮箱----密码`。</div>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                className="rounded-xl border-stone-200 bg-white"
+                onClick={() => passwordTxtInputRef.current?.click()}
+                disabled={isSubmitting}
+              >
+                <FileText className="size-4" />
+                选择 TXT
+              </Button>
+            </div>
+          </div>
+          <input
+            ref={passwordTxtInputRef}
+            type="file"
+            accept=".txt,text/plain"
+            className="hidden"
+            onChange={(event) => void handlePasswordTxtSelected(event)}
           />
         </div>
       );
@@ -721,6 +843,12 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
           onClick={() => setMethod("oauth")}
         />
         <MethodCard
+          title="账号密码导入（自动登录抓 Token）"
+          description="每行一个 邮箱----密码，系统自动登录抓取 Token 入库，无需手动提供 Token。"
+          icon={LogIn}
+          onClick={() => setMethod("password")}
+        />
+        <MethodCard
           title="导入 Access Token"
           description="支持直接粘贴，一行一个；也支持从 TXT 文件读取，一行一个。"
           icon={KeyRound}
@@ -786,6 +914,8 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
             <DialogTitle>
               {method === "menu"
                 ? "导入账户"
+                : method === "password"
+                  ? "账号密码导入"
                 : method === "token"
                   ? "导入 Access Token"
                   : method === "session"
@@ -799,6 +929,8 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
             <DialogDescription className="text-sm leading-6">
               {method === "menu"
                 ? "选择一种导入方式。导入成功后会自动拉取邮箱、类型和额度。"
+                : method === "password"
+                  ? "每行一个 邮箱----密码，导入后自动登录抓取 Token 入库，无需手动提供 Token。"
                 : method === "token"
                   ? "支持手动粘贴或从 TXT 文件导入，一行一个 Token。"
                   : method === "session"
@@ -822,6 +954,16 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
             >
               取消
             </Button>
+            {method === "password" ? (
+              <Button
+                className="h-10 rounded-xl bg-stone-950 px-5 text-white hover:bg-stone-800"
+                onClick={() => void handleImportPassword()}
+                disabled={footerDisabled}
+              >
+                {isSubmitting ? <LoaderCircle className="size-4 animate-spin" /> : null}
+                导入账号
+              </Button>
+            ) : null}
             {method === "token" ? (
               <Button
                 className="h-10 rounded-xl bg-stone-950 px-5 text-white hover:bg-stone-800"
