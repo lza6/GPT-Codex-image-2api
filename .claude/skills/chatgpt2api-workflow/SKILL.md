@@ -285,6 +285,7 @@ chatgpt2api/
 | 主动探活 | api/support.py start_proactive_probe（默认关，proactive_probe_enabled） |
 | 配置 | services/config.py |
 | 日志 | services/log_service.py（4.1 起按天轮转切分：写 logs-YYYY-MM-DD.jsonl、list(days=N) 分片读、过期天文件整删+当天文件裁剪；旧 logs.jsonl 启动迁移） |
+| 审计日志 | services/audit_service.py + api/support.py require_admin 统一埋点（3.2：独立 audit-YYYY-MM-DD.jsonl 按天轮转+原子写+过期整删+operator 末 8 位脱敏；401/403 必记、写操作与非轮询 GET 成功记、dashboard/metrics/health 轮询 GET 成功降噪；GET /api/audit 读取 + 前端 logs 页审计 tab；chatgpt2api_audit_actions_total 指标） |
 | 看板 | api/dashboard.py + web/src/app/dashboard/page.tsx |
 | IP 池 | web/src/app/proxy-pool/page.tsx |
 | API 文档 | docs/api/* |

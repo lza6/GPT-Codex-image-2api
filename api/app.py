@@ -36,6 +36,12 @@ def create_app() -> FastAPI:
         agg_thread = start_usage_agg_watcher(stop_event)
         backup_service.start()
         config.cleanup_old_images()
+        # S6：启动即补一次审计清理（服务长期无管理操作时，过期天文件也能按期整删）
+        try:
+            from services.audit_service import audit_service
+            audit_service.maybe_cleanup()
+        except Exception:  # noqa: BLE001 - 审计清理失败不阻断启动
+            pass
         try:
             yield
         finally:
@@ -60,9 +66,21 @@ def create_app() -> FastAPI:
 
         此前 metrics_service 有 request_id 基础设施但从未写响应头，而
         docs 与前端 request.ts 都依赖 X-Request-ID（5xx 排障定位）。
+        3.2：同时注入请求上下文（path/method/ip），供 require_admin 审计埋点读取。
         """
         request_id = uuid.uuid4().hex[:16]
         set_request_id(request_id)
+        try:
+            from services.request_context import set_request_context
+
+            client = request.client
+            set_request_context(
+                path=request.url.path,
+                method=request.method,
+                ip=str(getattr(client, "host", "") or ""),
+            )
+        except Exception:  # noqa: BLE001 - 审计上下文失败不影响主流程
+            pass
         start = time.perf_counter()
         response = None
         try:

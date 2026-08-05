@@ -46,3 +46,6 @@ htmlcov/
 # .omm 代码分析产物（regenerable）
 .omm/
 *.log
+
+# 逆向参考资料（本地研发用，30MB 不入库）
+GPT web端的逆向注意参考我的这个/

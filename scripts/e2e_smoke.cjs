@@ -52,6 +52,19 @@ async function main() {
   await page.waitForTimeout(1800);
   check('logs 页触发 account_email 过滤请求', reqLogs.some((u) => u.includes('account_email=')), reqLogs[reqLogs.length - 1] || '');
 
+  // ---- 2.5 3.2 审计日志 tab：点击「审计日志」→ 发起 /api/audit 请求 + 表格渲染 ----
+  const reqAudit = [];
+  page.on('request', (r) => { if (r.url().includes('/api/audit')) reqAudit.push(r.url()); });
+  const auditTab = page.locator('button:has-text("审计日志")').first();
+  await auditTab.waitFor({ timeout: 20000 });
+  await auditTab.click();
+  await page.waitForTimeout(1200);
+  check('审计 tab 发起 /api/audit 请求', reqAudit.length > 0, reqAudit[reqAudit.length - 1] || '');
+  const auditTable = await page.locator('text=管理操作留痕').count();
+  check('审计表格渲染', auditTable > 0, '审计视图标题');
+  // 切回业务日志，保证后续断言上下文干净
+  await page.locator('button:has-text("业务日志")').first().click().catch(() => {});
+
   // ---- 3. /accounts 单账号时间线 ----
   await page.goto(`${BASE}/accounts`, { waitUntil: 'domcontentloaded' });
   const reqTimeline = [];

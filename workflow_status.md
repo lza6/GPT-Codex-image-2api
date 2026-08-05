@@ -1,4 +1,44 @@
-# ChatGPT2API 工作流状态 — 第十四轮（v3.1 账号寿命预测/容量报表/告警恢复 + v3.2 前端体验）
+# ChatGPT2API 工作流状态 — 第十五轮（3.2 审计日志：管理操作留痕闭环）
+
+> 最后更新：2026-08-05
+> 模式：v3.3 安全纵深 —— 计划书 3.2 审计日志
+> 基线：26155ce（v2.7.1 收尾）
+
+## 本轮完成清单
+
+| 编号 | 事项 | 状态 | 证据 |
+|------|------|------|------|
+| A | 3.2 审计服务（按天轮转+原子写+过期整删+operator 末8位脱敏） | ✅ | services/audit_service.py（AuditService；独立 audit-YYYY-MM-DD.jsonl；RLock 防并发丢行；90 天保留） |
+| B | require_admin 统一埋点（成功+失败留痕，dashboard 轮询降噪） | ✅ | api/support.py require_admin（401/403 必记；写操作与非轮询 GET 成功记；/api/dashboard/*、/metrics、/health 轮询 GET 成功跳过防刷爆）；中间件注入 path/method/ip（api/app.py → services/request_context.py） |
+| C | 读取端点 + 前端审计 tab | ✅ | GET /api/audit（days/limit/result/operator 过滤）；web logs 页「审计日志」tab（AuditSection：时间/方法/操作/结果/操作者/IP/请求ID）；api.ts AuditLog 类型 + fetchAuditLogs |
+| D | 指标 chatgpt2api_audit_actions_total{action,result} | ✅ | services/prometheus_metrics.py record_audit_action；audit_service.record 内 inc |
+| E | 契约守卫覆盖 /api/audit | ✅ | SNAPSHOT_ENDPOINTS + DYNAMIC_KEY 豁免；断链=0 漂移=0 |
+| F | login 审计（成功/失败留痕） | ✅ | api/system.py `/auth/login`：成功记录 success、失败（错误密钥 401）记录 unauthorized——越权/错误密钥尝试可追溯 |
+| G | 验证全绿 | ✅ | test/test_audit_service.py **20 用例**（+login 成功/失败留痕、当天超限裁剪）；pytest **399 passed / 0 failed**（396+3）；五道防线全 PASS（变异 caught=6 escaped=0）；tsc 0 + build 成功；E2E 冒烟新增审计 tab 断言 |
+
+## 五道防线状态
+
+| 批次 | 契约守卫 | SQL | 慢查询 | 变异 | 施压 |
+|------|---------|-----|--------|------|------|
+| 第十五轮 | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+## 当前 git 状态
+
+- 测试：**399 passed / 0 failed**（31 live/redis 排除）
+- 前端：tsc 0 错误 + build 成功（logs 页审计 tab）+ `web_dist` 已同步最新构建（生产静态资源）
+- 契约：断链=0 漂移=0（/api/audit 新端点快照 --update）
+- 版本：**v2.8.0（待发版）**
+
+## 边界声明（诚实）
+
+- **审计范围**：require_admin 管理面 + `/auth/login`（成功/失败均留痕）；`/v1/*` 调用（业务流量）不记——审计定位是「管理操作留痕」，业务日志仍走 logs-*.jsonl
+- **降噪取舍**：dashboard/metrics/health 轮询 GET 成功不记，避免 SSE 每 3s 刷爆审计；失败（401/403）无论路径必记，越权尝试仍全留痕
+- **operator 语义**：取 identity.id（legacy admin 为 "admin" 短串原样保留；多 key 场景为 key id 末 8 位），不泄漏完整 key
+- **多 worker**：audit-*.jsonl 各进程 O_APPEND 原子追加不损坏；指标经 prometheus multiprocess 聚合；`_auto_cleanup` 裁剪用原子写，极端并发下以最后一次原子写为准（与 log_service 同口径）
+
+---
+
+## 第十四轮历史（v3.1 账号寿命预测/容量报表/告警恢复 + v3.2 前端体验）
 
 > 最后更新：2026-08-05
 > 模式：v3.1 产品功能增强 + v3.2 前端体验升级 —— 计划书 5.1/5.2/5.3 + 6.1/6.2/6.3

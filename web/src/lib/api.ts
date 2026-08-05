@@ -301,6 +301,19 @@ export type SystemLog = {
   [key: string]: unknown;
 };
 
+export type AuditLog = {
+  id: string;
+  ts: string;
+  action: string;
+  result: string;
+  operator: string;
+  resource?: string;
+  detail?: Record<string, unknown>;
+  request_id?: string;
+  ip?: string;
+  method?: string;
+};
+
 export type ImageResponse = {
   created: number;
   data: Array<{ b64_json?: string; url?: string; revised_prompt?: string }>;
@@ -770,6 +783,15 @@ export async function deleteSystemLogs(ids: string[]) {
     method: "POST",
     body: { ids },
   });
+}
+
+export async function fetchAuditLogs(filters: { days?: number; result?: string; operator?: string; limit?: number }) {
+  const params = new URLSearchParams();
+  if (filters.days !== undefined) params.set("days", String(filters.days));
+  if (filters.result) params.set("result", filters.result);
+  if (filters.operator) params.set("operator", filters.operator);
+  if (filters.limit !== undefined) params.set("limit", String(filters.limit));
+  return httpRequest<{ items: AuditLog[] }>(`/api/audit${params.toString() ? `?${params.toString()}` : ""}`);
 }
 
 export async function fetchUserKeys() {

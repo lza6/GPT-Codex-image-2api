@@ -63,7 +63,16 @@ def create_router(app_version: str) -> APIRouter:
 
     @router.post("/auth/login")
     async def login(authorization: str | None = Header(default=None)):
-        identity = require_identity(authorization)
+        try:
+            identity = require_identity(authorization)
+        except HTTPException:
+            # 3.2：登录失败也留痕（越权/错误密钥尝试可追溯）
+            from services.audit_service import record_admin_access
+            record_admin_access(action="/auth/login", result="unauthorized", identity=None)
+            raise
+        # 3.2：登录成功留痕（operator 为 key id 末 8 位）
+        from services.audit_service import record_admin_access
+        record_admin_access(action="/auth/login", result="success", identity=identity)
         return {
             "ok": True,
             "version": app_version,
@@ -139,6 +148,27 @@ def create_router(app_version: str) -> APIRouter:
     async def delete_logs(body: LogDeleteRequest, authorization: str | None = Header(default=None)):
         require_admin(authorization)
         return log_service.delete(body.ids)
+
+    @router.get("/api/audit")
+    async def get_audit(
+        days: int | None = Query(default=None),
+        limit: int = 200,
+        result: str = "",
+        operator: str = "",
+        authorization: str | None = Header(default=None),
+    ):
+        """3.2：审计日志读取（管理操作留痕，独立于业务日志）。"""
+        require_admin(authorization)
+        from services.audit_service import audit_service
+
+        return {
+            "items": audit_service.list(
+                days=days,
+                limit=max(1, min(int(limit), 1000)),
+                result=result.strip(),
+                operator=operator.strip(),
+            )
+        }
 
     @router.post("/api/proxy/test")
     async def test_proxy_endpoint(body: ProxyTestRequest, authorization: str | None = Header(default=None)):

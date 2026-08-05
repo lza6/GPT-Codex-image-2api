@@ -4,11 +4,11 @@ from pathlib import Path
 from threading import Event, Thread
 
 from fastapi import HTTPException, Request
-from utils.log import logger
 
 from services.account_service import account_service
 from services.auth_service import auth_service
 from services.config import config
+from utils.log import logger
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 WEB_DIST_DIR = BASE_DIR / "web_dist"
@@ -36,10 +36,59 @@ def require_identity(authorization: str | None) -> dict[str, object]:
     return identity
 
 
+def _audit_admin_access(action: str, *, result: str, identity: dict[str, object] | None = None) -> None:
+    """require_admin 审计埋点辅助（失败不阻断主流程）。"""
+    try:
+        from services.audit_service import record_admin_access
+
+        record_admin_access(action=action, result=result, identity=identity)
+    except Exception:  # noqa: BLE001 - 审计失败绝不阻断鉴权
+        pass
+
+
 def require_admin(authorization: str | None) -> dict[str, object]:
-    identity = require_identity(authorization)
+    """管理操作鉴权（3.2 起统一埋点审计：成功 + 失败都留痕）。
+
+    降噪策略（防看板轮询刷爆审计）：
+    - 失败（401/403）总是记录；
+    - 成功仅记录「写操作」（POST/PUT/DELETE/PATCH）与非轮询 GET；
+    - `/api/dashboard/*` 与 `/metrics` 的轮询 GET 成功跳过（SSE 每 3s 推送，
+      全部记录会让审计文件失真）。
+    """
+    try:
+        identity = require_identity(authorization)
+    except HTTPException:
+        try:
+            from services.request_context import get_request_path
+            action = get_request_path() or "/api"
+        except Exception:  # noqa: BLE001
+            action = "/api"
+        _audit_admin_access(action, result="unauthorized", identity=None)
+        raise
     if identity.get("role") != "admin":
+        try:
+            from services.request_context import get_request_path
+            denied_path = get_request_path() or "/api"
+        except Exception:  # noqa: BLE001
+            denied_path = "/api"
+        _audit_admin_access(denied_path, result="denied", identity=identity)
         raise HTTPException(status_code=403, detail={"error": "需要管理员权限才能执行这个操作"})
+    # 成功埋点（降噪：轮询 GET 跳过）
+    try:
+        from services.request_context import get_request_method, get_request_path
+
+        path = get_request_path()
+        method = get_request_method().upper()
+        is_write = method in {"POST", "PUT", "DELETE", "PATCH"}
+        # 降噪：dashboard/metrics 是轮询热点（SSE 每 3s / 抓取周期），成功不记防刷爆审计。
+        # 注意：/health 不经过 require_admin（公开端点），无需在此豁免。
+        is_polling_get = method == "GET" and (
+            path.startswith("/api/dashboard/") or path == "/metrics"
+        )
+        if is_write or (method == "GET" and not is_polling_get):
+            _audit_admin_access(path or "/api", result="success", identity=identity)
+    except Exception:  # noqa: BLE001 - 审计失败绝不阻断鉴权
+        pass
     return identity
 
 

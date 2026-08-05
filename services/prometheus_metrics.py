@@ -86,6 +86,12 @@ chatgpt2api_backup_failures_total = Counter(
     "Total backup failures",
 )
 
+chatgpt2api_audit_actions_total = Counter(
+    "chatgpt2api_audit_actions_total",
+    "Admin audit actions by action and result",
+    ["action", "result"],
+)
+
 
 def record_http_request(path: str, method: str, status: int, duration_seconds: float) -> None:
     """记录 HTTP 请求指标。"""
@@ -108,6 +114,35 @@ def update_account_pool_size(tiers: dict[str, int]) -> None:
 def update_image_tasks_inflight(count: int) -> None:
     """更新在途图片任务数。"""
     chatgpt2api_image_tasks_inflight.set(count)
+
+
+def _normalize_audit_action(action: str) -> str:
+    """审计指标 action 归一化：把动态路径段（数字/UUID/长随机串）收敛为 {id}。
+
+    动态端点（/api/accounts/refresh/progress/{id}、/api/images/download/{path} 等）
+    若直接作为 Prometheus label，每个唯一路径都会产生新 label 组合，长期运行
+    会无限膨胀（红队审查 R1）。归一化后 label 基数 = 路由模板数，可控。
+    审计文件仍保留真实 path（精确可追溯），仅指标 label 归一化。
+    """
+    import re
+
+    segments = str(action).split("/")
+    normalized: list[str] = []
+    for seg in segments:
+        if not seg:
+            normalized.append(seg)
+            continue
+        # UUID 或长数字/随机 id → {id}
+        if re.fullmatch(r"[0-9a-f]{8,32}", seg) or seg.isdigit():
+            normalized.append("{id}")
+        else:
+            normalized.append(seg)
+    return "/".join(normalized)
+
+
+def record_audit_action(action: str, result: str) -> None:
+    """记录管理动作审计指标（3.2）。label 用归一化路由模板，防动态路径膨胀。"""
+    chatgpt2api_audit_actions_total.labels(action=_normalize_audit_action(action), result=result).inc()
 
 
 def generate_metrics() -> tuple[bytes, str]:

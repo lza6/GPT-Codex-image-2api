@@ -15,7 +15,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { deleteSystemLogs, fetchSystemLogs, type SystemLog } from "@/lib/api";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { deleteSystemLogs, fetchAuditLogs, fetchSystemLogs, type AuditLog, type SystemLog } from "@/lib/api";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 
 const LogType = {
@@ -50,6 +51,96 @@ function getStatus(item: SystemLog) {
   return "-";
 }
 
+function auditResultLabel(result: string) {
+  if (result === "success") return { text: "成功", tone: "success" as const };
+  if (result === "denied") return { text: "拒绝", tone: "danger" as const };
+  if (result === "unauthorized") return { text: "未授权", tone: "danger" as const };
+  return { text: result || "-", tone: "secondary" as const };
+}
+
+function AuditSection({ items, loading, onRefresh }: { items: AuditLog[]; loading: boolean; onRefresh: () => void }) {
+  const [page, setPage] = useState(1);
+  const [resultFilter, setResultFilter] = useState("all");
+  const pageSize = 10;
+  // S5：结果筛选（本地过滤，items 已按需加载；复用既有筛选交互模式）
+  const filteredItems = resultFilter === "all" ? items : items.filter((item) => item.result === resultFilter);
+  const pageCount = Math.max(1, Math.ceil(filteredItems.length / pageSize));
+  const safePage = Math.min(page, pageCount);
+  const currentRows = filteredItems.slice((safePage - 1) * pageSize, safePage * pageSize);
+  return (
+    <Card className="overflow-hidden rounded-2xl border-white/80 bg-white/90 shadow-sm">
+      <CardContent className="p-0">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-100 px-5 py-4">
+          <div className="flex items-center gap-3 text-sm text-stone-600">
+            <span>共 {filteredItems.length} 条</span>
+            <span className="text-xs text-stone-400">管理操作留痕（含失败），防篡改独立存储</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Select value={resultFilter} onValueChange={(v) => { setResultFilter(v); setPage(1); }}>
+              <SelectTrigger className="h-8 w-[120px] rounded-lg border-stone-200 bg-white"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">全部结果</SelectItem>
+                <SelectItem value="success">成功</SelectItem>
+                <SelectItem value="denied">拒绝</SelectItem>
+                <SelectItem value="unauthorized">未授权</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button variant="ghost" className="h-8 rounded-lg px-3 text-stone-500" onClick={onRefresh} disabled={loading}>
+              <RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} />
+              刷新
+            </Button>
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <Table className="min-w-[900px]">
+            <TableHeader>
+              <TableRow>
+                <TableHead>时间</TableHead>
+                <TableHead>方法</TableHead>
+                <TableHead>操作</TableHead>
+                <TableHead>结果</TableHead>
+                <TableHead>操作者</TableHead>
+                <TableHead>IP</TableHead>
+                <TableHead>请求ID</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {currentRows.map((item) => {
+                const result = auditResultLabel(item.result);
+                return (
+                  <TableRow key={item.id} className="text-stone-600">
+                    <TableCell className="whitespace-nowrap">{item.ts}</TableCell>
+                    <TableCell><Badge variant="secondary" className="rounded-md">{item.method || "-"}</Badge></TableCell>
+                    <TableCell className="max-w-[300px] truncate font-medium text-stone-700">{item.action}</TableCell>
+                    <TableCell>
+                      <Badge variant={result.tone} className="rounded-md">{result.text}</Badge>
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap font-mono text-xs">{item.operator || "-"}</TableCell>
+                    <TableCell className="whitespace-nowrap">{item.ip || "-"}</TableCell>
+                    <TableCell className="whitespace-nowrap font-mono text-xs">{item.request_id || "-"}</TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
+        {filteredItems.length > pageSize ? (
+          <div className="flex items-center justify-end gap-2 border-t border-stone-100 px-4 py-3 text-sm text-stone-500">
+            <span>第 {safePage} / {pageCount} 页，共 {filteredItems.length} 条</span>
+            <Button variant="outline" size="icon" className="size-9 rounded-lg border-stone-200 bg-white" disabled={safePage <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>
+              <ChevronLeft className="size-4" />
+            </Button>
+            <Button variant="outline" size="icon" className="size-9 rounded-lg border-stone-200 bg-white" disabled={safePage >= pageCount} onClick={() => setPage((value) => Math.min(pageCount, value + 1))}>
+              <ChevronRight className="size-4" />
+            </Button>
+          </div>
+        ) : null}
+        {!loading && filteredItems.length === 0 ? <div className="px-6 py-14 text-center text-sm text-stone-500">暂无审计记录</div> : null}
+      </CardContent>
+    </Card>
+  );
+}
+
 function LogsContent() {
   const [items, setItems] = useState<SystemLog[]>([]);
   const [type, setType] = useState<string>(LogType.Call);
@@ -68,6 +159,10 @@ function LogsContent() {
   const [searchQuery, setSearchQuery] = useState("");
   const [levelFilter, setLevelFilter] = useState<string>("all");
   const [autoScroll, setAutoScroll] = useState(false);
+  // 3.2 审计视图：管理操作留痕（独立于业务日志）
+  const [view, setView] = useState<"logs" | "audit">("logs");
+  const [auditItems, setAuditItems] = useState<AuditLog[]>([]);
+  const [auditLoading, setAuditLoading] = useState(false);
   const detailUrls = getUrls(detailLog);
   const detailImages = detailUrls.map((url, index) => ({ id: `${index}`, src: url }));
   const isCallLog = type === LogType.Call;
@@ -165,6 +260,24 @@ function LogsContent() {
     void loadLogs();
   }, [type, startDate, endDate, accountEmail]);
 
+  const loadAudit = async () => {
+    setAuditLoading(true);
+    try {
+      const data = await fetchAuditLogs({ days: 7, limit: 200 });
+      setAuditItems(data.items);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "加载审计日志失败");
+    } finally {
+      setAuditLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (view === "audit") {
+      void loadAudit();
+    }
+  }, [view]);
+
   // 自动滚动：新日志加载后滚动到顶部
   useEffect(() => {
     if (autoScroll && !isLoading && filteredItems.length > 0) {
@@ -174,6 +287,13 @@ function LogsContent() {
 
   return (
     <section className="space-y-5">
+      <Tabs value={view} onValueChange={(v) => { setView(v as "logs" | "audit"); setPage(1); }}>
+        <TabsList className="h-10 rounded-xl border border-stone-200 bg-white">
+          <TabsTrigger value="logs" className="rounded-lg px-4">业务日志</TabsTrigger>
+          <TabsTrigger value="audit" className="rounded-lg px-4">审计日志</TabsTrigger>
+        </TabsList>
+      </Tabs>
+      {view === "logs" ? (<>
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div className="space-y-1">
           <div className="text-xs font-semibold tracking-[0.18em] text-stone-500 uppercase">Logs</div>
@@ -411,6 +531,9 @@ function LogsContent() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      </>) : (
+      <AuditSection items={auditItems} loading={auditLoading} onRefresh={() => void loadAudit()} />
+      )}
     </section>
   );
 }

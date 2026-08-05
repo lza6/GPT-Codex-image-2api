@@ -53,6 +53,7 @@ SNAPSHOT_ENDPOINTS = [
     "/api/proxies",
     "/api/accounts",
     "/api/logs?limit=1",
+    "/api/audit?limit=1",
 ]
 
 # 动态键端点：响应里含有按数据内容生成的键（如 by_summary 按日志 summary 动态命名、
@@ -62,6 +63,7 @@ SNAPSHOT_ENDPOINTS = [
 DYNAMIC_KEY_ENDPOINTS = {
     "/api/dashboard/usage",
     "/api/logs?limit=1",
+    "/api/audit?limit=1",
     "/api/dashboard/usage-forecast",
     "/api/dashboard/scheduler",
 }

@@ -1,3 +1,28 @@
+# Changelog
+
+## 2.8.0 - 2026-08-05 (3.2 审计日志：管理操作留痕闭环)
+
+**安全纵深（计划书 3.2）：**
++ [审计服务] 新增 `services/audit_service.py`：管理操作统一留痕，独立文件 `audit-YYYY-MM-DD.jsonl`（不复用业务日志文件，防 /api/logs 删除/裁剪误伤审计）；按天轮转 + 原子写（RLock 防并发丢行）+ 过期天文件整删；operator 末 8 位脱敏；字段含 ts/action/result/operator/ip/request_id/method
++ [统一埋点] `api/support.py require_admin` 统一拦截：失败（401/403）总是记录，成功记录写操作与非轮询 GET；**降噪**——`/api/dashboard/*`、`/metrics`、`/health` 的轮询 GET 成功跳过（防 SSE 每 3s 推送刷爆审计）；中间件（api/app.py）注入 path/method/ip 到 `services/request_context.py` contextvar，require_admin 无需改 90 处端点签名即可读取；**login 端点补审计**（成功 success / 失败 unauthorized 均留痕，越权/错误密钥尝试可追溯）
++ [读取端点] 新增 `GET /api/audit`（require_admin，支持 days/limit/result/operator 过滤），前端 logs 页新增「审计日志」tab（AuditSection 组件：时间/方法/操作/结果/操作者/IP/请求ID）
++ [指标] `chatgpt2api_audit_actions_total{action,result}` 每次 record 递增
++ [契约] SNAPSHOT_ENDPOINTS 加 `/api/audit?limit=1` + DYNAMIC_KEY 豁免；契约守卫断链=0 漂移=0
++ [部署] `web_dist` 同步最新构建（bat 仅在 web_dist 缺失时构建，改前端后必须 `rm -rf web_dist && cp -r web/out web_dist`，否则生产用旧前端）
+
+**质量：**
+- 新增 `test/test_audit_service.py` 20 用例（字段完整/operator 脱敏边界/跨天倒序/days 只读最近 N 天 mock 文件系统/result+operator 过滤/limit 跨天/过期整删/当天超限裁剪/并发 8 线程×50 不丢行/真实 TestClient 成功+401+403 埋点/login 成功+失败留痕/dashboard 轮询降噪/审计失败不阻断请求/metrics +1/API 契约字段）
+- E2E 冒烟新增审计 tab 断言（点击「审计日志」→ /api/audit 请求 + 表格渲染），9/9 PASS
+- 全量 **399 passed / 0 failed**（396 基线 + 登录审计与裁剪 2 用例 + method 断言）；五道防线全 PASS；前端 tsc 0 错误 + build 成功
+
+**独立六维审查修复（Request Changes → 复验 Approve）：**
++ [R1] 指标 label 基数膨胀：`record_audit_action` 归一化动态路径段（UUID/长数字 → {id}），防 /api/accounts/refresh/progress/{id} 等无限 label 组合
++ [R2] method 字段恒空：`record_admin_access` 从 request_context 提取 method，前端「方法」列真实展示
++ [R3] 多 worker append+replace 竞态丢数据：append 热路径永不覆写，清理改由读取端 `maybe_cleanup()`（60s 节流）+ 启动时触发
++ [R4] 测试污染 data/：metrics 用例重定向 audit_service.path 到 tmp
++ [R5] 成功埋点语义：workflow_status 边界声明「成功=鉴权通过，非操作成功」
++ [S3] 移除 /health 降噪死代码；[S5] 前端审计视图加结果筛选；[S6] lifespan 启动补审计清理
+
 ## 2.7.1 - 2026-08-05 (5.4 Redis 限流实测 + 6.5 移动端适配)
 
 **5.4 Redis 精确限流部署实测：**
