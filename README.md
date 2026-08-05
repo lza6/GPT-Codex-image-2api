@@ -255,7 +255,7 @@ environment:
 - 设为正整数 N 表示全局 / 单 IP 每分钟最多 N 个请求，超出返回 429。
 - 注意：多 worker 下进程内限流不共享，全局精确限流需配 Redis（`redis_url`）。
 
-##### 多 Worker 精确限流一键化（3.3.2，可选）
+##### 多 Worker 精确限流一键化（3.3.2，可选；5.4 已实测）
 
 多 worker（`workers>1`）时，各进程的限流计数/聊天缓存/熔断器状态各自独立（状态分裂）。
 启用 Redis 共享状态即可让计数跨进程一致：
@@ -267,6 +267,11 @@ python scripts/init_redis_state.py                 # 默认 redis://127.0.0.1:63
 # 3) 重启服务后 shared_state 自动走 Redis 实现（不可用时静默降级 Local）
 uv run pytest test/test_shared_state.py            # Local / Redis 工厂降级两实现全过
 ```
+
+**5.4 实测结论**：
+- 2 worker + Redis + `rate_limit_rpm=5`：前 5 请求放行、第 6 起 429（跨进程精确限流生效）
+- Redis 运行中断连：限流自动降级本进程本地滑窗，**不 500 不崩**（rate_limit 捕获异常回退）；降级后多 worker 各自计数，限流放宽是降级的已知取舍
+- 依赖：需 `redis` 包（已入 pyproject/uv.lock）；降级路径由 test_shared_state.py 覆盖
 
 或直接设环境变量 `CHATGPT2API_REDIS_URL=redis://host:6379/0`（覆盖 config.json），无需改配置。
 

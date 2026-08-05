@@ -501,20 +501,22 @@ function DashboardContent() {
           <p className="text-xs text-stone-400">模式: {ops?.scheduler_mode ?? "-"} · 每30秒自动刷新</p>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>邮箱</TableHead>
-                <TableHead>类型</TableHead>
-                <TableHead>状态</TableHead>
-                <TableHead>档位</TableHead>
-                <TableHead>寿命</TableHead>
-                <TableHead className="text-right">配额</TableHead>
-                <TableHead className="text-right">调度分</TableHead>
-                <TableHead className="text-right">在途</TableHead>
-                <TableHead className="text-right">成功/失败</TableHead>
-              </TableRow>
-            </TableHeader>
+          {/* 6.5：窄屏横向滚动，防表格溢出 */}
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>邮箱</TableHead>
+                  <TableHead>类型</TableHead>
+                  <TableHead>状态</TableHead>
+                  <TableHead>档位</TableHead>
+                  <TableHead>寿命</TableHead>
+                  <TableHead className="text-right">配额</TableHead>
+                  <TableHead className="text-right">调度分</TableHead>
+                  <TableHead className="text-right">在途</TableHead>
+                  <TableHead className="text-right">成功/失败</TableHead>
+                </TableRow>
+              </TableHeader>
             <TableBody>
               {topAccounts.length === 0 ? (
                 <TableRow>
@@ -547,7 +549,8 @@ function DashboardContent() {
                 ))
               )}
             </TableBody>
-          </Table>
+            </Table>
+          </div>
         </CardContent>
       </Card>
 

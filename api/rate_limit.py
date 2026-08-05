@@ -42,6 +42,35 @@ class SlidingWindowLimiter:
             return True
         if self._use_shared():
             return self._check_shared(key)
+        return self._check_local(key)
+
+    def _check_shared(self, key: str) -> bool:
+        """共享层固定窗口近似（incr + TTL）：跨 worker 计数一致。
+
+        与 LocalBackend 滑窗语义不同：窗口切换瞬间前一窗口计数清零，
+        边界允许最多 2×max_requests 突刺（固定窗口近似固有取舍，非精确滑窗）。
+        需要精确限流时改用 Redis ZSET 滑窗日志（登记后续迭代）。
+
+        5.4：Redis 运行中断连时降级到本进程 Local 滑窗（不崩 + 打日志）。
+        get_shared_state 单例在启动时若 redis 在线会缓存 RedisBackend，断连后
+        incr 抛异常——这里捕获并回退到 LocalBackend，保证限流路径永不 500。
+        """
+        import logging
+
+        try:
+            from services.shared_state import get_shared_state
+
+            window_slot = int(time.time() // self.window_seconds)
+            shared_key = f"ratelimit:{key}:{window_slot}"
+            count = get_shared_state().incr(shared_key, 1, ttl_seconds=self.window_seconds * 2)
+            return count <= self.max_requests
+        except Exception as exc:  # noqa: BLE001 - Redis 断连/超时 → 降级本地限流，保可用不崩
+            logging.getLogger(__name__).warning("Redis 限流不可用，降级本地滑窗: %s", exc)
+            # 走本进程滑窗（与 Local 后端同语义），避免 redis 恢复前每次请求都触发慢重连
+            return self._check_local(key)
+
+    def _check_local(self, key: str) -> bool:
+        """本进程滑窗限流（Local 后端语义；redis 断连时的降级路径）。"""
         now = time.monotonic()
         with self._lock:
             records = self._records[key]
@@ -52,20 +81,6 @@ class SlidingWindowLimiter:
                 return False
             records.append(now)
             return True
-
-    def _check_shared(self, key: str) -> bool:
-        """共享层固定窗口近似（incr + TTL）：跨 worker 计数一致。
-
-        与 LocalBackend 滑窗语义不同：窗口切换瞬间前一窗口计数清零，
-        边界允许最多 2×max_requests 突刺（固定窗口近似固有取舍，非精确滑窗）。
-        需要精确限流时改用 Redis ZSET 滑窗日志（登记后续迭代）。
-        """
-        from services.shared_state import get_shared_state
-
-        window_slot = int(time.time() // self.window_seconds)
-        shared_key = f"ratelimit:{key}:{window_slot}"
-        count = get_shared_state().incr(shared_key, 1, ttl_seconds=self.window_seconds * 2)
-        return count <= self.max_requests
 
     def clear(self, key: str) -> None:
         with self._lock:

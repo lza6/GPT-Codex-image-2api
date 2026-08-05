@@ -228,6 +228,7 @@ dependencies = [
     { name = "psycopg2-binary" },
     { name = "pybase64" },
     { name = "python-multipart" },
+    { name = "redis" },
     { name = "sqlalchemy" },
     { name = "tiktoken" },
     { name = "uvicorn" },
@@ -253,6 +254,7 @@ requires-dist = [
     { name = "psycopg2-binary", specifier = ">=2.9.0" },
     { name = "pybase64", specifier = ">=1.4.3" },
     { name = "python-multipart", specifier = ">=0.0.26" },
+    { name = "redis", specifier = ">=5.0.0" },
     { name = "sqlalchemy", specifier = ">=2.0.0" },
     { name = "tiktoken", specifier = ">=0.12.0" },
     { name = "uvicorn", specifier = ">=0.44.0" },
@@ -1087,6 +1089,15 @@ source = { registry = "https://mirrors.aliyun.com/pypi/simple" }
 sdist = { url = "https://mirrors.aliyun.com/pypi/packages/88/71/b145a380824a960ebd60e1014256dbb7d2253f2316ff2d73dfd8928ec2c3/python_multipart-0.0.26.tar.gz", hash = "sha256:08fadc45918cd615e26846437f50c5d6d23304da32c341f289a617127b081f17" }
 wheels = [
     { url = "https://mirrors.aliyun.com/pypi/packages/9a/22/f1925cdda983ab66fc8ec6ec8014b959262747e58bdca26a4e3d1da29d56/python_multipart-0.0.26-py3-none-any.whl", hash = "sha256:c0b169f8c4484c13b0dcf2ef0ec3a4adb255c4b7d18d8e420477d2b1dd03f185" },
+]
+
+[[package]]
+name = "redis"
+version = "8.1.0"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple" }
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/a8/99/604f0b666d4c616d891cf77ebb9db6bb21601344c051aebf1b72b9ff915f/redis-8.1.0.tar.gz", hash = "sha256:6e1a19beef9225c83efd689c7e6b7da2d5215b1f42cd13b7fc3714d0a09c7b25" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/66/9d/c5731f6e3608663d4d3656fd8d3aecee8b509c3082818f5a13eae925baea/redis-8.1.0-py3-none-any.whl", hash = "sha256:a4fe1aac3d3b3cc791d4b3d5931c5a956045dc951ee74d1c913ee3ac4d2ee9fb" },
 ]
 
 [[package]]

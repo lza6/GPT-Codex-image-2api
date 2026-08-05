@@ -104,3 +104,47 @@ class TestRateLimitShared:
         # 无共享层时新实例计数独立（原行为）
         limiter2 = SlidingWindowLimiter(window_seconds=60, max_requests=1)
         assert limiter2.check("ip-2") is True
+
+    def test_redis_failure_degrades_to_local_no_crash(self, monkeypatch):
+        """5.4：Redis 运行中断连 → 限流降级本进程本地滑窗，不 500 不崩。"""
+        from api.rate_limit import SlidingWindowLimiter
+        from services.config import config
+
+        monkeypatch.setattr(type(config), "redis_url", property(lambda self: "redis://127.0.0.1:6379/0"))
+
+        def _boom(*args, **kwargs):
+            raise RuntimeError("Connection refused")
+
+        # 模拟共享层 incr 抛异常（redis 断连）
+        monkeypatch.setattr("services.shared_state.get_shared_state", _boom)
+        limiter = SlidingWindowLimiter(window_seconds=60, max_requests=2)
+
+        # 第一次调用触发降级：应回退本地滑窗且不抛
+        assert limiter.check("ip-fail") is True
+        assert limiter.check("ip-fail") is True
+        assert limiter.check("ip-fail") is False  # 本地滑窗累计达到上限
+
+    def test_redis_failure_after_successful_backend_still_degrades(self, monkeypatch):
+        """5.4：共享层正常后运行中断连（incr 抛异常）→ 限流仍降级本地，不 500。"""
+        from api.rate_limit import SlidingWindowLimiter
+        from services.config import config
+        from services.shared_state import LocalBackend, reset_shared_state
+
+        monkeypatch.setattr(type(config), "redis_url", property(lambda self: "redis://127.0.0.1:6379/0"))
+        reset_shared_state()
+        shared = LocalBackend()
+        monkeypatch.setattr("services.shared_state.get_shared_state", lambda: shared)
+        limiter = SlidingWindowLimiter(window_seconds=60, max_requests=3)
+        assert limiter.check("ip-mid") is True  # 共享层正常
+
+        # 运行中断连：shared.incr 抛异常
+        class _BoomBackend:
+            def incr(self, *a, **k):
+                raise RuntimeError("Connection refused")
+            def backend_name(self):  # pragma: no cover
+                return "boom"
+
+        monkeypatch.setattr("services.shared_state.get_shared_state", lambda: _BoomBackend())
+        # 降级本地滑窗：不崩，且从零计（本地 records 独立）
+        assert limiter.check("ip-mid") is True
+

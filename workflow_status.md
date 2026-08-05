@@ -16,6 +16,11 @@
 | F | 6.2 骨架屏 | ✅ | ui/skeleton.tsx（Skeleton/SkeletonTable/SkeletonCards）；dashboard + image-manager 加载态改统一骨架（消 CLS） |
 | G | 6.3 账号列表分页 | ✅ | /api/accounts?page=&page_size= 服务端分页（可选向后兼容）+ total；test_accounts_pagination.py 5 用例 |
 | H | 验证全绿 | ✅ | pytest 377 passed / 0 failed；五道防线全 PASS；tsc 0 错误 + build 成功；E2E 7/7 |
+| I | 5.4 Redis 精确限流部署实测 | ✅ | 2 worker + Redis + rpm=5：前 5 放行第 6 起 429（跨进程精确限流）；**Redis 运行中断连 → rate_limit 降级本地滑窗不 500 不崩**（api/rate_limit.py _check_shared 捕获异常回退 _check_local）；test_shared_state.py 新增 2 降级用例 |
+| J | 5.4 redis 依赖入库 | ✅ | pyproject.toml 加 `redis>=5.0.0` + uv.lock 更新；README「多 Worker 精确限流一键化」补实测结论 |
+| K | 6.5 移动端适配（dashboard 表格） | ✅ | dashboard/page.tsx 排行榜表格外包 overflow-x-auto（窄屏横向滚动）；top-nav 已有汉堡菜单，logs/accounts 已有横向滚动 |
+| L | 6.4 图片画廊懒加载确认 | ✅ | image-results.tsx 已有 IntersectionObserver（rootMargin 400px 预加载）+ 骨架占位，游标分页不必要（本地会话画廊，懒加载已覆盖） |
+| M | v2.7.1 验证全绿 | ✅ | pytest 379 passed / 0 failed；五道防线 PASS；tsc 0 + build 成功；ruff 干净 |
 
 ## 五道防线状态
 
@@ -27,16 +32,16 @@
 
 ## 当前 git 状态
 
-- 测试：**377 passed / 0 failed**（31 live/redis 排除）
+- 测试：**379 passed / 0 failed**（31 live/redis 排除）
 - 前端：tsc 0 错误 + build 成功（dashboard/accounts/image-manager/async-button/skeleton）
 - 契约：断链=0 漂移=0
-- 版本：**v2.7.0（已发版）**
+- 版本：**v2.7.1（已发版）**
 
 ## 边界声明（诚实）
 
 - 账号寿命预测是**趋势信号**（非精确到期）：EWMA 失败率 + 连续失效窗口，数据量小时不引入统计回归；无限配额账号 eta_days 按风险档位给保守上限（1/7/30 天）
 - 6.3 虚拟滚动未引入：账号 <1k 时既有前端分页已满足，引入虚拟滚动是过度工程（YAGNI）；服务端分页参数已就位，账号量级突破 1k 后可切
-- 5.4 Redis 精确限流部署实测未在本轮做（需真实多 worker + redis 环境），README 边界声明保留
+- 5.4 Redis 断连降级已实测：限流回退本进程本地滑窗不 500；降级后多 worker 各自计数、限流放宽是降级已知取舍（README 已注明）
 
 ---
 

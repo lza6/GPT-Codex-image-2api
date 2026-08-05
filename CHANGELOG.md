@@ -1,3 +1,18 @@
+## 2.7.1 - 2026-08-05 (5.4 Redis 限流实测 + 6.5 移动端适配)
+
+**5.4 Redis 精确限流部署实测：**
++ [实测] 2 worker + Redis + `rate_limit_rpm=5`：前 5 请求放行、第 6 起 429（跨进程精确限流生效，此前仅单元验证未部署实测）
++ [修复] **Redis 运行中断连 → 限流不 500 不崩**：`api/rate_limit.py` `_check_shared` 捕获 redis 异常回退本进程本地滑窗（`_check_local`）+ 打日志；此前 `get_shared_state` 单例缓存 RedisBackend 后断连 `incr` 抛异常致 500
++ [依赖] pyproject.toml 加 `redis>=5.0.0` + uv.lock；README「多 Worker 精确限流一键化」补实测结论与断连降级取舍
+
+**6.5 移动端适配：**
++ dashboard 排行榜表格外包 `overflow-x-auto`（窄屏横向滚动）；top-nav 已有汉堡菜单，logs/accounts 已有横向滚动
++ 6.4 图片画廊懒加载确认既有（image-results.tsx IntersectionObserver + 骨架占位），游标分页不必要
+
+**质量：**
+- test_shared_state.py 新增 2 降级用例（redis 首次失败降级 / 运行中断连降级）；全量 **379 passed / 0 failed**
+- 五道防线全 PASS；tsc 0 + build 成功；ruff 干净
+
 ## 2.7.0 - 2026-08-05 (v3.1 账号寿命预测/容量报表/告警恢复 + v3.2 前端体验)
 
 **产品功能增强（5.1/5.2/5.3）：**
