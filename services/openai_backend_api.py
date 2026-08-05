@@ -2762,11 +2762,28 @@ class OpenAIBackendAPI:
     def download_image_bytes(self, urls: list[str]) -> list[bytes]:
         images = []
         for url in urls:
-            response = self.session.get(url, timeout=120)
+            response = self.session.get(url, timeout=120, headers=self._image_download_headers(url))
             ensure_ok(response, "image_download")
             if response.content not in images:
                 images.append(response.content)
         return images
+
+    def _image_download_headers(self, url: str) -> dict[str, str]:
+        """下载图片专用头：显式带 Authorization + referer + 全指纹头。
+
+        根因修复（v2.8.2）：原 `session.get(url)` 不传 headers= 参数，
+        curl_cffi 不会注入 instance_headers 里的 Authorization（Bearer JWT），
+        导致 estuary/content 被判无会话返回 404 File link not found。
+        实测：session 在前置流程（bootstrap+sentinel+对话）已自动 set CF cookies
+        （_cfuvid/__cflb/_uasid/_umsid/oai-sc 等 10 个），只需显式带 Authorization 即可。
+        """
+        headers = dict(self.session.headers)
+        headers.update(self._instance_headers)
+        if self.access_token:
+            headers["Authorization"] = f"Bearer {self.access_token}"
+        headers["Accept"] = "*/*"
+        headers["Referer"] = self.base_url + "/"
+        return headers
 
     def stream_conversation(
             self,
