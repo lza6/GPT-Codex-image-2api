@@ -1,0 +1,344 @@
+"""邮箱验证码登录服务（纯 HTTP 链路，补 `_login_with_password` 的 OTP 短板）。
+
+`_login_with_password` 走 password/verify，遇 OpenAI 风控要求邮箱 OTP 就返回
+`need_verification_code`。本服务改走 email-otp 流程：
+  1. PKCE 构造 authorize URL（login_hint=邮箱）
+  2. GET authorize → 触发 OpenAI 发 OTP 验证码到邮箱
+  3. 调邮箱中转 API（91kami）取最新 OTP 邮件正文
+  4. 正则提取 6 位数字
+  5. POST /api/accounts/email-otp/validate 提交
+  6. 从 continue_url 拿 code → /api/accounts/oauth/token 换 token 三件套
+
+不含 CF 挑战——CF 由 flaresolverr 配置兜底（config.proxy_runtime.clearance）。
+代理走项目既有 proxy_settings（支持 v2ray 10808）。
+
+设计原则（对照参考项目 revive_import.py，纯 HTTP 化）：
+  * 每账号只触发一次 OTP、只取"触发后最新"验证码、只提交一次（防 max_check_attempts 限流）
+  * 失败即换下一个，绝不在同一账号上反复重试
+  * 返回结构对齐 `_login_with_password`：{ok, access_token, refresh_token, id_token, email, source_type}
+"""
+from __future__ import annotations
+
+import re
+import secrets
+import time
+import uuid
+from datetime import UTC, datetime, timedelta
+from typing import Any
+from urllib.parse import parse_qs, urlencode, urlparse
+
+from curl_cffi import requests
+
+from services.openai_oauth import (
+    auth_base,
+    common_headers,
+    platform_auth0_client,
+    platform_base,
+    platform_oauth_audience,
+    platform_oauth_client_id,
+    platform_oauth_redirect_uri,
+    sec_ch_ua,
+    user_agent,
+)
+from services.proxy_service import proxy_settings
+from utils.pkce import generate_pkce
+from utils.sentinel import build_sentinel_token
+
+
+class OTPLoginError(Exception):
+    """OTP 登录流程中的可预期错误。"""
+
+
+# 91kami 邮箱中转 API（用户提供的取件源代码证实契约）
+MAIL_API_BASE = "https://mai.91kami.com"
+OTP_WAIT_MAX = 90          # 等验证码邮件秒数
+OTP_POLL_SEC = 4
+OTP_CODE_RE = re.compile(r"\b(\d{6})\b")
+OTP_KEYWORD_RE = re.compile(r"(?:code|码|mã|verification)[\s:：\-]{0,4}(\d{6})", re.I)
+
+
+class OTPLoginService:
+    """邮箱验证码登录：authorize → OTP → 取码 → validate → exchange token。"""
+
+    def login(
+        self,
+        email: str,
+        password: str,
+        *,
+        mail_credential: dict[str, str] | None = None,
+        proxy_url: str = "",
+    ) -> dict[str, Any]:
+        """对单个账号走邮箱验证码登录，返回 token 三件套。
+
+        Args:
+            email: 账号邮箱（同时是 OpenAI 登录邮箱 + 收件邮箱）
+            password: 账号密码（OpenAI 密码，非邮箱密码；email-otp 流程不提交密码，
+                       保留参数对齐 _login_with_password 返回结构）
+            mail_credential: 91kami 取件凭证，需含 client_id + refresh_token（微软 MSAL）。
+                             为空时返回 need_mail_credential。
+            proxy_url: 可选代理覆盖（如 v2ray http://127.0.0.1:10808）
+
+        Returns:
+            {ok, access_token, refresh_token, id_token, email, source_type} 或
+            {ok: False, error, detail}
+        """
+        email = str(email or "").strip()
+        if not email:
+            return {"ok": False, "error": "missing_email"}
+        if not mail_credential or not mail_credential.get("client_id") or not mail_credential.get("refresh_token"):
+            return {"ok": False, "error": "need_mail_credential", "detail": {"email": email}}
+
+        session_kwargs = proxy_settings.build_session_kwargs(impersonate="chrome", verify=False)
+        if proxy_url:
+            session_kwargs["proxy"] = proxy_url
+        session = requests.Session(**session_kwargs)
+        device_id = str(uuid.uuid4())
+
+        try:
+            # ① PKCE + authorize 触发 OpenAI 发 OTP
+            code_verifier, code_challenge = generate_pkce()
+            state = f"{secrets.token_hex(16)}.{secrets.token_urlsafe(16)}"
+            nonce = secrets.token_urlsafe(32)
+            session.cookies.set("oai-did", device_id, domain=".auth.openai.com")
+            params = {
+                "issuer": auth_base,
+                "client_id": platform_oauth_client_id,
+                "audience": platform_oauth_audience,
+                "redirect_uri": platform_oauth_redirect_uri,
+                "device_id": device_id,
+                "screen_hint": "login_or_signup",
+                "max_age": "0",
+                "login_hint": email,
+                "scope": "openid profile email offline_access",
+                "response_type": "code",
+                "response_mode": "query",
+                "state": state,
+                "nonce": nonce,
+                "code_challenge": code_challenge,
+                "code_challenge_method": "S256",
+                "auth0Client": platform_auth0_client,
+            }
+            authorize_url = f"{auth_base}/api/accounts/authorize?{urlencode(params)}"
+            otp_trigger_at = datetime.now(UTC)
+            resp = session.get(
+                authorize_url,
+                headers={
+                    "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "accept-language": "zh-CN,zh;q=0.9,en;q=0.8",
+                    "user-agent": user_agent,
+                    "referer": f"{platform_base}/",
+                },
+                allow_redirects=True,
+                timeout=30,
+            )
+            final_url = str(resp.url)
+            # authorize 失败检测（payload error）
+            if "/error" in final_url and "payload=" in final_url:
+                return {"ok": False, "error": "authorize_error", "detail": {"url": final_url[:300]}}
+            # 直接拿到 code（无需 OTP，罕见但处理）
+            if "platform.openai.com/auth/callback" in final_url and "code=" in final_url:
+                code = str((parse_qs(urlparse(final_url).query).get("code") or [""])[0]).strip()
+                if code:
+                    tokens = self._exchange_code(session, code, code_verifier)
+                    tokens.update({"ok": True, "email": email, "source_type": "otp"})
+                    return tokens
+
+            # ② 取最新 OTP 邮件 → 提取 6 位数字
+            code_digits = self._fetch_otp_code(mail_credential, otp_trigger_at, session_kwargs.get("proxy", ""))
+            if not code_digits:
+                return {"ok": False, "error": "otp_timeout", "detail": {"email": email, "wait_secs": OTP_WAIT_MAX}}
+
+            # ③ sentinel + POST /api/accounts/email-otp/validate
+            try:
+                sentinel_val, oai_sc_val = build_sentinel_token(session, device_id, "email_otp_verification")
+            except Exception as exc:
+                return {"ok": False, "error": f"sentinel_failed:{type(exc).__name__}", "detail": {"message": str(exc)}}
+
+            validate_headers = {
+                **common_headers,
+                "content-type": "application/json",
+                "origin": auth_base,
+                "referer": f"{auth_base}/email-verification",
+                "oai-device-id": device_id,
+                "openai-sentinel-token": sentinel_val,
+                "user-agent": user_agent,
+                "sec-ch-ua": sec_ch_ua,
+            }
+            if oai_sc_val:
+                session.cookies.set("oai-sc", oai_sc_val, domain=".openai.com")
+
+            validate_resp = session.post(
+                f"{auth_base}/api/accounts/email-otp/validate",
+                headers=validate_headers,
+                json={"code": code_digits},
+                timeout=30,
+            )
+            validate_data = {}
+            try:
+                validate_data = validate_resp.json() if validate_resp.text else {}
+            except Exception:
+                pass
+            if validate_resp.status_code != 200:
+                if "max_check_attempts" in str(validate_data).lower():
+                    return {"ok": False, "error": "otp_max_attempts", "detail": validate_data}
+                return {"ok": False, "error": f"otp_validate_failed_{validate_resp.status_code}", "detail": validate_data}
+
+            continue_url = str(validate_data.get("continue_url") or "").strip()
+            auth_code = ""
+            if continue_url:
+                auth_code = str((parse_qs(urlparse(continue_url).query).get("code") or [""])[0]).strip()
+            if not auth_code:
+                return {"ok": False, "error": "no_auth_code_after_otp", "detail": validate_data}
+
+            # ④ 换 token 三件套
+            tokens = self._exchange_code(session, auth_code, code_verifier)
+            tokens.update({"ok": True, "email": email, "source_type": "otp"})
+            return tokens
+        except Exception as exc:
+            return {"ok": False, "error": f"otp_login_exception:{type(exc).__name__}", "detail": {"message": str(exc)}}
+        finally:
+            try:
+                session.close()
+            except Exception:
+                pass
+
+    def _fetch_otp_code(
+        self,
+        mail_credential: dict[str, str],
+        after_utc: datetime,
+        proxy: str = "",
+    ) -> str | None:
+        """调 91kami 邮箱中转 API 取 OTP 邮件，提取 6 位数字。
+
+        91kami 契约（来自取件源代码 main.js）：
+          POST /api/emails body={email,password,client_id,refresh_token,folder=inbox}
+          → json.data 是邮件列表，每封含 id/subject/from_address/received_time/date
+          POST /api/email-body body={email,message_id,client_id,refresh_token}
+          → json.body_html / body_preview
+
+        兜底：若 after 后无新邮件，退回用收件箱最新 15 分钟内的 OTP 邮件。
+        """
+        proxies = {"http": proxy, "https": proxy} if proxy else {}
+        headers = {
+            "content-type": "application/json",
+            "origin": MAIL_API_BASE,
+            "referer": f"{MAIL_API_BASE}/tq/",
+            "user-agent": user_agent,
+        }
+        email = mail_credential.get("email", "")
+        client_id = mail_credential.get("client_id", "")
+        refresh_token = mail_credential.get("refresh_token", "")
+        mail_password = mail_credential.get("password", "")
+        deadline = time.time() + OTP_WAIT_MAX
+        after_local = after_utc.replace(microsecond=0)
+
+        while time.time() < deadline:
+            try:
+                r = requests.post(
+                    f"{MAIL_API_BASE}/api/emails",
+                    json={
+                        "email": email, "password": mail_password,
+                        "client_id": client_id, "refresh_token": refresh_token,
+                        "folder": "inbox",
+                    },
+                    headers=headers, proxies=proxies, timeout=30,
+                )
+                data = (r.json() if r.text else {}).get("data") or []
+                cands = [m for m in data if self._is_otp_mail(m) and self._mail_time(m) >= after_local - timedelta(seconds=8)]
+                if cands:
+                    newest = max(cands, key=self._mail_time)
+                    code = self._extract_code_from_mail(newest, mail_credential, proxy)
+                    if code:
+                        return code
+            except Exception:
+                pass
+            time.sleep(OTP_POLL_SEC)
+        return None
+
+    @staticmethod
+    def _is_otp_mail(m: dict) -> bool:
+        subj = str(m.get("subject") or "")
+        frm = str(m.get("from_address") or m.get("from") or "").lower()
+        return "openai" in frm or "chatgpt" in subj.lower() or "验证码" in subj
+
+    @staticmethod
+    def _mail_time(m: dict) -> datetime:
+        raw = str(m.get("received_time") or m.get("date") or "").strip()
+        try:
+            d = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if d.tzinfo is not None:
+                d = d.astimezone().replace(tzinfo=None)
+            return d
+        except Exception:
+            return datetime.fromtimestamp(0)
+
+    @staticmethod
+    def _extract_code_from_mail(mail: dict, cred: dict[str, str], proxy: str) -> str | None:
+        proxies = {"http": proxy, "https": proxy} if proxy else {}
+        headers = {
+            "content-type": "application/json",
+            "origin": MAIL_API_BASE,
+            "referer": f"{MAIL_API_BASE}/tq/",
+            "user-agent": user_agent,
+        }
+        try:
+            r = requests.post(
+                f"{MAIL_API_BASE}/api/email-body",
+                json={
+                    "email": cred.get("email", ""),
+                    "message_id": mail.get("id"),
+                    "client_id": cred.get("client_id", ""),
+                    "refresh_token": cred.get("refresh_token", ""),
+                },
+                headers=headers, proxies=proxies, timeout=30,
+            )
+            body = r.json() if r.text else {}
+            html = body.get("body_html") or body.get("body_preview") or ""
+            text = re.sub(r"<[^>]+>", " ", html)
+            text = re.sub(r"\s+", " ", text).strip()
+            if not text:
+                return None
+            m = OTP_KEYWORD_RE.search(text)
+            if m:
+                return m.group(1)
+            nums = OTP_CODE_RE.findall(text)
+            return nums[-1] if nums else None
+        except Exception:
+            return None
+
+    @staticmethod
+    def _exchange_code(session: requests.Session, code: str, code_verifier: str) -> dict[str, Any]:
+        """用 code + verifier 换 token 三件套（复用 oauth_login_service 逻辑）。"""
+        resp = session.post(
+            f"{auth_base}/api/accounts/oauth/token",
+            headers={
+                "accept": "*/*",
+                "auth0-client": platform_auth0_client,
+                "content-type": "application/json",
+                "origin": platform_base,
+                "referer": f"{platform_base}/",
+                "user-agent": user_agent,
+                "sec-ch-ua": sec_ch_ua,
+            },
+            json={
+                "client_id": platform_oauth_client_id,
+                "code_verifier": code_verifier,
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": platform_oauth_redirect_uri,
+            },
+            timeout=60,
+            verify=False,
+        )
+        data = resp.json() if resp.text else {}
+        if resp.status_code != 200 or not data.get("access_token"):
+            raise OTPLoginError(f"换token失败 HTTP{resp.status_code}: {str(data)[:300]}")
+        return {
+            "access_token": str(data.get("access_token") or "").strip(),
+            "refresh_token": str(data.get("refresh_token") or "").strip(),
+            "id_token": str(data.get("id_token") or "").strip(),
+            "expires_at": data.get("expires_in") and int(time.time()) + int(data["expires_in"]),
+        }
+
+
+otp_login_service = OTPLoginService()

@@ -1442,6 +1442,25 @@ class AccountService:
                 result = self._login_with_password(email, password)
             except Exception as exc:
                 result = {"ok": False, "error": f"login_exception:{type(exc).__name__}", "detail": {"message": str(exc)}}
+
+            # 密码登录要求邮箱 OTP → 降级走 OTP 流程（需 cred 带 mail_credential）
+            if not result.get("ok") and str(result.get("error") or "") == "need_verification_code":
+                mail_cred = cred.get("mail_credential") if isinstance(cred.get("mail_credential"), dict) else None
+                if mail_cred and mail_cred.get("client_id") and mail_cred.get("refresh_token"):
+                    try:
+                        from services.otp_login_service import otp_login_service
+                        otp_result = otp_login_service.login(
+                            email, password,
+                            mail_credential={**mail_cred, "email": email, "password": password},
+                        )
+                        if otp_result.get("ok"):
+                            otp_result["source_type"] = "otp"
+                        result = otp_result
+                    except Exception as exc:
+                        result = {"ok": False, "error": f"otp_login_exception:{type(exc).__name__}", "detail": {"message": str(exc)}}
+                else:
+                    # 无邮箱取件凭证：保留原 need_verification_code，落 pending 待补凭证
+                    pass
             if result.get("ok"):
                 payload = {
                     "access_token": str(result.get("access_token") or "").strip(),
