@@ -17,6 +17,11 @@ class ProxyAddRequest(BaseModel):
     weight: int = 1
 
 
+class ProxyBatchImportRequest(BaseModel):
+    text: str
+    weight: int = 1
+
+
 class ProxyWeightRequest(BaseModel):
     url: str
     weight: int
@@ -44,6 +49,15 @@ def create_router() -> APIRouter:
             raise HTTPException(status_code=400, detail={"error": "url is required"})
         proxy_pool.add(body.url, weight=body.weight)
         return {"ok": True, "url": body.url, "weight": body.weight}
+
+    @router.post("/api/proxies/batch-import")
+    async def batch_import_proxies(body: ProxyBatchImportRequest, authorization: str | None = Header(default=None)):
+        """v2.9.0：批量导入多行代理文本（支持 kookeey/host:port:user:pass 等格式）。"""
+        require_admin(authorization)
+        if not body.text or not body.text.strip():
+            raise HTTPException(status_code=400, detail={"error": "text is required"})
+        result = proxy_pool.batch_import(body.text, weight=body.weight)
+        return {"ok": True, **result}
 
     @router.delete("/api/proxies/{url:path}")
     async def remove_proxy(url: str, authorization: str | None = Header(default=None)):

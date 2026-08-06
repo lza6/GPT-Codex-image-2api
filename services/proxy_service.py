@@ -204,6 +204,18 @@ class ProxySettingsStore:
         elif legacy_proxy:
             selected_proxy = legacy_proxy
             source = "global"
+        elif not account_proxy:
+            # v2.9.0：账号未绑定代理且无 runtime/explicit/global 时，从 IP 池轮询取一个健康代理
+            # 修复"IP 池设计断层"——proxy_pool.select() 之前业务代码零调用，池是摆设
+            try:
+                from services.proxy_pool import proxy_pool
+                pooled = proxy_pool.select()
+                if pooled is not None and pooled.url:
+                    selected_proxy = pooled.url
+                    source = "pool_round_robin"
+            except Exception:
+                # 池不可用静默回退到 direct（不阻断主链路）
+                pass
 
         return ProxyRuntimeProfile(
             proxy_url=normalize_proxy_url(selected_proxy),
