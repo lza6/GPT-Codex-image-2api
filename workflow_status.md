@@ -1,4 +1,52 @@
-# ChatGPT2API 工作流状态 — 第十六轮（账号密码导入：自动登录抓 Token + 失败保留待登录凭据）
+# ChatGPT2API 工作流状态 — 第十七轮（v2.9.0 版本对齐 + 前端智能重建 + 号池救活闭环 + 六维审计修复）
+
+> 最后更新：2026-08-07
+> 模式：终局闭环 —— 部署 v2.9.0（版本号停滞根治）+ 号池救活（71 异常 passwordless 账号 OTP 救活链路）+ 多 agent 六维审计
+> 基线：8ea9700（v2.8.x）→ 本轮提交 3f9b7b8 / 9b1c8a3 / 8b8efa1 / 81b5b31
+
+## 本轮完成清单
+
+| 编号 | 事项 | 状态 | 证据 |
+|------|------|------|------|
+| A | 版本对齐 VERSION 2.8.0→2.9.0 + CHANGELOG 2.9.0 条目 | ✅ | VERSION、CHANGELOG.md（修复版本漂移：VERSION 曾落后 2.8.1/2.8.2/2.8.3） |
+| B | 前端指纹智能重建（根治 UI 版本号停滞） | ✅ | scripts/web_stamp.ps1（对 web/src+public+根配置+VERSION+CHANGELOG 算 SHA256）+ 启动chatgpt2api.bat 4/6 步按指纹决定重建，无变化秒跳过；实测 VERSION/CHANGELOG 改动→哈希变 |
+| C | bat set/p 挂起 bug 修复 | ✅ | `set /p "OLD_STAMP=<file"` 把 `<` 写进引号被当提示串→控制台死等；改 for/f 读指纹文件 + `if not defined CUR_STAMP` 守卫；powershell -File 路径加引号（含空格可跑）。实测 MATCH-skip/DIFFER-rebuild 两分支正确 |
+| D | 号池救活：OTP 降级 + passwordless 发码 + 取件时间修复 | ✅ | account_service（watcher 重登+导入两处 OTP 降级，401/400/need_verification_code 触发，mail_credential 入库）；otp_login_service._trigger_passwordless_otp 显式发码；_mail_time 统一 UTC aware（修复 naive/aware 比较被静默吞→永远取不到码的关键 bug） |
+| E | 取件改微软 Graph 直连优先（替代第三方 98faka） | ✅ | otp_login_service._fetch_otp_code dispatcher：client_id+refresh_token 换 Graph token 读收件箱（国内直连/凭证不出本机/免第三方限流），token 换不出才回退 98faka；Graph 读到箱无码不双轮询；共享 _extract_otp_code 文本提码 |
+| F | kookeey 每号住宅 IP + 多提供商地基 | ✅ | proxy_service.kookeey_proxy_for(email)（md5[:8] 粘性 session→同号固定 IP，凭据 URL 编码）；config.get_kookeey_settings；services/providers/（ProviderMeta+注册表，chatgpt 默认/grok 占位）+ account normalize provider 字段 |
+| G | 批量救号脚本 | ✅ | scripts/revive_abnormal.py（--limit/--email/--offset/--proxy；数据 data/_recover_payload.json 74 条字段齐；缺文件友好提示；with open 关文件） |
+| H | 六维独立审计（多 agent）+ 确认项修复 | ✅ | 6 维度审查（逻辑/批判/安全/契约/测试/需求）+ 逐条对抗验证：24 确认 / 8 驳回；确认项已修（OTP 降级抽公共方法/不泄露 GPT 密码/导入补每号 IP/kookeey URL 编码/docstring 纠偏/web_stamp 排除构建产物/bat 引号/脚本健壮性/测试提速） |
+| I | 变异探针长期 flaky 根治 | ✅ | mutation_probe._run_tests 子进程强制 UTF-8（PYTHONIOENCODING + errors=replace），消除 Windows GBK 中文日志偶发 UnicodeEncodeError 导致的「还原后全量」偶发 FAIL（第七/十一轮记录） |
+| J | 验证登记表 + 文档同步 | ✅ | 新增 docs/verification-registry.md（已验证基线+已知 flaky/边界+各区域最近改动）；README/SKILL.md 同步；SKILL 启动协议接入登记表 |
+| K | 验证全绿 | ✅ | pytest **458 passed / 0 failed**；**五道防线全 PASS**（含此前偶发 FAIL 的变异探针）；ruff 改动文件 0 错误（存量 24 处既有技术债非本轮）；契约断链=0 漂移=0 |
+
+## 五道防线状态
+
+| 批次 | 契约守卫 | SQL | 慢查询 | 变异 | 施压 |
+|------|---------|-----|--------|------|------|
+| 第十七轮 | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+> 变异探针「还原后全量」此前的偶发 FAIL（Windows GBK 编码 flaky）本轮已根治，两轮复跑全绿。
+> 慢查询热点 2 处为既有 P3 长尾（账号/DB），非本轮引入。
+
+## 当前 git 状态
+
+- 测试：**458 passed / 0 failed**（33 live/redis 排除）
+- 前端：本轮未改前端逻辑（仅版本/文档）；部署时重启 bat 会因 VERSION 变化自动重建 → UI 显示 v2.9.0
+- 契约：断链=0 漂移=0（provider/mail_credential 为增量字段，向后兼容）
+- 版本：**v2.9.0**
+
+## 边界声明（诚实）
+
+- **号池救活的真实批量执行=用户决定**：需 kookeey/v2ray 代理出口可达（本机 TUN 下 gate.kookeey.info 不可达是网络/基础设施问题，或按方案用服务器直连 kookeey）+ 会烧 OpenAI 配额。代码链路已就绪并经 mock 测试，单号链路此前已真实救活 4 个验证。
+- **71 个遗留异常号**：在「mail_credential 入库」之前导入，池内无取件凭证 → watcher 自动救活对它们无效，只能靠 `revive_abnormal.py` + 外部 payload 一次性救；新导入号才带凭证可被自动救。
+- **Graph 取件链路**：契约来自已验证的 test_outlook_token_mailbox.py，全部经 mock 测试；未对真实微软 Graph 联网验证（需真实账号）。98faka 兜底保留。
+- **多提供商为地基阶段**：provider 字段+注册表已就位；调度分池/路由分发/前端切换器是后续阶段（方案本就定「这次只做地基」）。
+- **kookeey 凭据经 /api/settings 返回**：与既有全局 proxy 凭据处理一致（供管理员编辑，仅 auth-key 被 pop），内部管理员工具符合既有设计。
+
+---
+
+## 第十六轮历史（账号密码导入：自动登录抓 Token + 失败保留待登录凭据）
 
 > 最后更新：2026-08-05
 > 模式：用户需求 —— 兼容"邮箱----密码"凭据导入，自动登录抓 token，失败保留待登录
