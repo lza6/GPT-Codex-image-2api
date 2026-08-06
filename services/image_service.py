@@ -99,7 +99,8 @@ def ensure_thumbnail(relative_path: str) -> Path:
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=422, detail="failed to create thumbnail") from exc
+        # v2.9.0：源图不存在/损坏时返回 404（而非 422，422 语义为请求体校验错误，不准确）
+        raise HTTPException(status_code=404, detail=f"thumbnail source unavailable: {str(exc)[:120]}") from exc
     return target
 
 
