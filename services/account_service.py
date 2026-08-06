@@ -383,6 +383,9 @@ class AccountService:
         normalized["last_token_refresh_at"] = normalized.get("last_token_refresh_at") or None
         normalized["last_token_refresh_error"] = normalized.get("last_token_refresh_error") or None
         normalized["last_token_refresh_error_at"] = normalized.get("last_token_refresh_error_at") or None
+        # 多提供商地基：账号归属提供商，默认 chatgpt（自由 schema，无需改库）
+        from services.providers import normalize_provider
+        normalized["provider"] = normalize_provider(normalized.get("provider"))
         normalized["created_at"] = normalized.get("created_at") or AccountService._now()
         return normalized
 
@@ -621,9 +624,33 @@ class AccountService:
             return self._apply_refreshed_tokens(active_token, token_data, event)
 
     def _password_re_login_thread(self, access_token: str, email: str, password: str, event: str, progress_id: str | None = None) -> None:
-        """密码重新登录线程入口"""
+        """密码重新登录线程入口（走 kookeey 住宅代理 + 取件凭证 + OTP 降级）"""
         try:
-            result = self._login_with_password(email, password)
+            from services.proxy_service import kookeey_proxy_for
+
+            # 读取账号已存的取件凭证（client_id + refresh_token），供 OTP 降级用
+            acct = self.get_account(access_token) or {}
+            mail_cred = acct.get("mail_credential") if isinstance(acct.get("mail_credential"), dict) else None
+            # 每号固定住宅 IP（粘性 session），避免同 IP 批量登录被风控
+            proxy_url = kookeey_proxy_for(email)
+            result = self._login_with_password(email, password, proxy_url=proxy_url)
+            # 遇 OpenAI 风控要求邮箱 OTP、或 passwordless 账号无密码(401/400) 且有取件凭证 → 降级走 OTP 取件登录
+            if (not result.get("ok")) and str(result.get("error") or "") in {"need_verification_code", "password_verify_failed_401", "password_verify_failed_400"}:
+                if mail_cred and mail_cred.get("client_id") and mail_cred.get("refresh_token"):
+                    try:
+                        from services.otp_login_service import otp_login_service
+
+                        otp_result = otp_login_service.login(
+                            email,
+                            password,
+                            mail_credential={**mail_cred, "email": email, "password": password},
+                            proxy_url=proxy_url,
+                        )
+                        if otp_result.get("ok"):
+                            otp_result["source_type"] = "otp"
+                        result = otp_result
+                    except Exception as exc:
+                        result = {"ok": False, "error": f"otp_login_exception:{type(exc).__name__}", "detail": {"message": str(exc)}}
             if result.get("ok"):
                 # 登录成功，更新账号
                 new_access_token = result.get("access_token", "")
@@ -731,8 +758,12 @@ class AccountService:
             if progress_id:
                 self.update_relogin_progress(progress_id, access_token, "异常", str(exc))
 
-    def _login_with_password(self, email: str, password: str) -> dict:
-        """通过邮箱+密码登录，返回 {access_token, refresh_token, id_token, ...}"""
+    def _login_with_password(self, email: str, password: str, proxy_url: str = "") -> dict:
+        """通过邮箱+密码登录，返回 {access_token, refresh_token, id_token, ...}
+
+        proxy_url：可选的每号独立出口（kookeey 住宅代理）。为空时回退到全局
+        `config.get_proxy_settings()`。传独立的住宅 IP 可降低同 IP 批量登录被风控的概率。
+        """
         from curl_cffi import requests
         
         # 常量
@@ -745,7 +776,7 @@ class AccountService:
         
         # 创建 session
         session_kwargs = {"impersonate": "chrome110", "verify": False}
-        proxy = config.get_proxy_settings()
+        proxy = str(proxy_url or "").strip() or config.get_proxy_settings()
         if proxy:
             session_kwargs["proxy"] = proxy
         session = requests.Session(**session_kwargs)
@@ -1464,6 +1495,8 @@ class AccountService:
         for cred in deduped.values():
             email = str(cred.get("email") or "").strip()
             password = str(cred.get("password") or "").strip()
+            # 取件凭证（client_id + refresh_token），登录成功/待登录都入库，供重登 OTP 用
+            mail_cred = cred.get("mail_credential") if isinstance(cred.get("mail_credential"), dict) else None
             if self._find_account_by_email(email):
                 skipped += 1
                 continue
@@ -1472,9 +1505,8 @@ class AccountService:
             except Exception as exc:
                 result = {"ok": False, "error": f"login_exception:{type(exc).__name__}", "detail": {"message": str(exc)}}
 
-            # 密码登录要求邮箱 OTP → 降级走 OTP 流程（需 cred 带 mail_credential）
-            if not result.get("ok") and str(result.get("error") or "") == "need_verification_code":
-                mail_cred = cred.get("mail_credential") if isinstance(cred.get("mail_credential"), dict) else None
+            # 密码登录要求邮箱 OTP、或 passwordless 账号无密码(401/400) → 降级走 OTP 流程（需 cred 带 mail_credential）
+            if not result.get("ok") and str(result.get("error") or "") in {"need_verification_code", "password_verify_failed_401", "password_verify_failed_400"}:
                 if mail_cred and mail_cred.get("client_id") and mail_cred.get("refresh_token"):
                     try:
                         from services.otp_login_service import otp_login_service
@@ -1501,6 +1533,11 @@ class AccountService:
                     "type": "free",
                     "status": "正常",
                 }
+                if mail_cred:
+                    payload["mail_credential"] = {
+                        "client_id": str(mail_cred.get("client_id") or "").strip(),
+                        "refresh_token": str(mail_cred.get("refresh_token") or "").strip(),
+                    }
                 if result.get("expires_at"):
                     payload["expires_at"] = result["expires_at"]
                 acc = self._add_account_payloads([payload])
@@ -1511,7 +1548,7 @@ class AccountService:
             else:
                 error_type = str(result.get("error") or "unknown")
                 pending += 1
-                self._add_account_payloads([{
+                pending_payload = {
                     "access_token": f"{self._PENDING_PREFIX}{email}",
                     "email": email,
                     "password": password,
@@ -1521,7 +1558,13 @@ class AccountService:
                     "quota": 0,
                     "login_error": error_type,
                     "login_error_at": self._now(),
-                }])
+                }
+                if mail_cred:
+                    pending_payload["mail_credential"] = {
+                        "client_id": str(mail_cred.get("client_id") or "").strip(),
+                        "refresh_token": str(mail_cred.get("refresh_token") or "").strip(),
+                    }
+                self._add_account_payloads([pending_payload])
                 errors.append({
                     "email": email,
                     "error": error_type,

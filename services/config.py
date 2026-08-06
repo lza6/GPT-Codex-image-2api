@@ -897,6 +897,15 @@ class ConfigStore:
     def get_proxy_settings(self) -> str:
         return str(self.data.get("proxy") or "").strip()
 
+    def get_kookeey_settings(self) -> dict[str, object]:
+        """kookeey 动态住宅代理配置（密码登录 / OTP 取件的每号独立出口）。
+
+        结构：{enabled, scheme, gate_host, gate_port, user_id, security_username,
+              security_password, country}。未配置返回 {}。
+        """
+        raw = self.data.get("kookeey")
+        return dict(raw) if isinstance(raw, dict) else {}
+
     def get_proxy_runtime_settings(self) -> dict[str, object]:
         return _normalize_proxy_runtime_settings(self.data.get("proxy_runtime"))
 

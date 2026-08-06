@@ -1,4 +1,4 @@
-"""邮箱验证码登录服务（纯 HTTP 链路 + 98faka 取件 + cf_solver CF 清除）。
+"""邮箱验证码登录服务（纯 HTTP 链路 + 微软 Graph 取件(优先)/98faka(兜底) + cf_solver CF 清除）。
 
 `_login_with_password` 走 password/verify，遇 OpenAI 风控要求邮箱 OTP 就返回
 `need_verification_code`。本服务改走 email-otp 流程：
@@ -6,7 +6,8 @@
      cf_solver 用 Camoufox 过 Cloudflare WAF，返回 cf_clearance/__cf_bm/_cfuvid + UA
   2. PKCE 构造 authorize URL（login_hint=邮箱）
   3. GET authorize → 触发 OpenAI 发 OTP 验证码到邮箱
-  4. 调 98faka 邮箱 API 取最新 OTP 邮件正文（契约：POST app.98faka.top/api/emails + /api/email-body）
+  4. 取最新 OTP 邮件正文：优先自建微软 Graph 直连（client_id+refresh_token 换 access_token
+     读收件箱，国内可直连、凭证不出本机、免第三方限流），token 换不出才回退 98faka 中转
   5. 正则提取 6 位数字
   6. POST /api/accounts/email-otp/validate 提交
   7. 从 continue_url 拿 code → /api/accounts/oauth/token 换 token 三件套
@@ -64,6 +65,10 @@ class OTPLoginError(Exception):
 
 # 98faka 邮箱中转 API（参考材料证实契约，比 91kami 更稳定）
 MAIL_API_BASE = "https://app.98faka.top"
+# 微软 Graph 直连取件（优先；契约经 scripts/test_outlook_token_mailbox.py 实测验证）
+GRAPH_TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+GRAPH_MESSAGES_URL = "https://graph.microsoft.com/v1.0/me/messages"
+GRAPH_SCOPE = "offline_access https://graph.microsoft.com/Mail.Read"
 # cf_solver 本地服务（Camoufox 过 Cloudflare WAF）
 CF_SOLVER_BASE = "http://127.0.0.1:8001"
 OTP_WAIT_MAX = 90          # 等验证码邮件秒数
@@ -173,6 +178,12 @@ class OTPLoginService:
                     tokens.update({"ok": True, "email": email, "source_type": "otp"})
                     return tokens
 
+            # ②.5 passwordless 账号 authorize 后停在密码页 → 显式触发发码
+            if "/log-in" in final_url:
+                if not self._trigger_passwordless_otp(session, device_id):
+                    return {"ok": False, "error": "send_otp_failed", "detail": {"email": email}}
+                otp_trigger_at = datetime.now(UTC)  # 取件基准重置为发码时刻
+
             # ③ 取最新 OTP 邮件 → 提取 6 位数字
             code_digits = self._fetch_otp_code(mail_credential, otp_trigger_at, session_kwargs.get("proxy", ""))
             if not code_digits:
@@ -232,6 +243,33 @@ class OTPLoginService:
             except Exception:
                 pass
 
+    def _trigger_passwordless_otp(self, session, device_id: str) -> bool:
+        """对已设密码的账号（authorize 后停在 log-in/password），POST passwordless/send-otp 触发发码。
+
+        passwordless 注册账号无可用登录密码，authorize 后会停在密码输入页，
+        必须显式调此端点让 OpenAI 发邮箱验证码（参考注册项目 revive_protocol.py）。
+        空 body 即可（会话 cookie 已标识账号），返回是否成功触发。
+        """
+        try:
+            sentinel, oai_sc = build_sentinel_token(session, device_id, "passwordless_send_otp")
+            if oai_sc:
+                session.cookies.set("oai-sc", oai_sc, domain=".openai.com")
+            headers = {
+                "accept": "application/json",
+                "content-type": "application/json",
+                "referer": f"{auth_base}/log-in/password",
+                "user-agent": user_agent,
+                "oai-device-id": device_id,
+                "openai-sentinel-token": sentinel,
+            }
+            resp = session.post(
+                f"{auth_base}/api/accounts/passwordless/send-otp",
+                json={}, headers=headers, timeout=30,
+            )
+            return resp.status_code == 200
+        except Exception:
+            return False
+
     def _get_cf_clearance(self, url: str, timeout: int = 30) -> str:
         """调 cf_solver GET /clearance 拿 cf_clearance + 全 cookie header。
 
@@ -275,7 +313,121 @@ class OTPLoginService:
         after_utc: datetime,
         proxy: str = "",
     ) -> str | None:
-        """调 98faka 邮箱中转 API 取 OTP 邮件，提取 6 位数字。
+        """取 OTP 验证码：优先自建微软 Graph 直连（免第三方 98faka），凭证失效才回退 98faka。
+
+        调度逻辑：Graph token 换出 → 全程用 Graph（不再碰 98faka）；token 换不出（凭证对
+        Graph 无效/网络不可达）→ 回退第三方 98faka 兜底。Graph 读到邮箱但没等到码时**不**
+        回退双轮询——同一邮箱 98faka 同样取不到，只会徒增 90s 等待。
+        """
+        client_id = mail_credential.get("client_id", "")
+        refresh_token = mail_credential.get("refresh_token", "")
+        if client_id and refresh_token:
+            access_token = self._graph_access_token(client_id, refresh_token, proxy)
+            if access_token:
+                return self._poll_graph_otp(access_token, after_utc, proxy)
+        return self._fetch_otp_code_98faka(mail_credential, after_utc, proxy)
+
+    # ---------------------------------------------------------------- 微软 Graph 直连取件（优先）
+    @staticmethod
+    def _graph_access_token(client_id: str, refresh_token: str, proxy: str = "") -> str:
+        """用 refresh_token 换 Graph access_token（scope=Mail.Read）。失败返回空串。"""
+        proxies = {"http": proxy, "https": proxy} if proxy else {}
+        try:
+            r = requests.post(
+                GRAPH_TOKEN_URL,
+                data={
+                    "client_id": client_id,
+                    "grant_type": "refresh_token",
+                    "refresh_token": refresh_token,
+                    "scope": GRAPH_SCOPE,
+                },
+                headers={"content-type": "application/x-www-form-urlencoded", "user-agent": user_agent},
+                proxies=proxies, timeout=30,
+            )
+            if r.status_code != 200:
+                return ""
+            body = r.json() if r.text else {}
+            return str(body.get("access_token") or "").strip()
+        except Exception:
+            return ""
+
+    def _graph_list_mails(self, access_token: str, proxy: str = "") -> list[dict]:
+        """读收件箱最新邮件，归一化成与 98faka 相同的字段（供 _is_otp_mail/_mail_time 复用）。"""
+        proxies = {"http": proxy, "https": proxy} if proxy else {}
+        r = requests.get(
+            GRAPH_MESSAGES_URL,
+            headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json", "user-agent": user_agent},
+            params={"$top": 25, "$orderby": "receivedDateTime desc", "$select": "id,subject,receivedDateTime,from,bodyPreview"},
+            proxies=proxies, timeout=30,
+        )
+        body = r.json() if r.text else {}
+        items = body.get("value") if isinstance(body.get("value"), list) else []
+        mails: list[dict] = []
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            frm = ""
+            fa = it.get("from")
+            if isinstance(fa, dict):
+                ea = fa.get("emailAddress")
+                if isinstance(ea, dict):
+                    frm = str(ea.get("address") or ea.get("name") or "")
+            mails.append({
+                "id": it.get("id"),
+                "subject": str(it.get("subject") or ""),
+                "received_time": str(it.get("receivedDateTime") or ""),
+                "from_address": frm,
+                "body_preview": str(it.get("bodyPreview") or ""),
+            })
+        return mails
+
+    def _graph_code_from_full_body(self, access_token: str, msg_id: str, proxy: str = "") -> str | None:
+        """preview 没提到码时，拉单封完整正文再提取（bodyPreview 通常已含码，此为数度兜底）。"""
+        if not msg_id:
+            return None
+        proxies = {"http": proxy, "https": proxy} if proxy else {}
+        try:
+            r = requests.get(
+                f"{GRAPH_MESSAGES_URL}/{msg_id}",
+                headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json", "user-agent": user_agent},
+                params={"$select": "body"},
+                proxies=proxies, timeout=30,
+            )
+            body = r.json() if r.text else {}
+            b = body.get("body")
+            content = str(b.get("content") or "") if isinstance(b, dict) else ""
+            return self._extract_otp_code(content)
+        except Exception:
+            return None
+
+    def _poll_graph_otp(self, access_token: str, after_utc: datetime, proxy: str = "") -> str | None:
+        """Graph 轮询取件：取"触发后最新"的 OpenAI 邮件，先 subject+preview 提码，不行拉全文。"""
+        deadline = time.time() + OTP_WAIT_MAX
+        after_local = after_utc.replace(microsecond=0)
+        while time.time() < deadline:
+            try:
+                mails = self._graph_list_mails(access_token, proxy)
+                cands = [m for m in mails if self._is_otp_mail(m) and self._mail_time(m) >= after_local - timedelta(seconds=8)]
+                if cands:
+                    newest = max(cands, key=self._mail_time)
+                    code = self._extract_otp_code(f"{newest.get('subject', '')} {newest.get('body_preview', '')}")
+                    if code:
+                        return code
+                    code = self._graph_code_from_full_body(access_token, str(newest.get("id") or ""), proxy)
+                    if code:
+                        return code
+            except Exception:
+                pass
+            time.sleep(OTP_POLL_SEC)
+        return None
+
+    def _fetch_otp_code_98faka(
+        self,
+        mail_credential: dict[str, str],
+        after_utc: datetime,
+        proxy: str = "",
+    ) -> str | None:
+        """调 98faka 邮箱中转 API 取 OTP 邮件，提取 6 位数字（Graph 失效时的第三方兜底）。
 
         98faka 契约（来自"微软邮箱和卡密以及使用教程.txt"真实抓包）：
           POST /api/emails body={email,password,client_id,refresh_token,folder=inbox}
@@ -334,11 +486,26 @@ class OTPLoginService:
         raw = str(m.get("received_time") or m.get("date") or "").strip()
         try:
             d = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-            if d.tzinfo is not None:
-                d = d.astimezone().replace(tzinfo=None)
-            return d
+            # 统一为 UTC aware：否则与 after_local(UTC aware) 比较时 naive/aware 冲突
+            # 抛 TypeError 被外层 except 静默吞掉，导致永远取不到验证码。
+            if d.tzinfo is None:
+                d = d.replace(tzinfo=UTC)
+            return d.astimezone(UTC)
         except Exception:
-            return datetime.fromtimestamp(0)
+            return datetime.fromtimestamp(0, UTC)
+
+    @staticmethod
+    def _extract_otp_code(text: str) -> str | None:
+        """从邮件文本提取 6 位数字验证码：优先"关键词+数字"，否则取文本中最后一组 6 位数字。"""
+        text = re.sub(r"<[^>]+>", " ", text or "")
+        text = re.sub(r"\s+", " ", text).strip()
+        if not text:
+            return None
+        m = OTP_KEYWORD_RE.search(text)
+        if m:
+            return m.group(1)
+        nums = OTP_CODE_RE.findall(text)
+        return nums[-1] if nums else None
 
     @staticmethod
     def _extract_code_from_mail(mail: dict, cred: dict[str, str], proxy: str) -> str | None:
@@ -362,15 +529,7 @@ class OTPLoginService:
             )
             body = r.json() if r.text else {}
             html = body.get("body_html") or body.get("body_preview") or ""
-            text = re.sub(r"<[^>]+>", " ", html)
-            text = re.sub(r"\s+", " ", text).strip()
-            if not text:
-                return None
-            m = OTP_KEYWORD_RE.search(text)
-            if m:
-                return m.group(1)
-            nums = OTP_CODE_RE.findall(text)
-            return nums[-1] if nums else None
+            return OTPLoginService._extract_otp_code(html)
         except Exception:
             return None
 
