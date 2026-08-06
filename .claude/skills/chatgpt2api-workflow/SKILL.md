@@ -230,9 +230,10 @@ chatgpt2api/
 任何 AI 会话在本项目动手前，按序：
 1. 读本技能（.claude/skills/chatgpt2api-workflow/SKILL.md）
 2. 读 workflow_status.md 最新一轮（知道哪些已闭环，别重复也别推翻）
-3. 读 CLAUDE.md 项目约定
-4. 判断上述文档是否过时（对照实际代码抽查 ≥3 处）：过时→先更新文档再编码；未过时→按文档编码
-5. 编码前先写验收标准（怎么算完成、用什么命令验证）
+3. 读 docs/verification-registry.md（当前已验证基线 + 已知 flaky/边界 + 各区域最近改动）——**只在改动落到某区域时才重跑该区域验证，没碰的沿用登记表结论不重跑**；表里的"已知 flaky/边界"不要重复追查
+4. 读 CLAUDE.md 项目约定
+5. 判断上述文档是否过时（对照实际代码抽查 ≥3 处）：过时→先更新文档再编码；未过时→按文档编码
+6. 编码前先写验收标准（怎么算完成、用什么命令验证）
 
 ## 历史 bug 警示（不可再犯）
 
@@ -264,6 +265,8 @@ chatgpt2api/
 | 寿命预测降档勿误封（5.1 警示） | services/account_lifetime.py + account_service._lifetime_downgrade | 预测只降不升（濒危→risky/高→warm），低/中不降；最小观测窗口守卫（success+fail<3 且无明确失效→low）防「瞬间封禁/复活抖动」；禁止把 high 直接封禁 |
 | 原子写非统一（已修） | services/image_task_service.py + editable_file_task_service.py | 固定 .tmp 名并发覆盖、崩溃半写。统一复用 json_storage._atomic_write_text（唯一 tmp+重试） |
 | 文档与真实不一致（已修） | README.md + docs/api/ | 限流"已移除"vs 实际接线、/metrics"无需鉴权"vs 实际 401——改代码必须同步改文档，否则反向误导调用方 |
+| OTP 取件时间比较被静默吞掉（已修 v2.9.0） | services/otp_login_service.py `_mail_time` | 邮件时间转本地 naive 与 UTC aware 基准比较抛 TypeError，被外层 `except` 静默吞掉 → **永远取不到验证码且无报错**。时间比较必须统一 aware(UTC)；凡是 `except: pass` 包住的核心步骤都要警惕"永远失败但无日志" |
+| 启动脚本前端版本停滞（已修 v2.9.0） | 启动chatgpt2api.bat + scripts/web_stamp.ps1 | 旧逻辑仅判 `web_dist\index.html` 存在就跳过构建 → 改了代码/VERSION 也不重建，UI 版本号停滞。改为指纹(web/src+配置+VERSION+CHANGELOG 哈希)不一致才重建。改 bat 必须 PowerShell GBK(936) 读写，禁用 UTF-8 Edit/Write |
 
 ## 关键文件速查
 
@@ -290,6 +293,10 @@ chatgpt2api/
 | IP 池 | web/src/app/proxy-pool/page.tsx |
 | API 文档 | docs/api/* |
 | 五道防线 | scripts/run_all_guards.py（contract_guard/sql_audit/slow_query_report/mutation_probe/stress_test，带执行锁防双跑） |
+| 号池救活 | services/otp_login_service.py（OTP 登录；取件=微软 Graph 直连优先/98faka 兜底）+ services/account_service.py（watcher 重登+导入两处 OTP 降级）+ scripts/revive_abnormal.py（一次性批量救号，数据 data/_recover_payload.json） |
+| 每号住宅 IP | services/proxy_service.py `kookeey_proxy_for(email)`（md5[:8] 粘性 session→同号固定 IP）+ services/config.py `get_kookeey_settings`（读 kookeey 配置块） |
+| 多提供商地基 | services/providers/（ProviderMeta+注册表，chatgpt 默认/grok 占位未启用）；account_service._normalize 加 provider 字段默认 chatgpt，不改行为 |
+| 前端智能重建 | scripts/web_stamp.ps1（对 web/src+配置+VERSION+CHANGELOG 算指纹）+ 启动chatgpt2api.bat（4/6 步按指纹决定重建，产物 web_dist/.build-stamp） |
 | 备份演练 | scripts/verify_backup_roundtrip.py（打包/解包 sha256 往返，不触网） |
 | live 测试 | scripts/run_live_tests.py（dry-run 预检 + --go 执行，防误跑烧配额） |
 | 规格保鲜 | scripts/refresh_spec.py（生成 docs/project-spec.md，会话启动判断过时） |

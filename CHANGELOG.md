@@ -1,8 +1,17 @@
 # Changelog
 
-## 2.9.0 - 2026-08-07 (生图稳定性 + 功能裁剪 + 号池恢复提速 + 前端版本自动重建)
+## 2.9.0 - 2026-08-07 (号池救活 + 生图稳定性 + 功能裁剪 + 版本对齐与前端智能重建)
 
 **说明：** `VERSION` 此前停留在 2.8.0（落后于已发版的 2.8.1/2.8.2/2.8.3），本版本将其对齐到 2.9.0，并修复前端"版本号停滞"的根因——启动脚本不再只看 `web_dist` 是否存在，而是按内容指纹决定是否重建。
+
+**号池救活（生产 71+ 异常账号，均为 passwordless 注册无 OpenAI 密码，须走邮箱 OTP）：**
++ [OTP 降级] `account_service` watcher 重登 + 导入两处加 OTP 降级：`_login_with_password` 返回 `need_verification_code`/`password_verify_failed_401`/`password_verify_failed_400` 且有 `mail_credential` 时改走邮箱验证码登录；`mail_credential`（client_id+refresh_token）成功/待登录均入库，供重登用
++ [passwordless 发码] `otp_login_service._trigger_passwordless_otp`：authorize 后停在密码页的 passwordless 账号，显式 POST `passwordless/send-otp` 触发 OpenAI 发码（此前不触发就干等取不到码）
++ [取件时间修复] `_mail_time` 统一 UTC aware：此前 naive/aware 比较抛 TypeError 被静默吞掉 → 永远取不到验证码（关键 bug）
++ [微软 Graph 取件] `_fetch_otp_code` 改**自建微软 Graph 直连优先**（`login.microsoftonline.com` 用 refresh_token 换 token → `graph.microsoft.com/v1.0/me/messages` 读收件箱，国内可直连、凭证不出本机、免第三方限流），token 换不出才回退 98faka；抽出共享 `_extract_otp_code` 文本提码核心；Graph 读到箱但无码不双轮询
++ [每号住宅 IP] `proxy_service.kookeey_proxy_for(email)`：kookeey 动态住宅代理，md5(email)[:8] 粘性 session → 同号固定 IP、不同号不同 IP，降低同 IP 批量登录被风控概率；`config.get_kookeey_settings` 读取配置
++ [批量救号脚本] `scripts/revive_abnormal.py`：一次性对异常账号跑 OTP 登录换新 token + 回写凭证（`--limit`/`--email`/`--offset`/`--proxy` 可选），数据来自 `data/_recover_payload.json`（74 条）
++ [多提供商地基] `services/providers/`（ProviderMeta + 注册表，chatgpt 默认/grok 占位未启用）：账号 normalize 加 `provider` 字段默认 chatgpt，不改变现有行为，为后续接 grok 等预留
 
 **生图链路（P2）：**
 + [文生图] `_classify_failure_phase` 从错误信息识别 9 类失败阶段（无可用账号/熔断器 OPEN/CF 拦截/token 失效/上游限流等）拼进日志简述，失败可定位到阶段

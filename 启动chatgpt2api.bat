@@ -105,7 +105,8 @@ if exist "web_dist\index.html" if exist "web_dist\.build-stamp" set "NEED_BUILD=
 if "%NEED_BUILD%"=="1" goto :do_build
 
 for /f "usebackq delims=" %%H in (`powershell -NoProfile -ExecutionPolicy Bypass -File %~dp0scripts\web_stamp.ps1`) do set "CUR_STAMP=%%H"
-set /p "OLD_STAMP=<web_dist\.build-stamp"
+if not defined CUR_STAMP goto :do_build
+for /f "usebackq delims=" %%O in ("web_dist\.build-stamp") do set "OLD_STAMP=%%O"
 if not "%CUR_STAMP%"=="%OLD_STAMP%" goto :do_build
 echo [4/6] Frontend unchanged, skip build
 goto :backend
