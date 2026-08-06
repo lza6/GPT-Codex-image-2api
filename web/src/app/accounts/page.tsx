@@ -52,6 +52,7 @@ import {
   fetchAccounts,
   fetchCircuitBreakers,
   fetchModels,
+  fetchProxies,
   fetchRefreshProgress,
   fetchReLoginProgress,
   fetchSystemLogs,
@@ -202,6 +203,8 @@ function AccountsPageContent() {
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [editStatus, setEditStatus] = useState<AccountStatus>("正常");
   const [editProxy, setEditProxy] = useState("");
+  // v2.9.0：账号编辑弹窗"从池选 IP"下拉数据
+  const [poolProxies, setPoolProxies] = useState<{ url: string; host?: string; country?: string }[]>([]);
   const [isTestingProxy, setIsTestingProxy] = useState(false);
   const [timelineAccount, setTimelineAccount] = useState<Account | null>(null);
   const [timelineLogs, setTimelineLogs] = useState<SystemLog[]>([]);
@@ -847,6 +850,15 @@ function AccountsPageContent() {
     setEditingAccount(account);
     setEditStatus(account.status);
     setEditProxy(account.proxy ?? "");
+    // v2.9.0：打开编辑弹窗时拉取 IP 池列表供"从池选 IP"
+    void (async () => {
+      try {
+        const data = await fetchProxies();
+        setPoolProxies(data.proxies ?? []);
+      } catch {
+        // 拉取失败不阻断编辑
+      }
+    })();
   };
 
   // 3.2.1：单账号洞察时间线——拉取该账号调用日志（复用 /api/logs?account_email= 过滤）
@@ -1025,9 +1037,27 @@ function AccountsPageContent() {
                 <Input
                   value={editProxy}
                   onChange={(event) => setEditProxy(event.target.value)}
-                  placeholder="留空走全局代理，例如 http://127.0.0.1:7890"
+                  placeholder="留空走IP池轮询，例如 http://127.0.0.1:7890"
                   className="h-11 rounded-xl border-stone-200 bg-white"
                 />
+                {/* v2.9.0：从 IP 池选择代理绑定 */}
+                <Select
+                  value=""
+                  onValueChange={(value) => {
+                    if (value) setEditProxy(value);
+                  }}
+                >
+                  <SelectTrigger className="h-11 rounded-xl border-stone-200 bg-white px-3 sm:w-40">
+                    <SelectValue placeholder="从池选 IP" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {poolProxies.map((p) => (
+                      <SelectItem key={p.url} value={p.url}>
+                        {p.host || p.url.slice(0, 30)}{p.country ? ` · ${p.country}` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <Button
                   variant="outline"
                   className="h-11 rounded-xl border-stone-200 bg-white px-4 text-stone-700 sm:w-24"

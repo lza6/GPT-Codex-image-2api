@@ -1207,3 +1207,8 @@ export type MetricsSummary = {
 export function fetchMetricsSummary() {
   return httpRequest<MetricsSummary>("/api/dashboard/metrics_summary");
 }
+
+/** v2.9.0：拉取 IP 池列表（账号编辑弹窗"从池选 IP"用）。 */
+export function fetchProxies() {
+  return httpRequest<{ proxies: { url: string; host?: string; country?: string }[] }>("/api/proxies");
+}
