@@ -763,10 +763,10 @@ class ConfigStore:
     def abnormal_auto_recover_interval_minutes(self) -> int:
         """v2.9.0：异常账号自动恢复扫描间隔（分钟）。"""
         try:
-            value = int(self.data.get("abnormal_auto_recover_interval_minutes", 30))
+            value = int(self.data.get("abnormal_auto_recover_interval_minutes", 5))
         except (TypeError, ValueError):
-            value = 30
-        return max(5, min(1440, value))
+            value = 5
+        return max(1, min(1440, value))
 
     @property
     def abnormal_auto_recover_max_workers(self) -> int:

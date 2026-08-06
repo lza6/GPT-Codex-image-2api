@@ -134,6 +134,32 @@ def start_limited_account_watcher(stop_event: Event) -> Thread:
         while not stop_event.is_set():
             try:
                 limited_tokens = account_service.list_limited_tokens()
+                # v2.9.0：限流账号若 quota=0 且 restore_at 在未来（未到期），跳过刷新避免浪费上游额度
+                # 只刷限流但 quota>0（说明限流但还有额度，可能刚解限）或 restore_at 已过期的账号
+                import time as _time_mod
+                from datetime import datetime, UTC
+                now_dt = datetime.now(UTC)
+                skip_count = 0
+                filtered_limited = []
+                for token in limited_tokens:
+                    acct = account_service.get_account(token)
+                    if not acct:
+                        continue
+                    quota = int(acct.get("quota") or 0)
+                    restore_at = str(acct.get("restore_at") or "").strip()
+                    if quota == 0 and restore_at:
+                        try:
+                            from datetime import datetime as _dt
+                            restore_ts = _dt.fromisoformat(restore_at.replace("Z", "+00:00")).timestamp()
+                            if restore_ts > _time_mod.time():
+                                skip_count += 1
+                                continue
+                        except Exception:
+                            pass
+                    filtered_limited.append(token)
+                limited_tokens = filtered_limited
+                if skip_count:
+                    print(f"[account-watcher] skip {skip_count} limited accounts (quota=0, restore_at future)")
                 normal_tokens = account_service.list_normal_tokens()
                 expiring_tokens = account_service.list_expiring_access_tokens()
                 keepalive_tokens = account_service.list_refresh_token_keepalive_tokens()

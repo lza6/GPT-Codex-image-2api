@@ -1359,15 +1359,28 @@ class AccountService:
         """v2.9.0：列出可尝试自动恢复的异常账号 token。
 
         条件：status=异常 且 invalid_count >= 2（避免新账号误判）。
+        排除：额度真实耗尽的账号（last_refresh_error 含 quota_exhausted/rate_limit_exhausted 等
+        关键字，说明上游明确告知额度用完，反复刷新只会浪费请求额度，不可恢复）。
         纯 token 账号（有 refresh_token）走 refresh_token 换 token 路径；
         带 email+password 的账号走密码重登兜底。两者 fetch_remote_info 都会覆盖。
         """
+        # v2.9.0：额度真实耗尽错误关键字（这些说明上游明确告知额度用完，不可恢复）
+        QUOTA_EXHAUSTED_MARKERS = (
+            "quota_exhausted", "rate_limit_exhausted", "usage_limit_reached",
+            "plan_limit_reached", "no available image quota",
+        )
+
+        def _is_quota_exhausted(item: dict) -> bool:
+            err = str(item.get("last_refresh_error") or "").lower()
+            return any(marker in err for marker in QUOTA_EXHAUSTED_MARKERS)
+
         with self._lock:
             return [
                 token
                 for item in self._accounts.values()
                 if item.get("status") == "异常"
                    and int(item.get("invalid_count") or 0) >= 2
+                   and not _is_quota_exhausted(item)
                    and (token := item.get("access_token") or "")
             ]
 
