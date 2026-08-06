@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -89,7 +90,10 @@ MUTATIONS = [
 
 def _run_tests(targets: list[str]) -> tuple[bool, str]:
     cmd = [str(PY), "-m", "pytest", "-q", "-p", "no:cacheprovider", "-x", *targets]
-    proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, timeout=300)
+    # 子进程强制 UTF-8 输出 + 父进程按 UTF-8 容错解码：
+    # 防 Windows GBK 控制台下中文日志偶发 UnicodeEncodeError 击穿全量重跑（第七/十一轮记录的 flaky）
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+    proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, timeout=300, env=env, encoding="utf-8", errors="replace")
     output = (proc.stdout or "") + (proc.stderr or "")
     tail = "\n".join(output.strip().splitlines()[-4:])
     return proc.returncode == 0, tail

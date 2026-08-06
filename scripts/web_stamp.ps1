@@ -7,8 +7,9 @@ Push-Location $root
 
 $items = @()
 $items += Get-Item 'VERSION', 'CHANGELOG.md'
-# web root config files (next.config.ts, tsconfig, tailwind/postcss config, package.json, locks, ...)
-$items += Get-ChildItem 'web' -File
+# web 根配置（next.config.ts/tsconfig/package.json/locks/tailwind 等）；
+# 排除构建自动再生成物（next-env.d.ts、*.tsbuildinfo），它们的 mtime 每次 build 都变、不代表源码改动
+$items += Get-ChildItem 'web' -File | Where-Object { $_.Name -ne 'next-env.d.ts' -and $_.Name -notlike '*.tsbuildinfo' }
 # source + static assets
 $items += Get-ChildItem 'web\src', 'web\public' -Recurse -File
 

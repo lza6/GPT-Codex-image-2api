@@ -435,7 +435,7 @@ class OTPLoginService:
           POST /api/email-body body={email,message_id,client_id,refresh_token}
           → {body_html, body_preview}
 
-        兜底：若 after 后无新邮件，退回用收件箱最新 15 分钟内的 OTP 邮件。
+        只取"触发后最新"的 OTP 邮件（mail_time >= after_local - 8s 宽容），取不到轮询至超时返回 None。
         """
         proxies = {"http": proxy, "https": proxy} if proxy else {}
         headers = {

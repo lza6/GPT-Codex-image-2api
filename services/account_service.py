@@ -623,6 +623,33 @@ class AccountService:
                 return active_token
             return self._apply_refreshed_tokens(active_token, token_data, event)
 
+    # 触发 OTP 降级的密码登录错误集合（OpenAI 风控要验证码 / passwordless 账号无可用密码 401/400）
+    _OTP_FALLBACK_ERRORS = frozenset({"need_verification_code", "password_verify_failed_401", "password_verify_failed_400"})
+
+    def _otp_fallback_login(self, email: str, password: str, mail_cred: dict | None, proxy_url: str = "") -> dict | None:
+        """密码登录失败后的邮箱验证码降级登录（watcher 重登与导入共用）。
+
+        有取件凭证(client_id+refresh_token)时走 OTP 取件登录，返回结果 dict；无凭证返回
+        None（调用方保留原错误落 pending）。**不**把 GPT 登录密码塞进 mail_credential——
+        微软 Graph 取件用 refresh_token 不需要它，避免 98faka 兜底时把 GPT 密码发给第三方。
+        """
+        if not (mail_cred and mail_cred.get("client_id") and mail_cred.get("refresh_token")):
+            return None
+        try:
+            from services.otp_login_service import otp_login_service
+
+            otp_result = otp_login_service.login(
+                email,
+                password,
+                mail_credential={**mail_cred, "email": email},
+                proxy_url=proxy_url,
+            )
+            if otp_result.get("ok"):
+                otp_result["source_type"] = "otp"
+            return otp_result
+        except Exception as exc:
+            return {"ok": False, "error": f"otp_login_exception:{type(exc).__name__}", "detail": {"message": str(exc)}}
+
     def _password_re_login_thread(self, access_token: str, email: str, password: str, event: str, progress_id: str | None = None) -> None:
         """密码重新登录线程入口（走 kookeey 住宅代理 + 取件凭证 + OTP 降级）"""
         try:
@@ -635,22 +662,10 @@ class AccountService:
             proxy_url = kookeey_proxy_for(email)
             result = self._login_with_password(email, password, proxy_url=proxy_url)
             # 遇 OpenAI 风控要求邮箱 OTP、或 passwordless 账号无密码(401/400) 且有取件凭证 → 降级走 OTP 取件登录
-            if (not result.get("ok")) and str(result.get("error") or "") in {"need_verification_code", "password_verify_failed_401", "password_verify_failed_400"}:
-                if mail_cred and mail_cred.get("client_id") and mail_cred.get("refresh_token"):
-                    try:
-                        from services.otp_login_service import otp_login_service
-
-                        otp_result = otp_login_service.login(
-                            email,
-                            password,
-                            mail_credential={**mail_cred, "email": email, "password": password},
-                            proxy_url=proxy_url,
-                        )
-                        if otp_result.get("ok"):
-                            otp_result["source_type"] = "otp"
-                        result = otp_result
-                    except Exception as exc:
-                        result = {"ok": False, "error": f"otp_login_exception:{type(exc).__name__}", "detail": {"message": str(exc)}}
+            if (not result.get("ok")) and str(result.get("error") or "") in self._OTP_FALLBACK_ERRORS:
+                otp_result = self._otp_fallback_login(email, password, mail_cred, proxy_url)
+                if otp_result is not None:
+                    result = otp_result
             if result.get("ok"):
                 # 登录成功，更新账号
                 new_access_token = result.get("access_token", "")
@@ -1476,6 +1491,8 @@ class AccountService:
 
         返回 {added, skipped, pending, failed, errors, items}。errors 每条含 email/error/detail。
         """
+        from services.proxy_service import kookeey_proxy_for
+
         deduped: dict[str, dict] = {}
         for item in credentials:
             if not isinstance(item, dict):
@@ -1500,28 +1517,19 @@ class AccountService:
             if self._find_account_by_email(email):
                 skipped += 1
                 continue
+            # 每号固定住宅 IP（粘性 session），批量导入也分摊出口，避免同 IP 批量登录被风控
+            proxy_url = kookeey_proxy_for(email)
             try:
-                result = self._login_with_password(email, password)
+                result = self._login_with_password(email, password, proxy_url=proxy_url)
             except Exception as exc:
                 result = {"ok": False, "error": f"login_exception:{type(exc).__name__}", "detail": {"message": str(exc)}}
 
             # 密码登录要求邮箱 OTP、或 passwordless 账号无密码(401/400) → 降级走 OTP 流程（需 cred 带 mail_credential）
-            if not result.get("ok") and str(result.get("error") or "") in {"need_verification_code", "password_verify_failed_401", "password_verify_failed_400"}:
-                if mail_cred and mail_cred.get("client_id") and mail_cred.get("refresh_token"):
-                    try:
-                        from services.otp_login_service import otp_login_service
-                        otp_result = otp_login_service.login(
-                            email, password,
-                            mail_credential={**mail_cred, "email": email, "password": password},
-                        )
-                        if otp_result.get("ok"):
-                            otp_result["source_type"] = "otp"
-                        result = otp_result
-                    except Exception as exc:
-                        result = {"ok": False, "error": f"otp_login_exception:{type(exc).__name__}", "detail": {"message": str(exc)}}
-                else:
-                    # 无邮箱取件凭证：保留原 need_verification_code，落 pending 待补凭证
-                    pass
+            if not result.get("ok") and str(result.get("error") or "") in self._OTP_FALLBACK_ERRORS:
+                otp_result = self._otp_fallback_login(email, password, mail_cred, proxy_url)
+                if otp_result is not None:
+                    result = otp_result
+                # 无取件凭证时 _otp_fallback_login 返回 None：保留原错误落 pending 待补凭证
             if result.get("ok"):
                 payload = {
                     "access_token": str(result.get("access_token") or "").strip(),

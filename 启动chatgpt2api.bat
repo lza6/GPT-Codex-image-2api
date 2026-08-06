@@ -104,7 +104,7 @@ set "NEED_BUILD=1"
 if exist "web_dist\index.html" if exist "web_dist\.build-stamp" set "NEED_BUILD=0"
 if "%NEED_BUILD%"=="1" goto :do_build
 
-for /f "usebackq delims=" %%H in (`powershell -NoProfile -ExecutionPolicy Bypass -File %~dp0scripts\web_stamp.ps1`) do set "CUR_STAMP=%%H"
+for /f "usebackq delims=" %%H in (`powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\web_stamp.ps1"`) do set "CUR_STAMP=%%H"
 if not defined CUR_STAMP goto :do_build
 for /f "usebackq delims=" %%O in ("web_dist\.build-stamp") do set "OLD_STAMP=%%O"
 if not "%CUR_STAMP%"=="%OLD_STAMP%" goto :do_build
@@ -142,7 +142,7 @@ if not exist "web\out" (
 )
 if exist "web_dist" rmdir /s /q "web_dist"
 move /y "web\out" "web_dist" >nul
-for /f "usebackq delims=" %%H in (`powershell -NoProfile -ExecutionPolicy Bypass -File %~dp0scripts\web_stamp.ps1`) do set "NEW_STAMP=%%H"
+for /f "usebackq delims=" %%H in (`powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\web_stamp.ps1"`) do set "NEW_STAMP=%%H"
 >"web_dist\.build-stamp" echo %NEW_STAMP%
 echo       frontend build done
 

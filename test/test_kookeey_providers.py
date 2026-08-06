@@ -85,6 +85,14 @@ class TestKookeeyProxyFor:
         _set_kookeey(monkeypatch, cfg)
         assert ps.kookeey_proxy_for("a@x.com").endswith("@gate.kookeey.info:1000")
 
+    def test_credentials_with_special_chars_url_encoded(self, monkeypatch) -> None:
+        cfg = dict(_FULL_CFG)
+        cfg["security_password"] = "p@ss:w/rd"  # 含 URL 保留字符 @ : /
+        _set_kookeey(monkeypatch, cfg)
+        url = ps.kookeey_proxy_for("a@x.com")
+        assert "p%40ss%3Aw%2Frd" in url  # 被 percent-encode，代理 URL 不会被 @ : 截断
+        assert "p@ss:w/rd" not in url
+
 
 # ---------------------------------------------------------------- providers 注册表（地基）
 

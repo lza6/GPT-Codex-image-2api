@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """一次性救号脚本：对异常账号跑 passwordless OTP 登录，成功则换新 token + 回写凭证。
 
 链路：authorize → (停密码页则 passwordless/send-otp 触发发码) → 98faka 取码
@@ -15,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 
@@ -38,7 +38,13 @@ def main() -> None:
                     help="出口代理：kookeey=每号独立住宅IP(需v2ray开TUN)，v2ray=共享翻墙IP")
     args = ap.parse_args()
 
-    recs = json.load(open(RECOVER_FILE, encoding="utf-8"))
+    if not os.path.exists(RECOVER_FILE):
+        print(f"[错误] 缺少救号数据文件 {RECOVER_FILE}", flush=True)
+        print("  该文件是遗留异常号的取件凭证回灌数据（每行需含 email/access_token/client_id/ms_rt/outlook_pw/gpt_pw）。", flush=True)
+        print("  需先从凭据 txt 解析生成；解析口径参考 scripts/test_outlook_token_mailbox.py。", flush=True)
+        sys.exit(2)
+    with open(RECOVER_FILE, encoding="utf-8") as fh:
+        recs = json.load(fh)
     print(f"待救账号 {len(recs)} 个（回灌数据）", flush=True)
 
     ok = fail = skip = 0

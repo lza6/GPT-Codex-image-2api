@@ -69,7 +69,8 @@ def kookeey_proxy_for(email: str = "") -> str:
         gate_port = 1000
     country = str(cfg.get("country") or "US").strip() or "US"
     session = hashlib.md5(str(email or "").strip().lower().encode("utf-8")).hexdigest()[:8]
-    auth = f"{user_id}-{sec_user}:{sec_pass}-{country}-{session}"
+    # 凭据可能含 @ : / 等 URL 保留字符，user/pass 两段分别 percent-encode，防代理解析失败
+    auth = f"{user_id}-{quote(sec_user, safe='')}:{quote(sec_pass, safe='')}-{country}-{session}"
     return f"{scheme}://{auth}@{gate_host}:{gate_port}"
 
 

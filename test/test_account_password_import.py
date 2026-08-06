@@ -139,7 +139,7 @@ class TestAddPasswordAccounts:
         service = _service()
         monkeypatch.setattr(
             service, "_login_with_password",
-            lambda email, password: {
+            lambda email, password, proxy_url="": {
                 "ok": True, "email": email, "access_token": "jwt-new", "refresh_token": "rt-1",
                 "id_token": "id-1", "source_type": "password", "expires_at": 9999999999,
             },
@@ -161,7 +161,7 @@ class TestAddPasswordAccounts:
         service = _service()
         monkeypatch.setattr(
             service, "_login_with_password",
-            lambda email, password: {"ok": False, "error": "need_verification_code", "detail": {"page": {"type": "email_otp_verification"}}},
+            lambda email, password, proxy_url="": {"ok": False, "error": "need_verification_code", "detail": {"page": {"type": "email_otp_verification"}}},
         )
         result = service.add_password_accounts([{"email": "otp@example.com", "password": "pw123"}])
 
@@ -182,7 +182,7 @@ class TestAddPasswordAccounts:
     def test_login_exception_stored_as_pending(self, monkeypatch) -> None:
         service = _service()
 
-        def _boom(email, password):
+        def _boom(email, password, proxy_url=""):
             raise RuntimeError("connect timeout")
 
         monkeypatch.setattr(service, "_login_with_password", _boom)
@@ -194,7 +194,7 @@ class TestAddPasswordAccounts:
 
     def test_missing_email_or_password_skipped(self, monkeypatch) -> None:
         service = _service()
-        monkeypatch.setattr(service, "_login_with_password", lambda email, password: {"ok": True, "access_token": "x"})
+        monkeypatch.setattr(service, "_login_with_password", lambda email, password, proxy_url="": {"ok": True, "access_token": "x"})
         result = service.add_password_accounts([
             {"email": "", "password": "pw"},
             {"email": "a@b.com", "password": ""},
@@ -208,7 +208,7 @@ class TestAddPasswordAccounts:
         calls: list[tuple[str, str]] = []
         monkeypatch.setattr(
             service, "_login_with_password",
-            lambda email, password: calls.append((email, password)) or {
+            lambda email, password, proxy_url="": calls.append((email, password)) or {
                 "ok": True, "email": email, "access_token": f"jwt-{email[:1]}",
             },
         )
@@ -221,7 +221,7 @@ class TestAddPasswordAccounts:
 
     def test_existing_email_skipped(self, monkeypatch) -> None:
         service = _service([{"access_token": "existing-tok", "email": "have@example.com", "status": "正常"}])
-        monkeypatch.setattr(service, "_login_with_password", lambda email, password: {"ok": True, "access_token": "never"})
+        monkeypatch.setattr(service, "_login_with_password", lambda email, password, proxy_url="": {"ok": True, "access_token": "never"})
         result = service.add_password_accounts([{"email": "have@example.com", "password": "pw"}])
         assert result["added"] == 0
         assert result["skipped"] == 1
