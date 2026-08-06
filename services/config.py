@@ -752,6 +752,32 @@ class ConfigStore:
         return bool(value)
 
     @property
+    def abnormal_auto_recover_enabled(self) -> bool:
+        """v2.9.0：异常账号自动恢复开关（watcher 第二职责）。"""
+        value = self.data.get("abnormal_auto_recover_enabled", True)
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+        return bool(value)
+
+    @property
+    def abnormal_auto_recover_interval_minutes(self) -> int:
+        """v2.9.0：异常账号自动恢复扫描间隔（分钟）。"""
+        try:
+            value = int(self.data.get("abnormal_auto_recover_interval_minutes", 30))
+        except (TypeError, ValueError):
+            value = 30
+        return max(5, min(1440, value))
+
+    @property
+    def abnormal_auto_recover_max_workers(self) -> int:
+        """v2.9.0：异常账号自动恢复并发数上限。"""
+        try:
+            value = int(self.data.get("abnormal_auto_recover_max_workers", 5))
+        except (TypeError, ValueError):
+            value = 5
+        return max(1, min(20, value))
+
+    @property
     def log_levels(self) -> list[str]:
         levels = self.data.get("log_levels")
         if not isinstance(levels, list):

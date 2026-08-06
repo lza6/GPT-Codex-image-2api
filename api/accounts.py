@@ -407,6 +407,21 @@ def create_router() -> APIRouter:
             raise HTTPException(status_code=404, detail={"error": "progress not found"})
         return progress
 
+    @router.post("/api/accounts/recover")
+    async def recover_abnormal_accounts(body: AccountRefreshRequest, authorization: str | None = Header(default=None)):
+        """v2.9.0：自动恢复异常账号（先 refresh_token 换 token，后密码重登兜底）。
+
+        覆盖纯 token 账号（有 refresh_token）和密码账号两条路径。
+        同步返回结果（不像 re-login 那样异步+进度轮询），因为 fetch_remote_info 已有并发。
+        """
+        require_admin(authorization)
+        access_tokens = [str(token or "").strip() for token in body.access_tokens if str(token or "").strip()]
+        if not access_tokens:
+            raise HTTPException(status_code=400, detail={"error": "access_tokens is required"})
+        result = await run_in_threadpool(account_service.recover_abnormal_accounts, access_tokens)
+        return result
+
+
     @router.post("/api/accounts/evict_stale")
     async def evict_stale_accounts(authorization: str | None = Header(default=None)):
         """批量驱逐失效 token：对所有状态为「异常」的账号执行移除/降级逻辑。

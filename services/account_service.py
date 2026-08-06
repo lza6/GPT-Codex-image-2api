@@ -1355,6 +1355,22 @@ class AccountService:
                    and (token := item.get("access_token") or "")
             ]
 
+    def list_abnormal_tokens_for_recover(self) -> list[str]:
+        """v2.9.0：列出可尝试自动恢复的异常账号 token。
+
+        条件：status=异常 且 invalid_count >= 2（避免新账号误判）。
+        纯 token 账号（有 refresh_token）走 refresh_token 换 token 路径；
+        带 email+password 的账号走密码重登兜底。两者 fetch_remote_info 都会覆盖。
+        """
+        with self._lock:
+            return [
+                token
+                for item in self._accounts.values()
+                if item.get("status") == "异常"
+                   and int(item.get("invalid_count") or 0) >= 2
+                   and (token := item.get("access_token") or "")
+            ]
+
     def list_all_access_tokens(self) -> list[str]:
         """全部持有 access_token 的账号（F4 主动探活用，不限状态）。"""
         with self._lock:
@@ -2009,6 +2025,96 @@ class AccountService:
             self.finish_refresh_progress(progress_id, result)
 
         return result
+
+    def recover_abnormal_accounts(self, access_tokens: list[str]) -> dict[str, Any]:
+        """v2.9.0：自动恢复异常账号。
+
+        策略（双路径，覆盖纯 token 账号 + 密码账号）：
+        1. 先对所有异常账号调 fetch_remote_info（会用 refresh_token 换新 access_token，
+           路径 A/B 恢复）。纯 token 账号（有 refresh_token）这条路径即可恢复。
+        2. fetch_remote_info 失败后，若账号有 email+password，再起密码重登线程兜底。
+        3. 无 refresh_token 也无 password 的账号，无法恢复，跳过。
+        并发：max_workers=min(config.abnormal_auto_recover_max_workers, len(tokens))，避免雪崩。
+        """
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from threading import Thread
+
+        access_tokens = list(dict.fromkeys(token for token in access_tokens if token))
+        if not access_tokens:
+            return {"recovered": 0, "failed": 0, "skipped": 0, "items": self.list_accounts()}
+
+        max_workers = min(config.abnormal_auto_recover_max_workers, len(access_tokens))
+        recovered = 0
+        failed = 0
+        skipped = 0
+        password_relogin_tokens: list[str] = []
+
+        # 第一阶段：fetch_remote_info（refresh_token 换 token 路径）
+        executor = ThreadPoolExecutor(max_workers=max_workers)
+        try:
+            futures = {
+                executor.submit(self.fetch_remote_info, token, "abnormal_auto_recover", True): token
+                for token in access_tokens
+            }
+            for future in as_completed(futures):
+                token = futures[future]
+                try:
+                    account = future.result()
+                except Exception:
+                    # fetch_remote_info 失败 → 看是否有 password 走第二阶段
+                    acct = self.get_account(token)
+                    if acct and str(acct.get("email") or "").strip() and str(acct.get("password") or "").strip():
+                        password_relogin_tokens.append(token)
+                    else:
+                        failed += 1
+                else:
+                    if account is not None and str(account.get("status") or "") != "异常":
+                        recovered += 1
+                        log_service.add(
+                            LOG_TYPE_ACCOUNT,
+                            "异常账号自动恢复成功",
+                            {"token": anonymize_token(token), "email": account.get("email", "")},
+                        )
+                    else:
+                        # fetch 没异常但状态仍异常 → 尝试密码重登
+                        acct = self.get_account(token)
+                        if acct and str(acct.get("email") or "").strip() and str(acct.get("password") or "").strip():
+                            password_relogin_tokens.append(token)
+                        else:
+                            failed += 1
+        finally:
+            executor.shutdown(wait=True, cancel_futures=True)
+
+        # 第二阶段：密码重登兜底（仅带 password 的账号）
+        for token in password_relogin_tokens:
+            acct = self.get_account(token)
+            if not acct:
+                continue
+            email = str(acct.get("email") or "").strip()
+            password = str(acct.get("password") or "").strip()
+            if not email or not password:
+                continue
+            t = Thread(
+                target=self._password_re_login_thread,
+                args=(token, email, password, "abnormal_auto_recover"),
+                daemon=True,
+            )
+            t.start()
+            # 不等线程完成（异步），记一次尝试
+            log_service.add(
+                LOG_TYPE_ACCOUNT,
+                "异常账号触发密码重登",
+                {"token": anonymize_token(token), "email": email},
+            )
+
+        skipped = len(access_tokens) - recovered - failed - len(password_relogin_tokens)
+        return {
+            "recovered": recovered,
+            "failed": failed,
+            "skipped": skipped,
+            "password_relogin_triggered": len(password_relogin_tokens),
+            "items": self.list_accounts(),
+        }
 
     def re_login_accounts(self, access_tokens: list[str], progress_id: str | None = None) -> dict[str, Any]:
         """对选中账号执行密码重新登录流程。

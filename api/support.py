@@ -125,8 +125,12 @@ def sanitize_sub2api_servers(servers: list[dict]) -> list[dict]:
 
 def start_limited_account_watcher(stop_event: Event) -> Thread:
     interval_seconds = config.refresh_account_interval_minute * 60
+    # v2.9.0：异常账号自动恢复是 watcher 第二职责，独立更长间隔
+    abnormal_recover_seconds = config.abnormal_auto_recover_interval_minutes * 60
+    last_abnormal_recover_ts: float = 0.0
 
     def worker() -> None:
+        nonlocal last_abnormal_recover_ts
         while not stop_event.is_set():
             try:
                 limited_tokens = account_service.list_limited_tokens()
@@ -149,6 +153,33 @@ def start_limited_account_watcher(stop_event: Event) -> Thread:
                     result = account_service.keepalive_refresh_tokens(keepalive_tokens)
                     if result.get("errors"):
                         print(f"[account-watcher] keepalive errors: {result['errors']}")
+
+                # v2.9.0：异常账号自动恢复（到间隔才跑，避免雪崩）
+                import time as _time
+                now_ts = _time.time()
+                if (
+                    config.abnormal_auto_recover_enabled
+                    and now_ts - last_abnormal_recover_ts >= abnormal_recover_seconds
+                ):
+                    last_abnormal_recover_ts = now_ts
+                    abnormal_tokens = account_service.list_abnormal_tokens_for_recover()
+                    if abnormal_tokens:
+                        print(
+                            f"[account-watcher] auto-recover {len(abnormal_tokens)} abnormal accounts "
+                            f"(max_workers={config.abnormal_auto_recover_max_workers})"
+                        )
+                        try:
+                            recover_result = account_service.recover_abnormal_accounts(abnormal_tokens)
+                            if recover_result.get("recovered") or recover_result.get("failed"):
+                                print(
+                                    f"[account-watcher] auto-recover done: "
+                                    f"recovered={recover_result.get('recovered', 0)}, "
+                                    f"failed={recover_result.get('failed', 0)}"
+                                )
+                        except Exception as recover_exc:  # noqa: BLE001
+                            logger.warning(
+                                {"event": "account_watcher_recover_failed", "error": str(recover_exc)}
+                            )
             except Exception as exc:  # noqa: BLE001
                 # S-R7：后台线程异常改走 logger（原 print 不进 server.log，bat 下无迹可寻）
                 logger.warning({"event": "account_watcher_failed", "error": str(exc)})

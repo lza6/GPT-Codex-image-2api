@@ -50,6 +50,18 @@ export type Account = {
   /** 5.1：预估剩余可用天数。 */
   lifetime_eta_days?: number | null;
   lifetime_score?: number;
+  /** v2.9.0：异常账号根因可视化 —— 最近刷新错误描述。 */
+  last_refresh_error?: string | null;
+  /** v2.9.0：最近刷新错误时间。 */
+  last_refresh_error_at?: string | null;
+  /** v2.9.0：最近 token 刷新错误描述。 */
+  last_token_refresh_error?: string | null;
+  /** v2.9.0：最近 token 刷新错误时间。 */
+  last_token_refresh_error_at?: string | null;
+  /** v2.9.0：累计失效次数。 */
+  invalid_count?: number;
+  /** v2.9.0：最近失效时间。 */
+  last_invalid_at?: string | null;
 };
 
 export type AccountImportPayload = {
@@ -463,6 +475,20 @@ export async function fetchRefreshProgress(progressId: string) {
 
 export async function reLoginAccounts(accessTokens: string[]) {
   return httpRequest<{ progress_id: string }>("/api/accounts/re-login", {
+    method: "POST",
+    body: { access_tokens: accessTokens },
+  });
+}
+
+/** v2.9.0：自动恢复异常账号（refresh_token 换 token + 密码重登兜底，同步返回）。 */
+export async function recoverAbnormalAccounts(accessTokens: string[]) {
+  return httpRequest<{
+    recovered: number;
+    failed: number;
+    skipped: number;
+    password_relogin_triggered: number;
+    items: Account[];
+  }>("/api/accounts/recover", {
     method: "POST",
     body: { access_tokens: accessTokens },
   });
