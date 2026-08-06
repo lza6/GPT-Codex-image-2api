@@ -1,15 +1,28 @@
-"""邮箱验证码登录服务（纯 HTTP 链路，补 `_login_with_password` 的 OTP 短板）。
+"""邮箱验证码登录服务（纯 HTTP 链路 + 98faka 取件 + cf_solver CF 清除）。
 
 `_login_with_password` 走 password/verify，遇 OpenAI 风控要求邮箱 OTP 就返回
 `need_verification_code`。本服务改走 email-otp 流程：
-  1. PKCE 构造 authorize URL（login_hint=邮箱）
-  2. GET authorize → 触发 OpenAI 发 OTP 验证码到邮箱
-  3. 调邮箱中转 API（91kami）取最新 OTP 邮件正文
-  4. 正则提取 6 位数字
-  5. POST /api/accounts/email-otp/validate 提交
-  6. 从 continue_url 拿 code → /api/accounts/oauth/token 换 token 三件套
+  1. （可选）调 cf_solver GET /clearance?url=auth.openai.com 拿 cf_clearance + cookies
+     cf_solver 用 Camoufox 过 Cloudflare WAF，返回 cf_clearance/__cf_bm/_cfuvid + UA
+  2. PKCE 构造 authorize URL（login_hint=邮箱）
+  3. GET authorize → 触发 OpenAI 发 OTP 验证码到邮箱
+  4. 调 98faka 邮箱 API 取最新 OTP 邮件正文（契约：POST app.98faka.top/api/emails + /api/email-body）
+  5. 正则提取 6 位数字
+  6. POST /api/accounts/email-otp/validate 提交
+  7. 从 continue_url 拿 code → /api/accounts/oauth/token 换 token 三件套
 
-不含 CF 挑战——CF 由 flaresolverr 配置兜底（config.proxy_runtime.clearance）。
+98faka 取件契约（来自参考材料"微软邮箱和卡密以及使用教程.txt"）：
+  POST https://app.98faka.top/api/emails
+    body={email,password,client_id,refresh_token,folder=inbox}
+    → {code:200, data:[{id,subject,body_preview,received_time,from_address}]}
+  POST https://app.98faka.top/api/email-body
+    body={email,message_id,client_id,refresh_token}
+    → {body_html, body_preview}
+
+cf_solver 契约（来自 cf_solver/api_server.py）：
+  GET http://127.0.0.1:8001/clearance?url=<URL>&timeout=30
+  → 异步，返回 task_id；轮询结果拿 {status:success, cf_clearance, user_agent, cookies}
+
 代理走项目既有 proxy_settings（支持 v2ray 10808）。
 
 设计原则（对照参考项目 revive_import.py，纯 HTTP 化）：
@@ -49,8 +62,10 @@ class OTPLoginError(Exception):
     """OTP 登录流程中的可预期错误。"""
 
 
-# 91kami 邮箱中转 API（用户提供的取件源代码证实契约）
-MAIL_API_BASE = "https://mai.91kami.com"
+# 98faka 邮箱中转 API（参考材料证实契约，比 91kami 更稳定）
+MAIL_API_BASE = "https://app.98faka.top"
+# cf_solver 本地服务（Camoufox 过 Cloudflare WAF）
+CF_SOLVER_BASE = "http://127.0.0.1:8001"
 OTP_WAIT_MAX = 90          # 等验证码邮件秒数
 OTP_POLL_SEC = 4
 OTP_CODE_RE = re.compile(r"\b(\d{6})\b")
@@ -58,7 +73,10 @@ OTP_KEYWORD_RE = re.compile(r"(?:code|码|mã|verification)[\s:：\-]{0,4}(\d{6}
 
 
 class OTPLoginService:
-    """邮箱验证码登录：authorize → OTP → 取码 → validate → exchange token。"""
+    """邮箱验证码登录：cf_solver清CF → authorize → OTP → 取码 → validate → exchange。"""
+
+    def __init__(self, cf_solver_url: str = "") -> None:
+        self.cf_solver_url = str(cf_solver_url or CF_SOLVER_BASE).strip().rstrip("/")
 
     def login(
         self,
@@ -67,16 +85,17 @@ class OTPLoginService:
         *,
         mail_credential: dict[str, str] | None = None,
         proxy_url: str = "",
+        use_cf_solver: bool = True,
     ) -> dict[str, Any]:
         """对单个账号走邮箱验证码登录，返回 token 三件套。
 
         Args:
             email: 账号邮箱（同时是 OpenAI 登录邮箱 + 收件邮箱）
-            password: 账号密码（OpenAI 密码，非邮箱密码；email-otp 流程不提交密码，
-                       保留参数对齐 _login_with_password 返回结构）
-            mail_credential: 91kami 取件凭证，需含 client_id + refresh_token（微软 MSAL）。
+            password: 账号密码（email-otp 流程不提交密码，保留对齐返回结构）
+            mail_credential: 取件凭证，需含 client_id + refresh_token（微软 MSAL）。
                              为空时返回 need_mail_credential。
             proxy_url: 可选代理覆盖（如 v2ray http://127.0.0.1:10808）
+            use_cf_solver: 是否调 cf_solver 清除 CF（True 且服务可用时）
 
         Returns:
             {ok, access_token, refresh_token, id_token, email, source_type} 或
@@ -95,11 +114,22 @@ class OTPLoginService:
         device_id = str(uuid.uuid4())
 
         try:
-            # ① PKCE + authorize 触发 OpenAI 发 OTP
+            # ① 可选：cf_solver 清除 auth.openai.com 的 CF（Camoufox 过 WAF）
+            cf_cookies = ""
+            if use_cf_solver and self.cf_solver_url:
+                cf_cookies = self._get_cf_clearance(f"{auth_base}/")
+
+            # ② PKCE + authorize 触发 OpenAI 发 OTP
             code_verifier, code_challenge = generate_pkce()
             state = f"{secrets.token_hex(16)}.{secrets.token_urlsafe(16)}"
             nonce = secrets.token_urlsafe(32)
             session.cookies.set("oai-did", device_id, domain=".auth.openai.com")
+            if cf_cookies:
+                # cf_solver 返回的 cookie header 注入 session
+                for pair in cf_cookies.split(";"):
+                    if "=" in pair:
+                        k, v = pair.strip().split("=", 1)
+                        session.cookies.set(k.strip(), v.strip(), domain=".openai.com")
             params = {
                 "issuer": auth_base,
                 "client_id": platform_oauth_client_id,
@@ -143,12 +173,12 @@ class OTPLoginService:
                     tokens.update({"ok": True, "email": email, "source_type": "otp"})
                     return tokens
 
-            # ② 取最新 OTP 邮件 → 提取 6 位数字
+            # ③ 取最新 OTP 邮件 → 提取 6 位数字
             code_digits = self._fetch_otp_code(mail_credential, otp_trigger_at, session_kwargs.get("proxy", ""))
             if not code_digits:
                 return {"ok": False, "error": "otp_timeout", "detail": {"email": email, "wait_secs": OTP_WAIT_MAX}}
 
-            # ③ sentinel + POST /api/accounts/email-otp/validate
+            # ④ sentinel + POST /api/accounts/email-otp/validate
             try:
                 sentinel_val, oai_sc_val = build_sentinel_token(session, device_id, "email_otp_verification")
             except Exception as exc:
@@ -190,7 +220,7 @@ class OTPLoginService:
             if not auth_code:
                 return {"ok": False, "error": "no_auth_code_after_otp", "detail": validate_data}
 
-            # ④ 换 token 三件套
+            # ⑤ 换 token 三件套
             tokens = self._exchange_code(session, auth_code, code_verifier)
             tokens.update({"ok": True, "email": email, "source_type": "otp"})
             return tokens
@@ -202,19 +232,56 @@ class OTPLoginService:
             except Exception:
                 pass
 
+    def _get_cf_clearance(self, url: str, timeout: int = 30) -> str:
+        """调 cf_solver GET /clearance 拿 cf_clearance + 全 cookie header。
+
+        cf_solver 契约（来自 cf_solver/api_server.py _solve_clearance）：
+          GET /clearance?url=<URL>&timeout=30 → 异步 task_id
+          轮询结果：{status:success, cf_clearance, user_agent, cookies(cookie_header str)}
+
+        失败返回空串（不阻塞主流程，让纯 HTTP 自己试）。
+        """
+        try:
+            # cf_solver 的 /clearance 是异步的：先 GET 拿 task_id，再轮询
+            r = requests.get(
+                f"{self.cf_solver_url}/clearance",
+                params={"url": url, "timeout": timeout},
+                timeout=timeout + 10,
+            )
+            data = r.json() if r.text else {}
+            # 如果是同步返回结果
+            if data.get("status") == "success":
+                return str(data.get("cookies") or "")
+            # 异步 task_id 轮询
+            task_id = data.get("task_id") or data.get("id")
+            if not task_id:
+                return ""
+            deadline = time.time() + timeout + 10
+            while time.time() < deadline:
+                time.sleep(2)
+                pr = requests.get(f"{self.cf_solver_url}/result/{task_id}", timeout=10)
+                pdata = pr.json() if pr.text else {}
+                if pdata.get("status") == "success":
+                    return str(pdata.get("cookies") or "")
+                if pdata.get("status") in {"failed", "error"}:
+                    return ""
+            return ""
+        except Exception:
+            return ""
+
     def _fetch_otp_code(
         self,
         mail_credential: dict[str, str],
         after_utc: datetime,
         proxy: str = "",
     ) -> str | None:
-        """调 91kami 邮箱中转 API 取 OTP 邮件，提取 6 位数字。
+        """调 98faka 邮箱中转 API 取 OTP 邮件，提取 6 位数字。
 
-        91kami 契约（来自取件源代码 main.js）：
+        98faka 契约（来自"微软邮箱和卡密以及使用教程.txt"真实抓包）：
           POST /api/emails body={email,password,client_id,refresh_token,folder=inbox}
-          → json.data 是邮件列表，每封含 id/subject/from_address/received_time/date
+          → {code:200, data:[{id,subject,body_preview,received_time,from_address}]}
           POST /api/email-body body={email,message_id,client_id,refresh_token}
-          → json.body_html / body_preview
+          → {body_html, body_preview}
 
         兜底：若 after 后无新邮件，退回用收件箱最新 15 分钟内的 OTP 邮件。
         """
@@ -222,7 +289,7 @@ class OTPLoginService:
         headers = {
             "content-type": "application/json",
             "origin": MAIL_API_BASE,
-            "referer": f"{MAIL_API_BASE}/tq/",
+            "referer": f"{MAIL_API_BASE}/",
             "user-agent": user_agent,
         }
         email = mail_credential.get("email", "")
@@ -243,7 +310,8 @@ class OTPLoginService:
                     },
                     headers=headers, proxies=proxies, timeout=30,
                 )
-                data = (r.json() if r.text else {}).get("data") or []
+                body = r.json() if r.text else {}
+                data = body.get("data") if isinstance(body.get("data"), list) else []
                 cands = [m for m in data if self._is_otp_mail(m) and self._mail_time(m) >= after_local - timedelta(seconds=8)]
                 if cands:
                     newest = max(cands, key=self._mail_time)
@@ -278,7 +346,7 @@ class OTPLoginService:
         headers = {
             "content-type": "application/json",
             "origin": MAIL_API_BASE,
-            "referer": f"{MAIL_API_BASE}/tq/",
+            "referer": f"{MAIL_API_BASE}/",
             "user-agent": user_agent,
         }
         try:
@@ -342,3 +410,4 @@ class OTPLoginService:
 
 
 otp_login_service = OTPLoginService()
+

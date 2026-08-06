@@ -58,6 +58,11 @@ export type AccountImportPayload = {
   accessToken?: string;
   email?: string;
   password?: string;
+  // 4 段卡密格式（邮箱----密码----client_id----refresh_token）时带，可自动过 OTP
+  mail_credential?: {
+    client_id: string;
+    refresh_token: string;
+  };
   type?: string;
   export_type?: string;
   source_type?: string;

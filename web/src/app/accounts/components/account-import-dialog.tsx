@@ -63,6 +63,9 @@ function splitTokens(value: string) {
 
 // 账号密码导入：每行 `邮箱----密码`（---- 为分隔符，密码取第二段）。
 function splitCredentials(value: string): AccountImportPayload[] {
+  // 支持两种格式：
+  //   2 段：邮箱----密码（走密码登录，遇 OTP 失败落 pending）
+  //   4 段：邮箱----密码----client_id----refresh_token（卡密格式，遇 OTP 自动走 98faka 取码登录）
   return value
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -77,7 +80,16 @@ function splitCredentials(value: string): AccountImportPayload[] {
       if (!email.includes("@") || !password) {
         return null;
       }
-      return { email, password, source_type: "password" } as AccountImportPayload;
+      const payload: AccountImportPayload = { email, password, source_type: "password" };
+      if (parts.length >= 4) {
+        // 4 段卡密：带 client_id + refresh_token，可自动过 OTP
+        const clientId = parts[2].trim();
+        const refreshToken = parts.slice(3).join("----").trim();
+        if (clientId && refreshToken) {
+          payload.mail_credential = { client_id: clientId, refresh_token: refreshToken };
+        }
+      }
+      return payload;
     })
     .filter((item): item is AccountImportPayload => Boolean(item));
 }
@@ -578,14 +590,16 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
             <span className="text-xs text-stone-400">当前识别 {credentialCount} 个账号凭据</span>
           </div>
           <div className="rounded-2xl border border-stone-200 bg-stone-50 p-4 text-sm leading-6 text-stone-600">
-            每行一个账号，格式 <code className="rounded bg-stone-200 px-1">邮箱----密码</code>。
+            每行一个账号，支持两种格式：
+            <div className="mt-1 font-mono text-xs">邮箱----密码</div>
+            <div className="font-mono text-xs">邮箱----密码----client_id----refresh_token（卡密格式，遇 OTP 自动走 98faka 取码登录）</div>
             导入后系统会自动登录抓取 Token 入库；暂时登录不上的账号会先入库为「待登录」，
             可稍后重新登录，无需手动抓 Token。
           </div>
           <div className="space-y-2">
             <label className="text-sm font-medium text-stone-700">账号密码列表</label>
             <Textarea
-              placeholder={"每行一个账号，例如：\nexample@outlook.com----AbCdEfGh1234"}
+              placeholder={"支持 2 段或 4 段格式，例如：\nexample@outlook.com----AbCd1234\nexample@outlook.com----AbCd1234----9e5f94bc-...----M.C511_BAY..."}
               value={passwordInput}
               onChange={(event) => setPasswordInput(event.target.value)}
               className="min-h-56 resize-none rounded-xl border-stone-200 font-mono text-xs"
