@@ -1,5 +1,25 @@
 # Changelog
 
+## 2.9.0 - 2026-08-07 (生图稳定性 + 功能裁剪 + 号池恢复提速 + 前端版本自动重建)
+
+**说明：** `VERSION` 此前停留在 2.8.0（落后于已发版的 2.8.1/2.8.2/2.8.3），本版本将其对齐到 2.9.0，并修复前端"版本号停滞"的根因——启动脚本不再只看 `web_dist` 是否存在，而是按内容指纹决定是否重建。
+
+**生图链路（P2）：**
++ [文生图] `_classify_failure_phase` 从错误信息识别 9 类失败阶段（无可用账号/熔断器 OPEN/CF 拦截/token 失效/上游限流等）拼进日志简述，失败可定位到阶段
++ [图生图] 新增 `test/test_v1_images_edits_live.py` 真实 E2E（multipart + URL 两种方式，断言 b64_json 可解码为合法 PNG）；用现有号池真实跑通图生图（约 1分52秒，验证 download_image_bytes headers 修复有效）
++ [缩略图] `ensure_thumbnail` 源图不存在/损坏时返回 404 而非 422（语义准确）；前端 img onerror 原图也失败时显示占位框，不再反复请求
+
+**功能裁剪（P3）：**
++ [后端] `/v1/search` `/v1/ppt/generations` `/v1/psd/generations` 返回 404（保留 service 文件只删路由，不破坏生图链路）
++ [前端] debug 页裁掉 搜索Skills/搜索/PPT生成/PSD生成 4 个 tab，只留对话面板（chat completions/responses 是生图底层依赖）
+
+**号池（用户三项要求）：**
++ [自动恢复] 账号自动恢复间隔从 30 分钟改为 5 分钟
++ [额度守卫] `list_abnormal_tokens_for_recover` 排除 last_refresh_error 含 quota_exhausted/rate_limit_exhausted/usage_limit_reached/plan_limit_reached 的账号（上游明确告知额度用完不可恢复）；watcher 主循环跳过 quota=0 且 restore_at 未到期的限流账号（避免反复刷上游浪费额度）
+
+**部署：**
++ [启动脚本] `启动chatgpt2api.bat` 前端构建改为**按指纹智能重建**：新增 `scripts/web_stamp.ps1` 对 `web/src`、`web/public`、web 根配置、`VERSION`、`CHANGELOG.md` 计算哈希，与 `web_dist/.build-stamp` 不一致才重新 build，无变化则跳过——保证 UI 始终是新版本，又不在无变化时拖慢启动。此前仅靠 `web_dist\index.html` 是否存在判断，改代码后不重建导致 UI 版本号停滞在旧版。
+
 ## 2.8.1 - 2026-08-05 (账号密码导入：自动登录抓 Token + 失败保留待登录凭据)
 
 **用户场景：** 后续导入以"邮箱----密码"凭据为主，不一定能拿到 Token。
