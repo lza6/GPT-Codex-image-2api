@@ -15,6 +15,11 @@ import tiktoken
 from services.account_service import account_service
 from services.circuit_breaker import circuit_breaker_registry
 from services.config import config
+from services.image_failure import (
+    classify_image_exception,
+    failure_policy,
+    should_record_circuit_failure,
+)
 from services.image_storage_service import image_storage_service
 from services.openai_backend_api import (
     ImageContentPolicyError,
@@ -1758,11 +1763,24 @@ def _generate_single_image(
                     })
                     time.sleep(wait_secs)
                     continue
-            # 重试耗尽且确为上游抖动（TLS/连接超时/5xx）才记熔断失败；业务拒绝不记
-            if token and is_upstream_instability_error(last_error):
-                circuit_breaker_registry.get(token).record_failure()
+            # 重试耗尽且确为上游抖动（TLS/连接超时/5xx）才记熔断失败；业务拒绝不记。
+            # N6b：熔断判定改用 image_failure 单一事实来源（与 is_upstream_instability_error 同语义）。
+            if token:
+                _fail_code = classify_image_exception(exc)
+                if should_record_circuit_failure(_fail_code):
+                    circuit_breaker_registry.get(token).record_failure()
+            else:
+                _fail_code = classify_image_exception(exc)
             _record_upstream("error")
-            raise ImageGenerationError(image_stream_error_message(last_error), account_email=account_email, conversation_id="") from exc
+            _policy = failure_policy(_fail_code)
+            raise ImageGenerationError(
+                image_stream_error_message(last_error),
+                status_code=_policy.status_code,
+                error_type=_policy.error_type,
+                code=_fail_code,
+                account_email=account_email,
+                conversation_id="",
+            ) from exc
         finally:
             if backend is not None:
                 backend.close()
