@@ -752,6 +752,32 @@ class ConfigStore:
         return bool(value)
 
     @property
+    def abnormal_auto_recover_enabled(self) -> bool:
+        """v2.9.0：异常账号自动恢复开关（watcher 第二职责）。"""
+        value = self.data.get("abnormal_auto_recover_enabled", True)
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+        return bool(value)
+
+    @property
+    def abnormal_auto_recover_interval_minutes(self) -> int:
+        """v2.9.0：异常账号自动恢复扫描间隔（分钟）。"""
+        try:
+            value = int(self.data.get("abnormal_auto_recover_interval_minutes", 5))
+        except (TypeError, ValueError):
+            value = 5
+        return max(1, min(1440, value))
+
+    @property
+    def abnormal_auto_recover_max_workers(self) -> int:
+        """v2.9.0：异常账号自动恢复并发数上限。"""
+        try:
+            value = int(self.data.get("abnormal_auto_recover_max_workers", 5))
+        except (TypeError, ValueError):
+            value = 5
+        return max(1, min(20, value))
+
+    @property
     def log_levels(self) -> list[str]:
         levels = self.data.get("log_levels")
         if not isinstance(levels, list):
@@ -870,6 +896,15 @@ class ConfigStore:
 
     def get_proxy_settings(self) -> str:
         return str(self.data.get("proxy") or "").strip()
+
+    def get_kookeey_settings(self) -> dict[str, object]:
+        """kookeey 动态住宅代理配置（密码登录 / OTP 取件的每号独立出口）。
+
+        结构：{enabled, scheme, gate_host, gate_port, user_id, security_username,
+              security_password, country}。未配置返回 {}。
+        """
+        raw = self.data.get("kookeey")
+        return dict(raw) if isinstance(raw, dict) else {}
 
     def get_proxy_runtime_settings(self) -> dict[str, object]:
         return _normalize_proxy_runtime_settings(self.data.get("proxy_runtime"))

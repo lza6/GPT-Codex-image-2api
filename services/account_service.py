@@ -383,6 +383,9 @@ class AccountService:
         normalized["last_token_refresh_at"] = normalized.get("last_token_refresh_at") or None
         normalized["last_token_refresh_error"] = normalized.get("last_token_refresh_error") or None
         normalized["last_token_refresh_error_at"] = normalized.get("last_token_refresh_error_at") or None
+        # 多提供商地基：账号归属提供商，默认 chatgpt（自由 schema，无需改库）
+        from services.providers import normalize_provider
+        normalized["provider"] = normalize_provider(normalized.get("provider"))
         normalized["created_at"] = normalized.get("created_at") or AccountService._now()
         return normalized
 
@@ -620,10 +623,49 @@ class AccountService:
                 return active_token
             return self._apply_refreshed_tokens(active_token, token_data, event)
 
-    def _password_re_login_thread(self, access_token: str, email: str, password: str, event: str, progress_id: str | None = None) -> None:
-        """密码重新登录线程入口"""
+    # 触发 OTP 降级的密码登录错误集合（OpenAI 风控要验证码 / passwordless 账号无可用密码 401/400）
+    _OTP_FALLBACK_ERRORS = frozenset({"need_verification_code", "password_verify_failed_401", "password_verify_failed_400"})
+
+    def _otp_fallback_login(self, email: str, password: str, mail_cred: dict | None, proxy_url: str = "") -> dict | None:
+        """密码登录失败后的邮箱验证码降级登录（watcher 重登与导入共用）。
+
+        有取件凭证(client_id+refresh_token)时走 OTP 取件登录，返回结果 dict；无凭证返回
+        None（调用方保留原错误落 pending）。**不**把 GPT 登录密码塞进 mail_credential——
+        微软 Graph 取件用 refresh_token 不需要它，避免 98faka 兜底时把 GPT 密码发给第三方。
+        """
+        if not (mail_cred and mail_cred.get("client_id") and mail_cred.get("refresh_token")):
+            return None
         try:
-            result = self._login_with_password(email, password)
+            from services.otp_login_service import otp_login_service
+
+            otp_result = otp_login_service.login(
+                email,
+                password,
+                mail_credential={**mail_cred, "email": email},
+                proxy_url=proxy_url,
+            )
+            if otp_result.get("ok"):
+                otp_result["source_type"] = "otp"
+            return otp_result
+        except Exception as exc:
+            return {"ok": False, "error": f"otp_login_exception:{type(exc).__name__}", "detail": {"message": str(exc)}}
+
+    def _password_re_login_thread(self, access_token: str, email: str, password: str, event: str, progress_id: str | None = None) -> None:
+        """密码重新登录线程入口（走 kookeey 住宅代理 + 取件凭证 + OTP 降级）"""
+        try:
+            from services.proxy_service import kookeey_proxy_for
+
+            # 读取账号已存的取件凭证（client_id + refresh_token），供 OTP 降级用
+            acct = self.get_account(access_token) or {}
+            mail_cred = acct.get("mail_credential") if isinstance(acct.get("mail_credential"), dict) else None
+            # 每号固定住宅 IP（粘性 session），避免同 IP 批量登录被风控
+            proxy_url = kookeey_proxy_for(email)
+            result = self._login_with_password(email, password, proxy_url=proxy_url)
+            # 遇 OpenAI 风控要求邮箱 OTP、或 passwordless 账号无密码(401/400) 且有取件凭证 → 降级走 OTP 取件登录
+            if (not result.get("ok")) and str(result.get("error") or "") in self._OTP_FALLBACK_ERRORS:
+                otp_result = self._otp_fallback_login(email, password, mail_cred, proxy_url)
+                if otp_result is not None:
+                    result = otp_result
             if result.get("ok"):
                 # 登录成功，更新账号
                 new_access_token = result.get("access_token", "")
@@ -731,8 +773,12 @@ class AccountService:
             if progress_id:
                 self.update_relogin_progress(progress_id, access_token, "异常", str(exc))
 
-    def _login_with_password(self, email: str, password: str) -> dict:
-        """通过邮箱+密码登录，返回 {access_token, refresh_token, id_token, ...}"""
+    def _login_with_password(self, email: str, password: str, proxy_url: str = "") -> dict:
+        """通过邮箱+密码登录，返回 {access_token, refresh_token, id_token, ...}
+
+        proxy_url：可选的每号独立出口（kookeey 住宅代理）。为空时回退到全局
+        `config.get_proxy_settings()`。传独立的住宅 IP 可降低同 IP 批量登录被风控的概率。
+        """
         from curl_cffi import requests
         
         # 常量
@@ -745,7 +791,7 @@ class AccountService:
         
         # 创建 session
         session_kwargs = {"impersonate": "chrome110", "verify": False}
-        proxy = config.get_proxy_settings()
+        proxy = str(proxy_url or "").strip() or config.get_proxy_settings()
         if proxy:
             session_kwargs["proxy"] = proxy
         session = requests.Session(**session_kwargs)
@@ -1355,6 +1401,35 @@ class AccountService:
                    and (token := item.get("access_token") or "")
             ]
 
+    def list_abnormal_tokens_for_recover(self) -> list[str]:
+        """v2.9.0：列出可尝试自动恢复的异常账号 token。
+
+        条件：status=异常 且 invalid_count >= 2（避免新账号误判）。
+        排除：额度真实耗尽的账号（last_refresh_error 含 quota_exhausted/rate_limit_exhausted 等
+        关键字，说明上游明确告知额度用完，反复刷新只会浪费请求额度，不可恢复）。
+        纯 token 账号（有 refresh_token）走 refresh_token 换 token 路径；
+        带 email+password 的账号走密码重登兜底。两者 fetch_remote_info 都会覆盖。
+        """
+        # v2.9.0：额度真实耗尽错误关键字（这些说明上游明确告知额度用完，不可恢复）
+        QUOTA_EXHAUSTED_MARKERS = (
+            "quota_exhausted", "rate_limit_exhausted", "usage_limit_reached",
+            "plan_limit_reached", "no available image quota",
+        )
+
+        def _is_quota_exhausted(item: dict) -> bool:
+            err = str(item.get("last_refresh_error") or "").lower()
+            return any(marker in err for marker in QUOTA_EXHAUSTED_MARKERS)
+
+        with self._lock:
+            return [
+                token
+                for item in self._accounts.values()
+                if item.get("status") == "异常"
+                   and int(item.get("invalid_count") or 0) >= 2
+                   and not _is_quota_exhausted(item)
+                   and (token := item.get("access_token") or "")
+            ]
+
     def list_all_access_tokens(self) -> list[str]:
         """全部持有 access_token 的账号（F4 主动探活用，不限状态）。"""
         with self._lock:
@@ -1416,6 +1491,8 @@ class AccountService:
 
         返回 {added, skipped, pending, failed, errors, items}。errors 每条含 email/error/detail。
         """
+        from services.proxy_service import kookeey_proxy_for
+
         deduped: dict[str, dict] = {}
         for item in credentials:
             if not isinstance(item, dict):
@@ -1435,32 +1512,24 @@ class AccountService:
         for cred in deduped.values():
             email = str(cred.get("email") or "").strip()
             password = str(cred.get("password") or "").strip()
+            # 取件凭证（client_id + refresh_token），登录成功/待登录都入库，供重登 OTP 用
+            mail_cred = cred.get("mail_credential") if isinstance(cred.get("mail_credential"), dict) else None
             if self._find_account_by_email(email):
                 skipped += 1
                 continue
+            # 每号固定住宅 IP（粘性 session），批量导入也分摊出口，避免同 IP 批量登录被风控
+            proxy_url = kookeey_proxy_for(email)
             try:
-                result = self._login_with_password(email, password)
+                result = self._login_with_password(email, password, proxy_url=proxy_url)
             except Exception as exc:
                 result = {"ok": False, "error": f"login_exception:{type(exc).__name__}", "detail": {"message": str(exc)}}
 
-            # 密码登录要求邮箱 OTP → 降级走 OTP 流程（需 cred 带 mail_credential）
-            if not result.get("ok") and str(result.get("error") or "") == "need_verification_code":
-                mail_cred = cred.get("mail_credential") if isinstance(cred.get("mail_credential"), dict) else None
-                if mail_cred and mail_cred.get("client_id") and mail_cred.get("refresh_token"):
-                    try:
-                        from services.otp_login_service import otp_login_service
-                        otp_result = otp_login_service.login(
-                            email, password,
-                            mail_credential={**mail_cred, "email": email, "password": password},
-                        )
-                        if otp_result.get("ok"):
-                            otp_result["source_type"] = "otp"
-                        result = otp_result
-                    except Exception as exc:
-                        result = {"ok": False, "error": f"otp_login_exception:{type(exc).__name__}", "detail": {"message": str(exc)}}
-                else:
-                    # 无邮箱取件凭证：保留原 need_verification_code，落 pending 待补凭证
-                    pass
+            # 密码登录要求邮箱 OTP、或 passwordless 账号无密码(401/400) → 降级走 OTP 流程（需 cred 带 mail_credential）
+            if not result.get("ok") and str(result.get("error") or "") in self._OTP_FALLBACK_ERRORS:
+                otp_result = self._otp_fallback_login(email, password, mail_cred, proxy_url)
+                if otp_result is not None:
+                    result = otp_result
+                # 无取件凭证时 _otp_fallback_login 返回 None：保留原错误落 pending 待补凭证
             if result.get("ok"):
                 payload = {
                     "access_token": str(result.get("access_token") or "").strip(),
@@ -1472,6 +1541,11 @@ class AccountService:
                     "type": "free",
                     "status": "正常",
                 }
+                if mail_cred:
+                    payload["mail_credential"] = {
+                        "client_id": str(mail_cred.get("client_id") or "").strip(),
+                        "refresh_token": str(mail_cred.get("refresh_token") or "").strip(),
+                    }
                 if result.get("expires_at"):
                     payload["expires_at"] = result["expires_at"]
                 acc = self._add_account_payloads([payload])
@@ -1482,7 +1556,7 @@ class AccountService:
             else:
                 error_type = str(result.get("error") or "unknown")
                 pending += 1
-                self._add_account_payloads([{
+                pending_payload = {
                     "access_token": f"{self._PENDING_PREFIX}{email}",
                     "email": email,
                     "password": password,
@@ -1492,7 +1566,13 @@ class AccountService:
                     "quota": 0,
                     "login_error": error_type,
                     "login_error_at": self._now(),
-                }])
+                }
+                if mail_cred:
+                    pending_payload["mail_credential"] = {
+                        "client_id": str(mail_cred.get("client_id") or "").strip(),
+                        "refresh_token": str(mail_cred.get("refresh_token") or "").strip(),
+                    }
+                self._add_account_payloads([pending_payload])
                 errors.append({
                     "email": email,
                     "error": error_type,
@@ -2009,6 +2089,96 @@ class AccountService:
             self.finish_refresh_progress(progress_id, result)
 
         return result
+
+    def recover_abnormal_accounts(self, access_tokens: list[str]) -> dict[str, Any]:
+        """v2.9.0：自动恢复异常账号。
+
+        策略（双路径，覆盖纯 token 账号 + 密码账号）：
+        1. 先对所有异常账号调 fetch_remote_info（会用 refresh_token 换新 access_token，
+           路径 A/B 恢复）。纯 token 账号（有 refresh_token）这条路径即可恢复。
+        2. fetch_remote_info 失败后，若账号有 email+password，再起密码重登线程兜底。
+        3. 无 refresh_token 也无 password 的账号，无法恢复，跳过。
+        并发：max_workers=min(config.abnormal_auto_recover_max_workers, len(tokens))，避免雪崩。
+        """
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from threading import Thread
+
+        access_tokens = list(dict.fromkeys(token for token in access_tokens if token))
+        if not access_tokens:
+            return {"recovered": 0, "failed": 0, "skipped": 0, "items": self.list_accounts()}
+
+        max_workers = min(config.abnormal_auto_recover_max_workers, len(access_tokens))
+        recovered = 0
+        failed = 0
+        skipped = 0
+        password_relogin_tokens: list[str] = []
+
+        # 第一阶段：fetch_remote_info（refresh_token 换 token 路径）
+        executor = ThreadPoolExecutor(max_workers=max_workers)
+        try:
+            futures = {
+                executor.submit(self.fetch_remote_info, token, "abnormal_auto_recover", True): token
+                for token in access_tokens
+            }
+            for future in as_completed(futures):
+                token = futures[future]
+                try:
+                    account = future.result()
+                except Exception:
+                    # fetch_remote_info 失败 → 看是否有 password 走第二阶段
+                    acct = self.get_account(token)
+                    if acct and str(acct.get("email") or "").strip() and str(acct.get("password") or "").strip():
+                        password_relogin_tokens.append(token)
+                    else:
+                        failed += 1
+                else:
+                    if account is not None and str(account.get("status") or "") != "异常":
+                        recovered += 1
+                        log_service.add(
+                            LOG_TYPE_ACCOUNT,
+                            "异常账号自动恢复成功",
+                            {"token": anonymize_token(token), "email": account.get("email", "")},
+                        )
+                    else:
+                        # fetch 没异常但状态仍异常 → 尝试密码重登
+                        acct = self.get_account(token)
+                        if acct and str(acct.get("email") or "").strip() and str(acct.get("password") or "").strip():
+                            password_relogin_tokens.append(token)
+                        else:
+                            failed += 1
+        finally:
+            executor.shutdown(wait=True, cancel_futures=True)
+
+        # 第二阶段：密码重登兜底（仅带 password 的账号）
+        for token in password_relogin_tokens:
+            acct = self.get_account(token)
+            if not acct:
+                continue
+            email = str(acct.get("email") or "").strip()
+            password = str(acct.get("password") or "").strip()
+            if not email or not password:
+                continue
+            t = Thread(
+                target=self._password_re_login_thread,
+                args=(token, email, password, "abnormal_auto_recover"),
+                daemon=True,
+            )
+            t.start()
+            # 不等线程完成（异步），记一次尝试
+            log_service.add(
+                LOG_TYPE_ACCOUNT,
+                "异常账号触发密码重登",
+                {"token": anonymize_token(token), "email": email},
+            )
+
+        skipped = len(access_tokens) - recovered - failed - len(password_relogin_tokens)
+        return {
+            "recovered": recovered,
+            "failed": failed,
+            "skipped": skipped,
+            "password_relogin_triggered": len(password_relogin_tokens),
+            "items": self.list_accounts(),
+        }
 
     def re_login_accounts(self, access_tokens: list[str], progress_id: str | None = None) -> dict[str, Any]:
         """对选中账号执行密码重新登录流程。

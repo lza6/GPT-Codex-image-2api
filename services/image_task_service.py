@@ -376,8 +376,15 @@ class ImageTaskService:
             detail["account_email"] = account_email
         if urls:
             detail["urls"] = list(dict.fromkeys(urls))
+        # v2.9.0：失败日志简述加失败阶段标签（让用户看到具体原因而非统一"调用失败"）
+        final_suffix = suffix
+        if status == "failed" and error:
+            phase = _classify_failure_phase(error)
+            if phase:
+                final_suffix = f"{suffix}·{phase}"
+                detail["failure_phase"] = phase
         try:
-            log_service.add(LOG_TYPE_CALL, f"{summary_prefix}{suffix}", detail)
+            log_service.add(LOG_TYPE_CALL, f"{summary_prefix}{final_suffix}", detail)
         except Exception:
             pass
 
@@ -632,3 +639,29 @@ class ImageTaskService:
 
 
 image_task_service = ImageTaskService(DATA_DIR / "image_tasks.json")
+
+
+def _classify_failure_phase(error: str) -> str:
+    """v2.9.0：从错误信息识别失败阶段，返回简短标签供日志展示。"""
+    err = (error or "").lower()
+    if "no available image quota" in err or "no available" in err:
+        return "无可用账号"
+    if "circuit" in err and "open" in err:
+        return "熔断器OPEN"
+    if "quota" in err and ("zero" in err or "exhausted" in err or "=0" in err):
+        return "额度耗尽"
+    if "cloudflare" in err or "cf-mitigated" in err or "just a moment" in err or "cf_clearance" in err:
+        return "CF拦截"
+    if "401" in err or "invalid_access_token" in err or "app_session_terminated" in err:
+        return "token失效"
+    if "429" in err or "rate_limit" in err or "限流" in err:
+        return "上游限流"
+    if "timeout" in err or "超时" in err:
+        return "网络超时"
+    if "content_policy" in err or "policy" in err:
+        return "内容政策"
+    if "no_image_generated" in err or "completed without generating" in err:
+        return "未生成图片"
+    if "tls" in err or "connection" in err or "ssl" in err:
+        return "连接错误"
+    return ""

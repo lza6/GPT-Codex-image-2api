@@ -110,6 +110,7 @@ cp config.example.json config.json
 ```
 
 双击 `启动chatgpt2api.bat` 即可启动（自动检测 Python/uv、清理残留进程、崩溃自动重启）。
+前端按**内容指纹智能重建**：对 `web/src`、`web/public`、web 根配置、`VERSION`、`CHANGELOG.md` 算哈希，与上次构建不一致才重新 `npm run build`，无变化则秒跳过——保证 UI 始终是当前代码版本，又不拖慢启动。
 停止用 `停止chatgpt2api.bat`，或直接关闭启动窗口（自动清理进程与端口）。
 
 ### Docker 运行
@@ -228,6 +229,8 @@ environment:
 - 多 Worker 并发：支持配置多进程利用多核 CPU
 - 定时检查限流账号并自动刷新
 - 支持密码重新登录恢复异常账号，刷新后可自动重登
+- 支持邮箱 OTP 救活 passwordless 异常账号（无 OpenAI 密码的账号改走邮箱验证码登录；取件用**微软 Graph 直连优先**、98faka 兜底，国内可直连且凭证不出本机；可配 kookeey **每号独立住宅 IP** 降低同 IP 批量发码被风控概率）
+- 一次性批量救号脚本 `scripts/revive_abnormal.py`（`--limit`/`--email`/`--offset`/`--proxy` 可选，数据源 `data/_recover_payload.json`，仅对异常账号跑 OTP 换新 token 并回写凭证）
 - 支持网页端配置全局 HTTP / HTTPS / SOCKS5 / SOCKS5H 代理
 - 支持 WARP / FlareSolverr 稳定代理运行时
 - 支持搜索、筛选、批量刷新、导出、手动编辑和清理账号

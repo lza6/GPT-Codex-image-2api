@@ -125,11 +125,41 @@ def sanitize_sub2api_servers(servers: list[dict]) -> list[dict]:
 
 def start_limited_account_watcher(stop_event: Event) -> Thread:
     interval_seconds = config.refresh_account_interval_minute * 60
+    # v2.9.0：异常账号自动恢复是 watcher 第二职责，独立更长间隔
+    abnormal_recover_seconds = config.abnormal_auto_recover_interval_minutes * 60
+    last_abnormal_recover_ts: float = 0.0
 
     def worker() -> None:
+        nonlocal last_abnormal_recover_ts
         while not stop_event.is_set():
             try:
                 limited_tokens = account_service.list_limited_tokens()
+                # v2.9.0：限流账号若 quota=0 且 restore_at 在未来（未到期），跳过刷新避免浪费上游额度
+                # 只刷限流但 quota>0（说明限流但还有额度，可能刚解限）或 restore_at 已过期的账号
+                import time as _time_mod
+                from datetime import datetime, UTC
+                now_dt = datetime.now(UTC)
+                skip_count = 0
+                filtered_limited = []
+                for token in limited_tokens:
+                    acct = account_service.get_account(token)
+                    if not acct:
+                        continue
+                    quota = int(acct.get("quota") or 0)
+                    restore_at = str(acct.get("restore_at") or "").strip()
+                    if quota == 0 and restore_at:
+                        try:
+                            from datetime import datetime as _dt
+                            restore_ts = _dt.fromisoformat(restore_at.replace("Z", "+00:00")).timestamp()
+                            if restore_ts > _time_mod.time():
+                                skip_count += 1
+                                continue
+                        except Exception:
+                            pass
+                    filtered_limited.append(token)
+                limited_tokens = filtered_limited
+                if skip_count:
+                    print(f"[account-watcher] skip {skip_count} limited accounts (quota=0, restore_at future)")
                 normal_tokens = account_service.list_normal_tokens()
                 expiring_tokens = account_service.list_expiring_access_tokens()
                 keepalive_tokens = account_service.list_refresh_token_keepalive_tokens()
@@ -149,6 +179,33 @@ def start_limited_account_watcher(stop_event: Event) -> Thread:
                     result = account_service.keepalive_refresh_tokens(keepalive_tokens)
                     if result.get("errors"):
                         print(f"[account-watcher] keepalive errors: {result['errors']}")
+
+                # v2.9.0：异常账号自动恢复（到间隔才跑，避免雪崩）
+                import time as _time
+                now_ts = _time.time()
+                if (
+                    config.abnormal_auto_recover_enabled
+                    and now_ts - last_abnormal_recover_ts >= abnormal_recover_seconds
+                ):
+                    last_abnormal_recover_ts = now_ts
+                    abnormal_tokens = account_service.list_abnormal_tokens_for_recover()
+                    if abnormal_tokens:
+                        print(
+                            f"[account-watcher] auto-recover {len(abnormal_tokens)} abnormal accounts "
+                            f"(max_workers={config.abnormal_auto_recover_max_workers})"
+                        )
+                        try:
+                            recover_result = account_service.recover_abnormal_accounts(abnormal_tokens)
+                            if recover_result.get("recovered") or recover_result.get("failed"):
+                                print(
+                                    f"[account-watcher] auto-recover done: "
+                                    f"recovered={recover_result.get('recovered', 0)}, "
+                                    f"failed={recover_result.get('failed', 0)}"
+                                )
+                        except Exception as recover_exc:  # noqa: BLE001
+                            logger.warning(
+                                {"event": "account_watcher_recover_failed", "error": str(recover_exc)}
+                            )
             except Exception as exc:  # noqa: BLE001
                 # S-R7：后台线程异常改走 logger（原 print 不进 server.log，bat 下无迹可寻）
                 logger.warning({"event": "account_watcher_failed", "error": str(exc)})

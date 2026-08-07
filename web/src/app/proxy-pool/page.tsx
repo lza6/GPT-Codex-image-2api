@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Activity, Globe, Plus, RefreshCw, Trash2, Wifi } from "lucide-react";
+import { Activity, Globe, Plus, RefreshCw, Trash2, Upload, Wifi } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -26,6 +26,14 @@ type ProxyEntry = {
   failed_requests: number;
   status: string;
   consecutive_failures: number;
+  // v2.9.0：结构化字段
+  host?: string;
+  port?: number;
+  username?: string;
+  country?: string;
+  protocol?: string;
+  source?: string;
+  label?: string;
 };
 
 type ProxyPoolData = {
@@ -86,6 +94,9 @@ function ProxyPoolContent() {
   const [loading, setLoading] = useState(true);
   const [newUrl, setNewUrl] = useState("");
   const [newWeight, setNewWeight] = useState("1");
+  // v2.9.0：批量导入 state
+  const [batchText, setBatchText] = useState("");
+  const [isImporting, setIsImporting] = useState(false);
   const [egressIp, setEgressIp] = useState<EgressIpResult | null>(null);
   const [probing, setProbing] = useState(false);
   const [strategyValue, setStrategyValue] = useState("round_robin");
@@ -124,6 +135,28 @@ function ProxyPoolContent() {
       await load();
     } catch (e) {
       toast.error("添加失败: " + String(e));
+    }
+  };
+
+  // v2.9.0：批量导入代理
+  const handleBatchImport = async () => {
+    if (!batchText.trim()) {
+      toast.error("请粘贴代理列表");
+      return;
+    }
+    setIsImporting(true);
+    try {
+      const result = await httpRequest<{ imported: number; deduped: number; skipped: number }>(
+        "/api/proxies/batch-import",
+        { method: "POST", body: { text: batchText, weight: Math.max(1, parseInt(newWeight) || 1) } },
+      );
+      toast.success(`导入成功 ${result.imported} 条，去重 ${result.deduped} 条，跳过 ${result.skipped} 条`);
+      setBatchText("");
+      await load();
+    } catch (e) {
+      toast.error("批量导入失败: " + String(e));
+    } finally {
+      setIsImporting(false);
     }
   };
 
@@ -274,6 +307,41 @@ function ProxyPoolContent() {
         </CardContent>
       </Card>
 
+      {/* v2.9.0：批量导入代理（支持 kookeey 格式） */}
+      <Card className="rounded-xl border-stone-200 bg-white">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">批量导入</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <textarea
+            value={batchText}
+            onChange={(e) => setBatchText(e.target.value)}
+            placeholder={
+              "支持以下格式，每行一个：\n" +
+              "gate.kookeey.info:1000:1023701-4a2c845a:12843fee-US\n" +
+              "1.2.3.4:8080:user:pass\n" +
+              "1.2.3.4:8080\n" +
+              "socks5://user:pass@host:1080"
+            }
+            rows={6}
+            className="w-full rounded-xl border border-stone-200 bg-white p-3 font-mono text-xs"
+          />
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-stone-500">
+              {batchText.trim() ? `识别 ${batchText.trim().split(/\n/).filter((l) => l.trim() && !l.trim().startsWith("#")).length} 行` : "粘贴多行代理，自动去重"}
+            </span>
+            <Button
+              onClick={handleBatchImport}
+              disabled={isImporting || !batchText.trim()}
+              className="h-10 rounded-xl bg-stone-950 text-white hover:bg-stone-800 disabled:opacity-50"
+            >
+              <Upload className="mr-1 h-4 w-4" />
+              {isImporting ? "导入中..." : "批量导入"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* 代理列表 */}
       <Card className="rounded-xl border-stone-200 bg-white">
         <CardHeader className="pb-2">
@@ -304,7 +372,15 @@ function ProxyPoolContent() {
               ) : (
                 data.proxies.map((proxy) => (
                   <TableRow key={proxy.url}>
-                    <TableCell className="max-w-[260px] truncate font-mono text-xs">{proxy.url}</TableCell>
+                    <TableCell className="max-w-[260px]">
+                      <div className="truncate font-mono text-xs">{proxy.url}</div>
+                      {proxy.country && (
+                        <Badge variant="secondary" className="mt-1 rounded-md bg-stone-100 px-1.5 py-0.5 text-[10px] text-stone-600">
+                          {proxy.country}
+                          {proxy.source === "kookeey" ? " · kookeey" : ""}
+                        </Badge>
+                      )}
+                    </TableCell>
                     <TableCell>
                       {proxy.status === "healthy" ? (
                         <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">健康</Badge>

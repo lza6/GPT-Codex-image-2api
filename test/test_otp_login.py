@@ -53,7 +53,7 @@ class TestAddPasswordAccountsOTPFallback:
         """_login_with_password 返回 need_verification_code + 有 mail_credential → 走 OTP。"""
         service = AccountService(MemoryStorage())
 
-        def _fake_password_login(email, password):
+        def _fake_password_login(email, password, proxy_url=""):
             return {"ok": False, "error": "need_verification_code", "detail": {"page": {"type": "email_otp_verification"}}}
 
         monkeypatch.setattr(service, "_login_with_password", _fake_password_login)
@@ -91,7 +91,7 @@ class TestAddPasswordAccountsOTPFallback:
         """_login_with_password 返回 need_verification_code + 无 mail_credential → 落 pending。"""
         service = AccountService(MemoryStorage())
 
-        def _fake_password_login(email, password):
+        def _fake_password_login(email, password, proxy_url=""):
             return {"ok": False, "error": "need_verification_code", "detail": {}}
 
         monkeypatch.setattr(service, "_login_with_password", _fake_password_login)
@@ -107,7 +107,7 @@ class TestAddPasswordAccountsOTPFallback:
         """OTP 链路抛异常 → 落 pending 不崩。"""
         service = AccountService(MemoryStorage())
 
-        def _fake_password_login(email, password):
+        def _fake_password_login(email, password, proxy_url=""):
             return {"ok": False, "error": "need_verification_code", "detail": {}}
 
         def _raise(email, password, **kwargs):
@@ -169,6 +169,7 @@ class TestOTPLoginService:
         result = svc.login(
             "x@y.com", "pw",
             mail_credential={"client_id": "c", "refresh_token": "r", "email": "x@y.com", "password": "pw"},
+            use_cf_solver=False,  # 本测试不涉 cf_solver；True 会去连未启动的 cf_solver 空转超时
         )
         assert result["ok"] is True
         assert result["access_token"] == "JWT"

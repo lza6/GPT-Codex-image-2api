@@ -9,7 +9,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
-from api import accounts, ai, dashboard, image_tasks, proxy_pool, system
+from api import accounts, ai, dashboard, image_tasks, kookeey, proxy_pool, system
 from api.errors import install_exception_handlers
 from api.rate_limit import RateLimitMiddleware
 from api.support import resolve_web_asset, start_limited_account_watcher, start_proactive_probe
@@ -32,6 +32,14 @@ def create_app() -> FastAPI:
         from services.log_service import log_service
         log_service.migrate_legacy()
         from services.usage_agg import start_usage_agg_watcher
+        # v2.9.0：启动即从 config.json 加载 kookeey 配置
+        try:
+            kookeey_cfg = config.data.get("kookeey")
+            if isinstance(kookeey_cfg, dict):
+                from services.kookeey_service import kookeey_service
+                kookeey_service.update_config(kookeey_cfg)
+        except Exception:  # noqa: BLE001 - kookeey 配置加载失败不阻断启动
+            pass
 
         agg_thread = start_usage_agg_watcher(stop_event)
         backup_service.start()
@@ -116,6 +124,7 @@ def create_app() -> FastAPI:
     app.include_router(system.create_router(app_version))
     app.include_router(dashboard.create_router())
     app.include_router(proxy_pool.create_router())
+    app.include_router(kookeey.create_router())
 
     @app.api_route("/{full_path:path}", methods=["GET", "HEAD"], include_in_schema=False)
     async def serve_web(full_path: str):

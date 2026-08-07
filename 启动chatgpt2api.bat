@@ -100,15 +100,22 @@ if errorlevel 1 (
 echo       后端依赖就绪
 
 rem ---------- 4/6 构建前端 ----------
-if exist "web_dist\index.html" (
-    echo [4/6] 前端已构建，跳过
-    goto :backend
-)
+set "NEED_BUILD=1"
+if exist "web_dist\index.html" if exist "web_dist\.build-stamp" set "NEED_BUILD=0"
+if "%NEED_BUILD%"=="1" goto :do_build
 
-echo [4/6] 构建前端 (首次运行较慢)...
+for /f "usebackq delims=" %%H in (`powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\web_stamp.ps1"`) do set "CUR_STAMP=%%H"
+if not defined CUR_STAMP goto :do_build
+for /f "usebackq delims=" %%O in ("web_dist\.build-stamp") do set "OLD_STAMP=%%O"
+if not "%CUR_STAMP%"=="%OLD_STAMP%" goto :do_build
+echo [4/6] Frontend unchanged, skip build
+goto :backend
+
+:do_build
+echo [4/6] Building frontend (first run may be slow)...
 node --version >nul 2>nul
 if errorlevel 1 (
-    echo       [警告] 未找到 Node.js，跳过前端构建，将使用 API 模式
+    echo       [warn] Node.js not found, skip frontend build, API only
     goto :backend
 )
 
@@ -116,26 +123,28 @@ pushd web
 if not exist "node_modules" (
     call npm.cmd ci --no-audit --no-fund
     if errorlevel 1 (
-        echo       [警告] 前端依赖安装失败，跳过构建
+        echo       [error] npm ci failed, skip build
         popd
         goto :backend
     )
 )
 call npm.cmd run build
 if errorlevel 1 (
-    echo       [警告] 前端构建失败，跳过
+    echo       [error] frontend build failed, skip
     popd
     goto :backend
 )
 popd
 
-if exist "web\out" (
-    if exist "web_dist" rmdir /s /q "web_dist"
-    move /y "web\out" "web_dist" >nul
-    echo       前端构建完成
-) else (
-    echo       [警告] 未找到 web\out 构建产物
+if not exist "web\out" (
+    echo       [warn] web\out build output not found
+    goto :backend
 )
+if exist "web_dist" rmdir /s /q "web_dist"
+move /y "web\out" "web_dist" >nul
+for /f "usebackq delims=" %%H in (`powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\web_stamp.ps1"`) do set "NEW_STAMP=%%H"
+>"web_dist\.build-stamp" echo %NEW_STAMP%
+echo       frontend build done
 
 :backend
 rem ---------- 5/6 检查端口 ----------

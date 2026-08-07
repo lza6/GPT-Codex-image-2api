@@ -26,6 +26,73 @@ class ProxySelectionStrategy(Enum):
     LEAST_CONNECTIONS = "least_connections"
 
 
+def parse_proxy_line(line: str) -> dict | None:
+    """v2.9.0：解析单行代理字符串，支持多种格式。
+
+    支持格式：
+    - kookeey: host:port:user:pass-country  → http://user:pass@host:port (country=US)
+    - host:port:user:pass                    → http://user:pass@host:port
+    - host:port                              → http://host:port
+    - http://user:pass@host:port             → 原样
+    - socks5://host:port                     → 原样
+    - socks5://user:pass@host:port           → 原样
+    """
+    line = (line or "").strip()
+    if not line or line.startswith("#"):
+        return None
+    # 已带 scheme 的直接返回
+    if "://" in line:
+        return {"url": line, "host": "", "port": 0, "username": "", "password": "",
+                "country": "", "protocol": line.split("://", 1)[0], "source": "import"}
+    # kookeey 或 colon 格式
+    country = ""
+    # 先剥离 country 后缀（最后一段含 - 后非数字部分）
+    parts = line.split(":")
+    if len(parts) >= 3:
+        # 检查最后一段是否有 country 后缀：user:pass-country
+        last = parts[-1]
+        if "-" in last and not last.split("-")[-1].isdigit():
+            idx = last.rfind("-")
+            country_candidate = last[idx + 1:].strip()
+            if country_candidate and country_candidate.isalpha() and len(country_candidate) <= 6:
+                country = country_candidate
+                parts[-1] = last[:idx]
+    if len(parts) == 4:
+        host, port_str, username, password = parts
+        protocol = "http"
+    elif len(parts) == 2:
+        host, port_str = parts
+        username, password = "", ""
+        protocol = "http"
+    else:
+        return None
+    try:
+        port = int(port_str)
+    except ValueError:
+        return None
+    if not host:
+        return None
+    auth = f"{username}:{password}@" if username or password else ""
+    url = f"{protocol}://{auth}{host}:{port}"
+    return {"url": url, "host": host, "port": port, "username": username,
+            "password": password, "country": country, "protocol": protocol, "source": "import"}
+
+
+def parse_proxy_text(text: str) -> list[dict]:
+    """v2.9.0：解析多行代理文本，返回结构化列表（去重）。"""
+    seen_urls = set()
+    result = []
+    for line in (text or "").splitlines():
+        parsed = parse_proxy_line(line)
+        if not parsed:
+            continue
+        if parsed["url"] in seen_urls:
+            continue
+        seen_urls.add(parsed["url"])
+        result.append(parsed)
+    return result
+
+
 @dataclass
 class ProxyEntry:
     url: str
@@ -40,6 +107,15 @@ class ProxyEntry:
     status: ProxyHealthStatus = ProxyHealthStatus.HEALTHY
     isolated_at: float = 0.0
     consecutive_failures: int = 0
+    # v2.9.0：结构化字段（向后兼容，从 url 反解析）
+    host: str = ""
+    port: int = 0
+    username: str = ""
+    password: str = ""
+    country: str = ""
+    protocol: str = "http"
+    source: str = "manual"  # manual/kookeey/import
+    label: str = ""
     _lock: threading.Lock = field(default_factory=threading.Lock)
 
     def to_dict(self) -> dict:
@@ -55,6 +131,13 @@ class ProxyEntry:
             "failed_requests": self.failed_requests,
             "status": self.status.value,
             "consecutive_failures": self.consecutive_failures,
+            "host": self.host,
+            "port": self.port,
+            "username": self.username,
+            "country": self.country,
+            "protocol": self.protocol,
+            "source": self.source,
+            "label": self.label,
         }
 
 
@@ -100,7 +183,22 @@ class ProxyPool:
                     url = str(item.get("url") or "").strip()
                     if not url:
                         continue
-                    self._proxies[url] = ProxyEntry(url=url, weight=max(1, int(item.get("weight") or 1)))
+                    entry = ProxyEntry(
+                        url=url,
+                        weight=max(1, int(item.get("weight") or 1)),
+                        host=str(item.get("host") or ""),
+                        port=int(item.get("port") or 0),
+                        username=str(item.get("username") or ""),
+                        password=str(item.get("password") or ""),
+                        country=str(item.get("country") or ""),
+                        protocol=str(item.get("protocol") or "http"),
+                        source=str(item.get("source") or "manual"),
+                        label=str(item.get("label") or ""),
+                    )
+                    # v2.9.0：旧数据（无 host 字段）反解析填充
+                    if not entry.host:
+                        self._populate_structured_fields(entry)
+                    self._proxies[url] = entry
                 self._rebuild_healthy()
         except Exception as exc:
             print(f"[proxy-pool] 加载持久化配置失败: {exc}")
@@ -113,7 +211,10 @@ class ProxyPool:
             self._persist_path.parent.mkdir(parents=True, exist_ok=True)
             with self._lock:
                 items = [
-                    {"url": e.url, "weight": e.weight}
+                    {"url": e.url, "weight": e.weight,
+                     "host": e.host, "port": e.port, "username": e.username,
+                     "password": e.password, "country": e.country, "protocol": e.protocol,
+                     "source": e.source, "label": e.label}
                     for e in self._proxies.values()
                 ]
             self._persist_path.write_text(
@@ -131,9 +232,62 @@ class ProxyPool:
         with self._lock:
             if url in self._proxies:
                 return
-            self._proxies[url] = ProxyEntry(url=url, weight=max(1, weight))
+            entry = ProxyEntry(url=url, weight=max(1, weight))
+            # v2.9.0：从 url 反解析 host/port
+            self._populate_structured_fields(entry)
+            self._proxies[url] = entry
             self._rebuild_healthy()
         self.save()
+
+    def add_structured(self, parsed: dict, weight: int = 1) -> bool:
+        """v2.9.0：按结构化字段添加代理（已解析 host/port/user/pass/country）。"""
+        url = str(parsed.get("url") or "").strip()
+        if not url:
+            return False
+        with self._lock:
+            if url in self._proxies:
+                return False
+            entry = ProxyEntry(
+                url=url,
+                weight=max(1, weight),
+                host=str(parsed.get("host") or ""),
+                port=int(parsed.get("port") or 0),
+                username=str(parsed.get("username") or ""),
+                password=str(parsed.get("password") or ""),
+                country=str(parsed.get("country") or ""),
+                protocol=str(parsed.get("protocol") or "http"),
+                source=str(parsed.get("source") or "import"),
+                label=str(parsed.get("label") or ""),
+            )
+            self._proxies[url] = entry
+            self._rebuild_healthy()
+        self.save()
+        return True
+
+    def batch_import(self, text: str, weight: int = 1) -> dict:
+        """v2.9.0：批量导入多行代理文本，返回 {imported, deduped, skipped}。"""
+        parsed_list = parse_proxy_text(text)
+        imported = 0
+        skipped = 0
+        for parsed in parsed_list:
+            if self.add_structured(parsed, weight=weight):
+                imported += 1
+            else:
+                skipped += 1
+        return {"imported": imported, "deduped": len(parsed_list) - imported, "skipped": skipped}
+
+    def _populate_structured_fields(self, entry: ProxyEntry) -> None:
+        """从 url 反解析 host/port/user/pass（向后兼容旧数据）。"""
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(entry.url)
+            entry.host = parsed.hostname or ""
+            entry.port = parsed.port or 0
+            entry.username = parsed.username or ""
+            entry.password = parsed.password or ""
+            entry.protocol = (parsed.scheme or "http").lower()
+        except Exception:
+            pass
 
     def remove(self, url: str) -> None:
         with self._lock:

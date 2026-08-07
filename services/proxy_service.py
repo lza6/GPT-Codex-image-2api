@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import threading
@@ -34,6 +35,43 @@ def normalize_proxy_url(url: str) -> str:
     if lowered.startswith("socks5://"):
         return "socks5h://" + candidate[len("socks5://") :]
     return candidate
+
+
+def kookeey_proxy_for(email: str = "") -> str:
+    """为指定账号构造 kookeey 固定住宅 IP 代理 URL。
+
+    同一 email → 同一 session（md5 前 8 位）→ 同一住宅 IP（粘性会话）；
+    不同 email → 不同 IP。未启用或配置不全时返回空串（调用方回退到全局代理或直连）。
+
+    kookeey 动态代理格式（官方教程）：
+      ``UserID-SecurityUser:SecurityPass-CountryISO-RandomSession@gate:port``
+    带 RandomSession 为粘性会话（同 session 固定 IP），不带则每次请求换 IP。
+    密码登录是多步请求、需单号 IP 稳定 → 用 email 派生固定 session。
+    """
+    cfg = config.get_kookeey_settings()
+    if not cfg:
+        return ""
+    enabled = cfg.get("enabled", True)
+    if isinstance(enabled, str):
+        enabled = enabled.strip().lower() in {"1", "true", "yes", "on"}
+    if not enabled:
+        return ""
+    user_id = str(cfg.get("user_id") or "").strip()
+    sec_user = str(cfg.get("security_username") or "").strip()
+    sec_pass = str(cfg.get("security_password") or "").strip()
+    gate_host = str(cfg.get("gate_host") or "").strip()
+    if not (user_id and sec_user and sec_pass and gate_host):
+        return ""
+    scheme = str(cfg.get("scheme") or "http").strip() or "http"
+    try:
+        gate_port = int(cfg.get("gate_port") or 1000)
+    except (TypeError, ValueError):
+        gate_port = 1000
+    country = str(cfg.get("country") or "US").strip() or "US"
+    session = hashlib.md5(str(email or "").strip().lower().encode("utf-8")).hexdigest()[:8]
+    # 凭据可能含 @ : / 等 URL 保留字符，user/pass 两段分别 percent-encode，防代理解析失败
+    auth = f"{user_id}-{quote(sec_user, safe='')}:{quote(sec_pass, safe='')}-{country}-{session}"
+    return f"{scheme}://{auth}@{gate_host}:{gate_port}"
 
 
 @dataclass(frozen=True)
@@ -204,6 +242,18 @@ class ProxySettingsStore:
         elif legacy_proxy:
             selected_proxy = legacy_proxy
             source = "global"
+        elif not account_proxy:
+            # v2.9.0：账号未绑定代理且无 runtime/explicit/global 时，从 IP 池轮询取一个健康代理
+            # 修复"IP 池设计断层"——proxy_pool.select() 之前业务代码零调用，池是摆设
+            try:
+                from services.proxy_pool import proxy_pool
+                pooled = proxy_pool.select()
+                if pooled is not None and pooled.url:
+                    selected_proxy = pooled.url
+                    source = "pool_round_robin"
+            except Exception:
+                # 池不可用静默回退到 direct（不阻断主链路）
+                pass
 
         return ProxyRuntimeProfile(
             proxy_url=normalize_proxy_url(selected_proxy),

@@ -2,23 +2,12 @@
 
 import { LoaderCircle } from "lucide-react";
 
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 
 import { ChatPanel } from "./components/chat-panel";
-import { PptPanel } from "./components/ppt-panel";
-import { PsdPanel } from "./components/psd-panel";
-import { SearchPanel } from "./components/search-panel";
-import { SkillPanel } from "./components/skill-panel";
 
-const tabs = [
-  { value: "skills", title: "搜索Skills" },
-  { value: "search", title: "搜索" },
-  { value: "ppt", title: "PPT生成" },
-  { value: "psd", title: "PSD生成" },
-  { value: "chat", title: "对话" },
-];
-
+// v2.9.0：裁剪 PPT/PSD/Search/Skills 安装页（用户需求：只保留生图+号池+IP池+图片管理+日志+看板）
+// 对话面板保留——chat completions / responses 路由是生图底层依赖，不能删，仅前端保留调试入口
 export default function DebugPage() {
   const { isCheckingAuth, session } = useAuthGuard(["admin"]);
 
@@ -31,29 +20,8 @@ export default function DebugPage() {
   }
 
   return (
-    <Tabs defaultValue="skills" className="mx-auto flex min-h-[calc(100vh-49px)] w-full max-w-[1600px] flex-col gap-4 px-4 pt-3 pb-6 md:px-8">
-      <TabsList variant="line" className="w-full">
-        {tabs.map(({ value, title }) => (
-          <TabsTrigger key={value} value={value}>
-            {title}
-          </TabsTrigger>
-        ))}
-      </TabsList>
-      <TabsContent value="skills">
-        <SkillPanel />
-      </TabsContent>
-      <TabsContent value="search" className="min-h-0">
-        <SearchPanel />
-      </TabsContent>
-      <TabsContent value="ppt" className="min-h-0">
-        <PptPanel />
-      </TabsContent>
-      <TabsContent value="psd" className="min-h-0">
-        <PsdPanel />
-      </TabsContent>
-      <TabsContent value="chat" className="min-h-0">
-        <ChatPanel />
-      </TabsContent>
-    </Tabs>
+    <div className="mx-auto flex min-h-[calc(100vh-49px)] w-full max-w-[1600px] flex-col gap-4 px-4 pt-3 pb-6 md:px-8">
+      <ChatPanel />
+    </div>
   );
 }

@@ -52,10 +52,12 @@ import {
   fetchAccounts,
   fetchCircuitBreakers,
   fetchModels,
+  fetchProxies,
   fetchRefreshProgress,
   fetchReLoginProgress,
   fetchSystemLogs,
   reLoginAccounts,
+  recoverAbnormalAccounts,
   refreshAccounts,
   testProxy,
   updateAccount,
@@ -201,6 +203,8 @@ function AccountsPageContent() {
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [editStatus, setEditStatus] = useState<AccountStatus>("正常");
   const [editProxy, setEditProxy] = useState("");
+  // v2.9.0：账号编辑弹窗"从池选 IP"下拉数据
+  const [poolProxies, setPoolProxies] = useState<{ url: string; host?: string; country?: string }[]>([]);
   const [isTestingProxy, setIsTestingProxy] = useState(false);
   const [timelineAccount, setTimelineAccount] = useState<Account | null>(null);
   const [timelineLogs, setTimelineLogs] = useState<SystemLog[]>([]);
@@ -312,14 +316,24 @@ function AccountsPageContent() {
       const tierMatched = tierFilter === "all" || account.tier === tierFilter;
       return searchMatched && typeMatched && statusMatched && tierMatched;
     });
-    // 排序
+    // 排序：默认按状态可用性优先（正常→限流→异常→禁用），组内按 score 降序；其他模式按用户选择
     const sorted = [...filtered];
+    const statusOrder: Record<string, number> = { "正常": 0, "限流": 1, "异常": 2, "禁用": 3 };
     if (sortBy === "score_desc") {
       sorted.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
     } else if (sortBy === "score_asc") {
       sorted.sort((a, b) => (a.score ?? 0) - (b.score ?? 0));
     } else if (sortBy === "quota_desc") {
       sorted.sort((a, b) => b.quota - a.quota);
+    } else {
+      // default：可用优先 —— 正常(quota>0) → 正常(quota=0) → 限流 → 异常 → 禁用，组内按 score 降序
+      sorted.sort((a, b) => {
+        const sa = statusOrder[a.status] ?? 9;
+        const sb = statusOrder[b.status] ?? 9;
+        if (sa !== sb) return sa - sb;
+        if (sa === 0 && (a.quota > 0) !== (b.quota > 0)) return (b.quota > 0 ? 1 : 0) - (a.quota > 0 ? 1 : 0);
+        return (b.score ?? 0) - (a.score ?? 0);
+      });
     }
     return sorted;
   }, [accounts, query, statusFilter, typeFilter, tierFilter, sortBy]);
@@ -687,10 +701,51 @@ function AccountsPageContent() {
       toast.info(`已过滤 ${accessTokens.length - abnormalTokens.length} 个非异常账号`);
     }
 
+    // v2.9.0：第一阶段——先调 recover（refresh_token 换 token 路径，覆盖纯 token 账号）
     setIsRelogining(true);
+    let remainingAbnormalTokens = abnormalTokens;
+    try {
+      toast.info(`正在尝试恢复 ${abnormalTokens.length} 个异常账号（refresh_token 路径）...`);
+      const recoverResult = await recoverAbnormalAccounts(abnormalTokens);
+      if (recoverResult.items) {
+        setAccounts(recoverResult.items);
+      }
+      const recoveredCount = recoverResult.recovered ?? 0;
+      if (recoveredCount > 0) {
+        toast.success(`refresh_token 路径恢复成功 ${recoveredCount} 个账号`);
+      }
+      // 仍异常的账号走第二阶段密码重登
+      remainingAbnormalTokens = recoverResult.items
+        ? recoverResult.items
+            .filter((a) => a.status === "异常" && abnormalTokens.includes(a.access_token))
+            .map((a) => a.access_token)
+        : abnormalTokens;
+      if (remainingAbnormalTokens.length === 0) {
+        toast.success(`全部 ${abnormalTokens.length} 个异常账号已恢复`);
+        setIsRelogining(false);
+        await loadAccounts();
+        return;
+      }
+      const hasPassword = remainingAbnormalTokens.filter((token) => {
+        const a = accounts.find((x) => x.access_token === token);
+        return a && (a as { password?: string }).password;
+      });
+      if (hasPassword.length === 0) {
+        toast.warning(`仍有 ${remainingAbnormalTokens.length} 个异常账号无法恢复（无邮箱密码，refresh_token 已失效）`);
+        setIsRelogining(false);
+        await loadAccounts();
+        return;
+      }
+      toast.info(`仍异常 ${remainingAbnormalTokens.length} 个，对其中有密码的 ${hasPassword.length} 个尝试密码重登...`);
+      // 第二阶段走下方原有 re-login 进度条流程
+    } catch (recoverError) {
+      console.warn("recover stage failed, fallback to re-login", recoverError);
+      // recover 失败则回退到原 re-login 流程
+    }
+    setIsRelogining(false);
 
-    // 计算非选中账号的基数（统计卡片联动用）
-    const selectedTokenSet = new Set(abnormalTokens);
+    // 计算非选中账号的基数（统计卡片联动用）—— 用 recover 后仍异常的 token 集
+    const selectedTokenSet = new Set(remainingAbnormalTokens);
     const baseAccountsList = accounts.filter((a) => !selectedTokenSet.has(a.access_token));
     const baseActive = baseAccountsList.filter((a) => a.status === "正常").length;
     const baseLimited = baseAccountsList.filter((a) => a.status === "限流").length;
@@ -698,11 +753,11 @@ function AccountsPageContent() {
     const baseDisabled = baseAccountsList.filter((a) => a.status === "禁用").length;
 
     // 显示进度条（真实进度）
-    const total = abnormalTokens.length;
+    const total = remainingAbnormalTokens.length;
     setProgress({ visible: true, current: 0, total, message: "正在尝试恢复异常账号...", email: "" });
 
     try {
-      const { progress_id } = await reLoginAccounts(abnormalTokens);
+      const { progress_id } = await reLoginAccounts(remainingAbnormalTokens);
 
       // 轮询进度到完成
       await new Promise<void>((resolve, reject) => {
@@ -795,6 +850,15 @@ function AccountsPageContent() {
     setEditingAccount(account);
     setEditStatus(account.status);
     setEditProxy(account.proxy ?? "");
+    // v2.9.0：打开编辑弹窗时拉取 IP 池列表供"从池选 IP"
+    void (async () => {
+      try {
+        const data = await fetchProxies();
+        setPoolProxies(data.proxies ?? []);
+      } catch {
+        // 拉取失败不阻断编辑
+      }
+    })();
   };
 
   // 3.2.1：单账号洞察时间线——拉取该账号调用日志（复用 /api/logs?account_email= 过滤）
@@ -973,9 +1037,27 @@ function AccountsPageContent() {
                 <Input
                   value={editProxy}
                   onChange={(event) => setEditProxy(event.target.value)}
-                  placeholder="留空走全局代理，例如 http://127.0.0.1:7890"
+                  placeholder="留空走IP池轮询，例如 http://127.0.0.1:7890"
                   className="h-11 rounded-xl border-stone-200 bg-white"
                 />
+                {/* v2.9.0：从 IP 池选择代理绑定 */}
+                <Select
+                  value=""
+                  onValueChange={(value) => {
+                    if (value) setEditProxy(value);
+                  }}
+                >
+                  <SelectTrigger className="h-11 rounded-xl border-stone-200 bg-white px-3 sm:w-40">
+                    <SelectValue placeholder="从池选 IP" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {poolProxies.map((p) => (
+                      <SelectItem key={p.url} value={p.url}>
+                        {p.host || p.url.slice(0, 30)}{p.country ? ` · ${p.country}` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <Button
                   variant="outline"
                   className="h-11 rounded-xl border-stone-200 bg-white px-4 text-stone-700 sm:w-24"
@@ -1167,6 +1249,46 @@ function AccountsPageContent() {
             <Badge variant="secondary" className="rounded-lg bg-stone-200 px-2 py-0.5 text-stone-700">
               {filteredAccounts.length}
             </Badge>
+          </div>
+
+          {/* v2.9.0：状态分组快捷 tab —— 一键切换"只看异常"等 */}
+          <div className="flex flex-wrap items-center gap-2">
+            {[
+              { label: `全部 ${summary.total}`, value: "all" as const },
+              { label: `正常 ${summary.active}`, value: "正常" as const },
+              { label: `限流 ${summary.limited}`, value: "限流" as const },
+              { label: `异常 ${summary.abnormal}`, value: "异常" as const },
+              { label: `禁用 ${summary.disabled}`, value: "禁用" as const },
+            ].map((tab) => {
+              const active = statusFilter === tab.value;
+              return (
+                <button
+                  key={tab.value}
+                  type="button"
+                  onClick={() => {
+                    setStatusFilter(tab.value);
+                    setPage(1);
+                  }}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition",
+                    active
+                      ? "bg-stone-900 text-white"
+                      : "bg-stone-100 text-stone-600 hover:bg-stone-200",
+                  )}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+            {statusFilter === "异常" && abnormalTokens.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setSelectedIds(abnormalTokens)}
+                className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-600 transition hover:bg-rose-100"
+              >
+                全选异常（{abnormalTokens.length}）
+              </button>
+            )}
           </div>
 
           <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
@@ -1386,6 +1508,7 @@ function AccountsPageContent() {
                     <th className="w-18 px-4 py-3">在途</th>
                     <th className="w-18 px-4 py-3">成功</th>
                     <th className="w-18 px-4 py-3">失败</th>
+                    <th className="w-48 px-4 py-3">异常原因</th>
                     <th className="w-24 px-4 py-3">操作</th>
                   </tr>
                 </thead>
@@ -1545,6 +1668,18 @@ function AccountsPageContent() {
                         </td>
                         <td className="px-4 py-3 text-stone-500">{account.success}</td>
                         <td className="px-4 py-3 text-stone-500">{account.fail}</td>
+                        <td className="px-4 py-3">
+                          {account.status === "异常" ? (
+                            <div
+                              className="max-w-[200px] truncate text-xs text-rose-600"
+                              title={`${account.last_refresh_error ?? "未知错误"}\n次数: ${account.invalid_count ?? 0}\n时间: ${account.last_refresh_error_at ?? account.last_invalid_at ?? "—"}`}
+                            >
+                              {account.last_refresh_error || account.last_token_refresh_error || "未知错误"}
+                            </div>
+                          ) : (
+                            <span className="text-stone-300">—</span>
+                          )}
+                        </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-1 text-stone-400">
                             <button

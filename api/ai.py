@@ -169,10 +169,8 @@ def create_router() -> APIRouter:
 
     @router.post("/v1/search")
     async def search(body: SearchRequest, authorization: str | None = Header(default=None)):
-        identity = require_identity(authorization)
-        call = LoggedCall(identity, "/v1/search", openai_search.MODEL, "搜索", request_text=body.prompt)
-        await filter_or_log(call, body.prompt)
-        return await call.run(openai_search.handle, body.model_dump(mode="python"))
+        # v2.9.0：Search 联网搜索功能已裁剪（用户需求：只保留生图+号池+IP池+图片管理+日志+看板）
+        raise HTTPException(status_code=404, detail={"error": "search feature has been removed"})
 
     @router.get("/v1/editable-file-tasks")
     async def list_editable_file_tasks(ids: str = "", authorization: str | None = Header(default=None)):
@@ -192,28 +190,12 @@ def create_router() -> APIRouter:
 
     @router.post("/v1/ppt/generations")
     async def create_ppt_task(body: EditableFileTaskRequest, request: Request, authorization: str | None = Header(default=None)):
-        identity = require_identity(authorization)
-        await filter_or_log(LoggedCall(identity, "/v1/ppt/generations", "gpt-5-5-thinking", "PPT生成任务", request_text=body.prompt), body.prompt)
-        return await run_in_threadpool(
-            editable_file_task_service.submit_ppt,
-            identity,
-            client_task_id=body.client_task_id or "",
-            prompt=body.prompt,
-            base64_images=body.base64_images,
-            base_url=resolve_image_base_url(request),
-        )
+        # v2.9.0：PPT 生成功能已裁剪（保留 service 文件，仅删路由）
+        raise HTTPException(status_code=404, detail={"error": "ppt generation has been removed"})
 
     @router.post("/v1/psd/generations")
     async def create_psd_task(body: EditableFileTaskRequest, request: Request, authorization: str | None = Header(default=None)):
-        identity = require_identity(authorization)
-        await filter_or_log(LoggedCall(identity, "/v1/psd/generations", "gpt-5-5-thinking", "PSD生成任务", request_text=body.prompt), body.prompt)
-        return await run_in_threadpool(
-            editable_file_task_service.submit_psd,
-            identity,
-            client_task_id=body.client_task_id or "",
-            prompt=body.prompt,
-            base64_images=body.base64_images,
-            base_url=resolve_image_base_url(request),
-        )
+        # v2.9.0：PSD 生成功能已裁剪（保留 service 文件，仅删路由）
+        raise HTTPException(status_code=404, detail={"error": "psd generation has been removed"})
 
     return router
