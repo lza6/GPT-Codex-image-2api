@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.9.1 - 2026-08-08 (kookeey 流量看板 + 单IP画像 + 出口IP探测 + 失败分类接入)
+
+**kookeey 集成（流量/账号可视）：**
++ [官方开发者 API] `kookeey_service` 实现 HMAC-SHA1+base64 签名调用（与文档示例逐字对齐，单测锁定）；实测修正 API 主机为 `www.kkoip.com`（文档写的 `kookeey.com` 是营销站前端，返回 HTML 404）；海外服务器直连被墙 → 走 kookeey 住宅代理出口访问 API
++ [流量总览] `GET /api/kookeey/traffic`：剩余/今日/近30天流量（/tinfo）+ 动态住宅包余额（/package）
++ [账户/明细] `GET /api/kookeey/balance`（/info）+ `GET /api/kookeey/traffic-detail`（/tdetail 按天/小时）
++ [单IP画像] 按账号粘性 session 记录请求数/失败/最近出口 IP，`GET /api/kookeey/ip-usage` 返回排行榜 + 已使用/已取出 IP 数
++ [出口IP探测] `POST /api/kookeey/probe-ips` 手动批量探测 + 定时 watcher（默认 2h 一轮，`KOOKEEY_IP_PROBE_INTERVAL_SEC` 可调）自动回填各号出口 IP；账号编辑弹窗加「出口 IP」按钮单号即查
++ [前端] 设置页新增「kookeey」标签：开发者 token/access_id 设置 + 4 张流量卡片 + 每账号/IP 使用排行表
+
+**额度明细：**
++ [逐账号额度] `GET /api/dashboard/quota`：号池总额度 + 每号 quota/restore_at + 临近刷新（24h内）列表（`usage_forecast.per_account_quota`）
+
+**生图失败分类（N6b）：**
++ [统一分类] `services/image_failure.py` 新增 `classify_image_exception`：自定义异常/HTTP错误/字符串 → 失败码；conversation 单张生图重试耗尽点接入，熔断判定从散写字符串匹配切换到 `should_record_circuit_failure` 单一事实来源（业务拒绝/账号态不记抖动熔断，上游抖动才记），`ImageGenerationError` 携带分类后 status_code/error_type/code
++ [文本识别] 关键词精确对齐 conversation 白名单（curl 28/35、TLS、5xx、连接重置），避免宽松匹配致熔断漂移
+
 ## 2.9.0 - 2026-08-07 (号池救活 + 生图稳定性 + 功能裁剪 + 版本对齐与前端智能重建)
 
 **说明：** `VERSION` 此前停留在 2.8.0（落后于已发版的 2.8.1/2.8.2/2.8.3），本版本将其对齐到 2.9.0，并修复前端"版本号停滞"的根因——启动脚本不再只看 `web_dist` 是否存在，而是按内容指纹决定是否重建。
