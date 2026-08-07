@@ -126,3 +126,60 @@ class TestProvidersRegistry:
 
     def test_get_provider_unknown_returns_none(self) -> None:
         assert get_provider("does-not-exist") is None
+
+
+# ---------------------------------------------------------------- kookeey-egress 端点
+class TestKookeeyEgressEndpoint:
+    """POST /api/proxies/kookeey-egress：探测账号经 kookeey 粘性代理的真实出口 IP。"""
+
+    def _client(self):
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        import api.proxy_pool as pp
+        from api.proxy_pool import create_router
+
+        app = FastAPI()
+        app.include_router(create_router())
+        return app, pp, TestClient(app)
+
+    def test_missing_email_400(self) -> None:
+        from unittest.mock import patch
+
+        app, pp, client = self._client()
+        with patch.object(pp, "require_admin", return_value={"role": "admin"}):
+            r = client.post("/api/proxies/kookeey-egress", json={})
+        assert r.status_code == 400
+
+    def test_kookeey_disabled_returns_enabled_false(self) -> None:
+        from unittest.mock import patch
+
+        app, pp, client = self._client()
+        with patch.object(pp, "require_admin", return_value={"role": "admin"}), \
+             patch("services.proxy_service.kookeey_proxy_for", return_value=""):
+            r = client.post("/api/proxies/kookeey-egress", json={"email": "a@x.com"})
+        body = r.json()
+        assert r.status_code == 200
+        assert body["ok"] is False
+        assert body["enabled"] is False
+
+    def test_session_extracted_from_proxy_url(self) -> None:
+        """粘性 session 应从代理 URL 正确解析出（供前端展示）。"""
+        from unittest.mock import patch, MagicMock
+
+        app, pp, client = self._client()
+        proxy_url = "http://UID-SUSER:SPASS-US-ab12cd34@gate.kookeey.info:1000"
+        fake_resp = MagicMock()
+        fake_resp.json.return_value = {"ip": "1.2.3.4"}
+        fake_session = MagicMock()
+        fake_session.get.return_value = fake_resp
+        fake_session.__enter__ = lambda s: s
+        fake_session.__exit__ = lambda *a: False
+        with patch.object(pp, "require_admin", return_value={"role": "admin"}), \
+             patch("services.proxy_service.kookeey_proxy_for", return_value=proxy_url), \
+             patch("curl_cffi.requests.Session", return_value=fake_session):
+            r = client.post("/api/proxies/kookeey-egress", json={"email": "a@x.com"})
+        body = r.json()
+        assert body["ok"] is True
+        assert body["ip"] == "1.2.3.4"
+        assert body["session"] == "ab12cd34"

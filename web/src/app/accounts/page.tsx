@@ -56,6 +56,7 @@ import {
   fetchRefreshProgress,
   fetchReLoginProgress,
   fetchSystemLogs,
+  probeKookeeyEgress,
   reLoginAccounts,
   recoverAbnormalAccounts,
   refreshAccounts,
@@ -64,6 +65,7 @@ import {
   type Account,
   type AccountRefreshResponse,
   type AccountStatus,
+  type KookeeyEgressResult,
   type Model,
   type RefreshProgressResponse,
   type SystemLog,
@@ -206,6 +208,9 @@ function AccountsPageContent() {
   // v2.9.0：账号编辑弹窗"从池选 IP"下拉数据
   const [poolProxies, setPoolProxies] = useState<{ url: string; host?: string; country?: string }[]>([]);
   const [isTestingProxy, setIsTestingProxy] = useState(false);
+  // v2.9.0：账号 kookeey 粘性出口 IP 探测（编辑弹窗内"出口 IP"按钮）
+  const [kookeeyEgress, setKookeeyEgress] = useState<KookeeyEgressResult | null>(null);
+  const [isProbingEgress, setIsProbingEgress] = useState(false);
   const [timelineAccount, setTimelineAccount] = useState<Account | null>(null);
   const [timelineLogs, setTimelineLogs] = useState<SystemLog[]>([]);
   const [timelineLoading, setTimelineLoading] = useState(false);
@@ -850,6 +855,7 @@ function AccountsPageContent() {
     setEditingAccount(account);
     setEditStatus(account.status);
     setEditProxy(account.proxy ?? "");
+    setKookeeyEgress(null); // 重置上次探测结果
     // v2.9.0：打开编辑弹窗时拉取 IP 池列表供"从池选 IP"
     void (async () => {
       try {
@@ -859,6 +865,31 @@ function AccountsPageContent() {
         // 拉取失败不阻断编辑
       }
     })();
+  };
+
+  // v2.9.0：探测该账号经 kookeey 粘性住宅代理的真实出口 IP
+  const handleProbeKookeeyEgress = async () => {
+    const email = (editingAccount?.email ?? "").trim();
+    if (!email) {
+      toast.error("该账号无邮箱，无法探测");
+      return;
+    }
+    setIsProbingEgress(true);
+    try {
+      const result = await probeKookeeyEgress(email);
+      setKookeeyEgress(result);
+      if (result.ok && result.ip) {
+        toast.success(`出口 IP: ${result.ip}`);
+      } else if (result.enabled === false) {
+        toast.error("kookeey 未启用");
+      } else {
+        toast.error(`探测失败：${result.error ?? "未知错误"}`);
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "探测出口 IP 失败");
+    } finally {
+      setIsProbingEgress(false);
+    }
   };
 
   // 3.2.1：单账号洞察时间线——拉取该账号调用日志（复用 /api/logs?account_email= 过滤）
@@ -1067,6 +1098,33 @@ function AccountsPageContent() {
                   {isTestingProxy ? <LoaderCircle className="size-4 animate-spin" /> : <Link2 className="size-4" />}
                   测试
                 </Button>
+              </div>
+              {/* v2.9.0：该账号经 kookeey 粘性住宅代理的真实出口 IP 探测 */}
+              <div className="flex items-center gap-2 rounded-xl border border-stone-200 bg-stone-50 px-3 py-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 rounded-lg border-stone-200 bg-white px-3 text-stone-700"
+                  onClick={() => void handleProbeKookeeyEgress()}
+                  disabled={isProbingEgress}
+                >
+                  {isProbingEgress ? <LoaderCircle className="size-3.5 animate-spin" /> : <Search className="size-3.5" />}
+                  出口 IP
+                </Button>
+                <div className="min-w-0 flex-1 text-xs text-stone-600">
+                  {kookeeyEgress === null ? (
+                    <span className="text-stone-400">探测该账号实际使用的住宅出口 IP（kookeey 粘性 session）</span>
+                  ) : kookeeyEgress.ok && kookeeyEgress.ip ? (
+                    <span>
+                      出口 IP <span className="font-mono font-semibold text-stone-800">{kookeeyEgress.ip}</span>
+                      {kookeeyEgress.session ? <span className="text-stone-400"> · session {kookeeyEgress.session}</span> : null}
+                    </span>
+                  ) : (
+                    <span className="text-rose-600">
+                      {kookeeyEgress.enabled === false ? "kookeey 未启用" : `探测失败：${kookeeyEgress.error ?? "未知"}`}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
           </div>

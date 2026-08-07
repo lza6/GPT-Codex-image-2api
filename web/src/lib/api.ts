@@ -1212,3 +1212,21 @@ export function fetchMetricsSummary() {
 export function fetchProxies() {
   return httpRequest<{ proxies: { url: string; host?: string; country?: string }[] }>("/api/proxies");
 }
+
+/** kookeey 粘性出口探测结果。 */
+export interface KookeeyEgressResult {
+  ok: boolean;
+  enabled?: boolean;
+  ip?: string;
+  session?: string;
+  email?: string;
+  error?: string;
+}
+
+/** v2.9.0：探测指定邮箱账号经 kookeey 粘性住宅代理的真实出口 IP。 */
+export function probeKookeeyEgress(email: string) {
+  return httpRequest<KookeeyEgressResult>("/api/proxies/kookeey-egress", {
+    method: "POST",
+    body: { email },
+  });
+}

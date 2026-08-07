@@ -107,6 +107,49 @@ def create_router() -> APIRouter:
                 "proxy": (account or {}).get("proxy") or "direct",
             }
 
+    def _kookeey_egress_ip(email: str) -> dict:
+        """探测指定账号经 kookeey 粘性住宅代理的出口 IP（与登录/生图实际走的一致）。
+
+        kookeey_proxy_for(email) 用 md5(email)[:8] 派生粘性 session → 固定住宅 IP。
+        该 IP 即账号每次调用真实使用的出口。未启用 kookeey 时返回 enabled=False。
+        """
+        from curl_cffi.requests import Session
+
+        from services.proxy_service import kookeey_proxy_for
+
+        proxy_url = kookeey_proxy_for(email)
+        if not proxy_url:
+            return {"ok": False, "enabled": False, "error": "kookeey 未启用或配置不全", "email": email}
+        # 从 URL 解析粘性 session 供前端展示（user-pass-country-session@host）
+        session_id = ""
+        try:
+            cred = proxy_url.split("@", 1)[0].split("://", 1)[-1]
+            session_id = cred.rsplit("-", 1)[-1]
+        except Exception:
+            session_id = ""
+        try:
+            with Session(impersonate="chrome110", verify=False, proxies={"http": proxy_url, "https": proxy_url}) as session:
+                resp = session.get("https://api.ipify.org?format=json", timeout=20)
+                data = resp.json()
+                return {
+                    "ok": True,
+                    "enabled": True,
+                    "ip": data.get("ip", ""),
+                    "session": session_id,
+                    "email": email,
+                }
+        except Exception as exc:
+            return {"ok": False, "enabled": True, "error": str(exc), "session": session_id, "email": email}
+
+    @router.post("/api/proxies/kookeey-egress")
+    async def probe_kookeey_egress(body: dict | None = None, authorization: str | None = Header(default=None)):
+        """探测指定邮箱账号经 kookeey 粘性住宅代理的真实出口 IP。"""
+        require_admin(authorization)
+        email = str((body or {}).get("email") or "").strip()
+        if not email:
+            raise HTTPException(status_code=400, detail={"error": "缺少 email"})
+        return await run_in_threadpool(_kookeey_egress_ip, email)
+
     @router.post("/api/proxies/probe-ip")
     async def probe_egress_ip(body: dict | None = None, authorization: str | None = Header(default=None)):
         """探测当前服务（或指定 token 账号）的出口 IP。"""
