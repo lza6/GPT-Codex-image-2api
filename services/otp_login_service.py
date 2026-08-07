@@ -112,7 +112,10 @@ class OTPLoginService:
         if not mail_credential or not mail_credential.get("client_id") or not mail_credential.get("refresh_token"):
             return {"ok": False, "error": "need_mail_credential", "detail": {"email": email}}
 
-        session_kwargs = proxy_settings.build_session_kwargs(impersonate="chrome", verify=False)
+        # CF 实测：auth.openai.com 的 authorize 用 "chrome"(alias) 极易触发 403 challenge
+        # （本地 0.15.0 alias→chrome110 能过；服务器 0.16.0 alias→chrome146 必被拦）。
+        # 显式 chrome110 在 0.15/0.16 双版本均稳定过（与 backend_api 默认指纹一致）。
+        session_kwargs = proxy_settings.build_session_kwargs(impersonate="chrome110", verify=False)
         if proxy_url:
             session_kwargs["proxy"] = proxy_url
         session = requests.Session(**session_kwargs)
