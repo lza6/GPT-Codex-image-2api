@@ -26,8 +26,10 @@ from curl_cffi.requests import Session
 from services.log_service import LOG_TYPE_ACCOUNT, log_service
 from services.proxy_pool import proxy_pool
 
-# kookeey 官方开发者 API base（详细请看.txt：API request path https://kookeey.com/）
-KOOKEEY_API_BASE = "https://kookeey.com"
+# kookeey 官方开发者 API（实测：API 主机是 www.kkoip.com，非文档写的 kookeey.com——
+# kookeey.com 是营销站/前端；且服务器（阿里云/腾讯云海外）直连被墙，须走 kookeey
+# 住宅代理出口访问）。t=2 动态住宅；签名 HMAC-SHA1(token)+base64（与文档示例逐字对齐）。
+KOOKEEY_API_BASE = "https://www.kkoip.com"
 
 
 def _sign(params: list[tuple[str, str]], token: str) -> str:
@@ -40,11 +42,19 @@ def _sign(params: list[tuple[str, str]], token: str) -> str:
     return base64.b64encode(digest.encode("utf-8")).decode("utf-8")
 
 
-def _api_get(method: str, params: list[tuple[str, str]], access_id: str, token: str, timeout: int = 30) -> dict:
+def _api_get(
+    method: str,
+    params: list[tuple[str, str]],
+    access_id: str,
+    token: str,
+    timeout: int = 30,
+    proxy: str = "",
+) -> dict:
     """调 kookeey 官方 API：GET /[method]?accessid=..&signature=..&ts=..&{params}。
 
     签名串只含业务参数 + ts（不含 accessid/signature），顺序与 URL 一致。
-    返回 {success, data, msg, code}。
+    proxy：kookeey.com 在海外服务器直连被墙，调用方传住宅代理出口（同账号粘性或共享）。
+    返回 data（dict/list）；success!=True 抛错。
     """
     ts = str(int(time.time()))
     # 业务参数 + ts 一起签名（顺序：业务参数在前，ts 最后，与文档示例一致）
@@ -53,7 +63,8 @@ def _api_get(method: str, params: list[tuple[str, str]], access_id: str, token: 
     query = [("accessid", access_id), ("signature", signature), *params, ("ts", ts)]
     qs = "&".join(f"{k}={quote(str(v), safe='')}" for k, v in query)
     url = f"{KOOKEEY_API_BASE}/{method.lstrip('/')}?{qs}"
-    with Session(impersonate="chrome110", verify=True) as session:
+    proxies = {"http": proxy, "https": proxy} if proxy else None
+    with Session(impersonate="chrome110", verify=False, proxies=proxies) as session:
         resp = session.get(url, timeout=timeout)
         body = resp.json() if resp.text else {}
     if not isinstance(body, dict):
@@ -267,6 +278,17 @@ class KookeeyService:
         with self._lock:
             return self._config.access_id, self._config.developer_token
 
+    def _api_proxy(self) -> str:
+        """kookeey API 出口代理：API 主机在海外服务器直连被墙，须走 kookeey 住宅代理。
+
+        用一个固定共享 session（非按账号）的住宅出口访问 API 即可。
+        """
+        try:
+            from services.proxy_service import kookeey_proxy_for
+            return kookeey_proxy_for("kookeey-api@internal") or ""
+        except Exception:
+            return ""
+
     def get_traffic_overview(self) -> dict:
         """流量总览卡片数据：调 /tinfo（剩余/今日/近30天）+ /package（动态住宅包余额）。
 
@@ -277,8 +299,9 @@ class KookeeyService:
         access_id, token = self._api_creds()
         if not (access_id and token):
             return {"ok": False, "need_config": True, "error": "未配置 developer_token / access_id"}
+        proxy = self._api_proxy()
         try:
-            tinfo = _api_get("tinfo", [], access_id, token)
+            tinfo = _api_get("tinfo", [], access_id, token, proxy=proxy)
         except Exception as exc:
             return {"ok": False, "error": f"tinfo: {exc}"}
         result: dict[str, Any] = {
@@ -289,7 +312,7 @@ class KookeeyService:
         }
         # /package?t=2 动态住宅包余额（失败不阻断总览）
         try:
-            pkg = _api_get("package", [("t", "2")], access_id, token)
+            pkg = _api_get("package", [("t", "2")], access_id, token, proxy=proxy)
             if isinstance(pkg, dict):
                 result["package"] = {
                     "traffic_left_gb": pkg.get("traffic_left"),
@@ -309,7 +332,7 @@ class KookeeyService:
         if not (access_id and token):
             return {"ok": False, "need_config": True, "error": "未配置 developer_token / access_id"}
         try:
-            data = _api_get("info", [("u", access_id)], access_id, token)
+            data = _api_get("info", [("u", access_id)], access_id, token, proxy=self._api_proxy())
             return {
                 "ok": True,
                 "balance_cents": data.get("balance") if isinstance(data, dict) else None,
@@ -325,7 +348,7 @@ class KookeeyService:
             return {"ok": False, "need_config": True, "error": "未配置 developer_token / access_id"}
         params = [("sdate", sdate), ("edate", edate), ("gb", gb), ("page", str(page)), ("psize", str(psize))]
         try:
-            data = _api_get("tdetail", params, access_id, token)
+            data = _api_get("tdetail", params, access_id, token, proxy=self._api_proxy())
             if isinstance(data, dict):
                 return {"ok": True, "list": data.get("list") or [], "total": data.get("total"), "raw": data}
             return {"ok": True, "list": [], "total": 0}
