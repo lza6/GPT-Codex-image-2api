@@ -220,6 +220,37 @@ class UsageAgg:
             series.append({"date": day, "calls": buckets.get(day, 0)})
         return series
 
+    def totals(self) -> dict[str, Any]:
+        """累计总量：总请求/成功/失败 + 按类型(summary)分布（全时段，不限 24h）。
+
+        供看板「总被请求多少次/成功多少次/图片累计多少次」卡片。
+        """
+        total_success = 0
+        total_fail = 0
+        by_summary: dict[str, dict[str, int]] = {}
+        with self._lock:
+            for buckets in self._hourly.values():
+                for summary, counter in buckets.items():
+                    total_success += counter["success"]
+                    total_fail += counter["fail"]
+                    agg = by_summary.setdefault(summary, {"success": 0, "fail": 0})
+                    agg["success"] += counter["success"]
+                    agg["fail"] += counter["fail"]
+        # 图片类调用合计（summary 含「图」的归并：文生图/图生图/图片编辑等）
+        image_calls = sum(
+            c["success"] + c["fail"]
+            for s, c in by_summary.items()
+            if any(tok in s for tok in ("图", "image", "文生", "图生"))
+        )
+        return {
+            "total_requests": total_success + total_fail,
+            "total_success": total_success,
+            "total_fail": total_fail,
+            "success_rate": round(total_success / (total_success + total_fail), 4) if (total_success + total_fail) else 0.0,
+            "image_calls_total": image_calls,
+            "by_type": by_summary,
+        }
+
 
 def _hour_key_to_ts(hour_key: str) -> float:
     try:

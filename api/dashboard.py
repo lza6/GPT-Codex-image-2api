@@ -303,6 +303,12 @@ def create_router() -> APIRouter:
         require_admin(authorization)
         return await run_in_threadpool(_collect_log_stats)
 
+    @router.get("/api/dashboard/usage-totals")
+    async def usage_totals(authorization: str | None = Header(default=None)):
+        """累计用量：总请求/成功/失败/成功率 + 图片累计 + 按类型分布（全时段）。"""
+        require_admin(authorization)
+        return await run_in_threadpool(usage_agg.totals)
+
     @router.get("/api/dashboard/usage-forecast")
     async def usage_forecast_stats(authorization: str | None = Header(default=None)):
         """F2/A2：用量预测——按近 7 天趋势线性外推号池配额耗尽时间 + 提前告警。"""
