@@ -4,6 +4,24 @@
 
 ---
 
+## 🔑 接入凭证（复制即用）
+
+> ⚠️ 下面是**真实生产密钥**，请只发给内部开发者，不要提交到公开仓库 / 群聊。
+
+| 项 | 值 |
+|----|----|
+| **API Base URL** | `http://43.165.173.36:23456/v1` |
+| **API Key（auth-key）** | `cg2api-8tbkFwuqBPLZ2cUuA12f8Ldvt2mkYNlO` |
+
+**最小调用（验证连通）：**
+
+```bash
+curl http://43.165.173.36:23456/v1/models \
+  -H "Authorization: Bearer cg2api-8tbkFwuqBPLZ2cUuA12f8Ldvt2mkYNlO"
+```
+
+---
+
 ## 一、访问地址（服务器）
 
 | 用途 | 地址 | 说明 |
@@ -17,21 +35,25 @@
 
 ---
 
-## 二、鉴权（必带）
+## 二、密钥（必带，两个服务各一把）
 
-所有 AI 接口都需要请求头：
+### 1. chatgpt2api（端口 23456）— 开发者调用用这个
+
+所有 AI 接口（文生图/图生图/对话）都需要请求头：
 
 ```http
-Authorization: Bearer <auth-key>
+Authorization: Bearer cg2api-8tbkFwuqBPLZ2cUuA12f8Ldvt2mkYNlO
 ```
 
-当前服务器 auth-key（chatgpt2api）：
+**Key：** `cg2api-8tbkFwuqBPLZ2cUuA12f8Ldvt2mkYNlO`
 
-```
-cg2api-8tbkFwuqBPLZ2cUuA12f8Ldvt2mkYNlO
-```
+### 2. gpt-register（端口 23457）— 注册管理用（开发者调图不需要）
 
-> 注册控制台（23457）是另一个服务、另一个 key：`cg2reg-yMBLKDIzs0tqKHXcPAphKQYHyJuqBC8R`（仅管理用，开发者调图不需要）。
+注册控制台登录 / API 用的另一把 key：
+
+**Key：** `cg2reg-yMBLKDIzs0tqKHXcPAphKQYHyJuqBC8R`
+
+> 调用方（OpenAI SDK、Cherry Studio 等）只需第 1 把（23456 的 `cg2api-...`）。
 
 ---
 
