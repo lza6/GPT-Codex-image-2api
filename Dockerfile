@@ -71,4 +71,6 @@ EXPOSE 80
 # stop_grace_period：给 uvicorn 优雅停机时间（收尾在途请求、归还连接池）
 STOPSIGNAL SIGTERM
 
-CMD ["uv", "run", "python", "main.py"]
+# 直接用 venv python 启动，不经过 uv run：uv run 运行时默认会 re-sync（含 dev 依赖 + 尝试
+# 装项目本体），而 .venv 在构建期是 root 所有、容器内是 appuser → 权限不足导致崩溃重启。
+CMD ["/app/.venv/bin/python", "main.py"]
