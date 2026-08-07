@@ -98,6 +98,8 @@ v2.0.0 引入生产级安全默认值收紧与韧性闭环，**含 breaking chan
 
 ## 快速开始
 
+> **开发者要调用 API？直接看 [`docs/api/developer-guide.md`](docs/api/developer-guide.md)** —— 服务器地址、auth-key、文生图/图生图/对话完整示例、SDK/客户端接入、错误码排查一文讲清。
+
 > **新加入开发者 / AI 编码助手**：先读 [`docs/onboarding/README.md`](docs/onboarding/README.md)（60 秒速览 + 全套新人文档索引）；AI 助手再读 `.claude/skills/chatgpt2api-workflow/SKILL.md`（工作流与验收门禁）。改完代码跑 `scripts/run_all_guards.py` 做五道防线回归。
 
 ### Windows 一键启动（推荐）
@@ -125,9 +127,24 @@ docker compose up -d
 也可以通过环境变量 `CHATGPT2API_AUTH_KEY` 覆盖。
 
 - Web 面板：`http://localhost:23456`
-- API 地址：`http://localhost:23456/v1`
+- API 地址：`http://localhost:23456/v1`（**对外调用见 [`docs/api/developer-guide.md`](docs/api/developer-guide.md)**）
 - 运维看板：`http://localhost:23456/dashboard`（调度健康度/资源占用/用量/延迟，SSE 实时推送）
 - 数据目录：`./data`
+
+### 服务器部署（当前线上实例）
+
+线上已部署在腾讯云东京（`43.165.173.36`），两个服务同机：
+
+| 服务 | 端口 | 容器内端口关键点 |
+|------|------|------------------|
+| chatgpt2api | `23456` | 容器内监听 **80**（compose 须设 `CHATGPT2API_PORT=80`，与 `EXPOSE`/`HEALTHCHECK` 对齐） |
+| gpt-register | `23457` | CF solver `8001` 仅容器内回环，主服务按需自启 camoufox |
+
+```bash
+docker compose up -d   # 用仓库根 docker-compose.yml（已含 CHATGPT2API_PORT=80 修复）
+```
+
+> 完整对接参数与排障见 [`docs/api/developer-guide.md`](docs/api/developer-guide.md) 与 [`docs/deployment.md`](docs/deployment.md)。
 
 ### WARP / FlareSolverr 稳定代理部署
 
