@@ -56,6 +56,64 @@ def _total_quota() -> tuple[int, int, int]:
     return total, count, unlimited
 
 
+def per_account_quota() -> dict[str, Any]:
+    """逐账号额度明细 + 临近刷新列表（供看板/查询接口）。
+
+    返回：
+    - total_remaining / total_accounts / unlimited_accounts：号池总额度
+    - accounts: 每号 {email, status, quota, restore_at, restores_soon}（按 quota 升序）
+    - restoring_soon: restore_at 在未来 24h 内的限流/零额度账号（即将恢复额度）
+    """
+    from services.account_service import account_service
+
+    now_ts = time.time()
+    soon_window = 24 * 3600
+    rows: list[dict[str, Any]] = []
+    restoring_soon: list[dict[str, Any]] = []
+    total_remaining = 0
+    unlimited = 0
+    for account in account_service.list_accounts() or []:
+        if not isinstance(account, dict):
+            continue
+        email = str(account.get("email") or "")
+        status = str(account.get("status") or "")
+        try:
+            quota = int(account.get("quota") or 0)
+        except (TypeError, ValueError):
+            quota = 0
+        restore_at = str(account.get("restore_at") or "").strip()
+        restore_ts: float | None = None
+        if restore_at:
+            try:
+                restore_ts = datetime.datetime.fromisoformat(restore_at.replace("Z", "+00:00")).timestamp()
+            except Exception:
+                restore_ts = None
+        if quota == -1:
+            unlimited += 1
+        elif quota > 0:
+            total_remaining += quota
+        soon = restore_ts is not None and now_ts < restore_ts <= now_ts + soon_window
+        row = {
+            "email": email,
+            "status": status,
+            "quota": quota,
+            "restore_at": restore_at or None,
+            "restores_soon": soon,
+        }
+        rows.append(row)
+        if soon and quota <= 0:
+            restoring_soon.append(row)
+    rows.sort(key=lambda r: (r["quota"] < 0, r["quota"]))  # 正配额升序，无限(-1)排最后
+    return {
+        "total_remaining": total_remaining,
+        "total_accounts": len(rows),
+        "unlimited_accounts": unlimited,
+        "restoring_soon_count": len(restoring_soon),
+        "restoring_soon": restoring_soon,
+        "accounts": rows,
+    }
+
+
 def forecast_quota_depletion(alert_threshold_days: float = _DEFAULT_ALERT_THRESHOLD_DAYS) -> dict[str, Any]:
     """线性外推号池配额耗尽时间。
 

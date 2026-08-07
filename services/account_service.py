@@ -1817,6 +1817,14 @@ class AccountService:
                 return None
             self._accounts[access_token] = account
             self._save_accounts()
+            # v2.9.0：挂钩 kookeey 单 IP 使用画像（按账号粘性 session 记请求数）
+            try:
+                from services.kookeey_service import kookeey_service
+                _email = str(account.get("email") or "").strip()
+                if _email:
+                    kookeey_service.record_ip_usage(_email, success)
+            except Exception:  # noqa: BLE001 - 画像记录失败不影响主流程
+                pass
             return dict(account)
         return None
 

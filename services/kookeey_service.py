@@ -3,23 +3,65 @@
 支持两种模式：
 1. 提取链接模式：用户在设置页填 kookeey 提取链接（含 sign + accessid 的完整 URL），
    后端调链接拉 IP 列表入池。最省事，用户已有现成链接。
-2. API 签名模式（预留）：用户填 developer_token + access_id，后端用 HMAC-SHA1 签名调 kookeey API。
+2. API 签名模式：用户填 developer_token（加密密钥）+ access_id（developer id），
+   后端用 HMAC-SHA1 签名调 kookeey 官方 API 查询流量/账户/明细。
 
 流量统计：kookeey API 不提供单 IP 流量，按请求次数 × 估算大小统计（或调 /ol 订单列表接口拿总量）。
 """
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import re
 import time
 from dataclasses import dataclass, field
 from threading import Lock
 from typing import Any
+from urllib.parse import quote
 
 from curl_cffi.requests import Session
 
 from services.log_service import LOG_TYPE_ACCOUNT, log_service
 from services.proxy_pool import proxy_pool
+
+# kookeey 官方开发者 API base（详细请看.txt：API request path https://kookeey.com/）
+KOOKEEY_API_BASE = "https://kookeey.com"
+
+
+def _sign(params: list[tuple[str, str]], token: str) -> str:
+    """kookeey 签名：参数串（按 URL 顺序）HMAC-SHA1(token) → hex → base64。
+
+    文档口径：base64.b64encode(hmac.new(key, param_string, sha1).hexdigest().encode())
+    """
+    param_string = "&".join(f"{k}={v}" for k, v in params)
+    digest = hmac.new(token.encode("utf-8"), param_string.encode("utf-8"), hashlib.sha1).hexdigest()
+    return base64.b64encode(digest.encode("utf-8")).decode("utf-8")
+
+
+def _api_get(method: str, params: list[tuple[str, str]], access_id: str, token: str, timeout: int = 30) -> dict:
+    """调 kookeey 官方 API：GET /[method]?accessid=..&signature=..&ts=..&{params}。
+
+    签名串只含业务参数 + ts（不含 accessid/signature），顺序与 URL 一致。
+    返回 {success, data, msg, code}。
+    """
+    ts = str(int(time.time()))
+    # 业务参数 + ts 一起签名（顺序：业务参数在前，ts 最后，与文档示例一致）
+    sign_params = [*params, ("ts", ts)]
+    signature = _sign(sign_params, token)
+    query = [("accessid", access_id), ("signature", signature), *params, ("ts", ts)]
+    qs = "&".join(f"{k}={quote(str(v), safe='')}" for k, v in query)
+    url = f"{KOOKEEY_API_BASE}/{method.lstrip('/')}?{qs}"
+    with Session(impersonate="chrome110", verify=True) as session:
+        resp = session.get(url, timeout=timeout)
+        body = resp.json() if resp.text else {}
+    if not isinstance(body, dict):
+        raise RuntimeError(f"kookeey api bad response: {str(body)[:120]}")
+    if body.get("success") is not True:
+        raise RuntimeError(f"kookeey api error code={body.get('code')} msg={body.get('msg')}")
+    return body.get("data") if isinstance(body.get("data"), (dict, list)) else {}
+
 
 
 @dataclass
@@ -45,6 +87,18 @@ class KookeeyStats:
     by_country: dict[str, int] = field(default_factory=dict)
 
 
+@dataclass
+class IpUsageRecord:
+    """单账号（一条粘性住宅 IP）的使用画像。"""
+    email: str
+    session: str  # kookeey 粘性 session（md5(email)[:8]）
+    requests: int = 0  # 成功调用次数（≈ 该 IP 请求数）
+    fail: int = 0
+    last_used_at: str = ""
+    last_ip: str = ""  # 最近一次批量探测到的出口 IP
+    last_probe_at: str = ""
+
+
 class KookeeyService:
     """kookeey 代理集成服务。"""
 
@@ -52,7 +106,126 @@ class KookeeyService:
         self._config = KookeeyConfig()
         self._stats = KookeeyStats()
         self._lock = Lock()
+        # 单 IP（按账号 session）使用画像：email → IpUsageRecord
+        self._ip_usage: dict[str, IpUsageRecord] = {}
 
+    # ------------------------------------------------------------ 单 IP 使用画像（按账号 session）
+    @staticmethod
+    def _session_for(email: str) -> str:
+        return hashlib.md5(str(email or "").strip().lower().encode("utf-8")).hexdigest()[:8]
+
+    def record_ip_usage(self, email: str, success: bool) -> None:
+        """记录一次账号调用（≈ 该账号粘性 IP 的一次请求）。供账号用量挂钩调用。"""
+        email = str(email or "").strip()
+        if not email:
+            return
+        with self._lock:
+            rec = self._ip_usage.get(email)
+            if rec is None:
+                rec = IpUsageRecord(email=email, session=self._session_for(email))
+                self._ip_usage[email] = rec
+            if success:
+                rec.requests += 1
+            else:
+                rec.fail += 1
+            rec.last_used_at = time.strftime("%Y-%m-%d %H:%M:%S")
+
+    def update_ip_probe(self, email: str, ip: str) -> None:
+        """批量探测后回填该账号 session 对应的出口 IP。"""
+        email = str(email or "").strip()
+        if not email:
+            return
+        with self._lock:
+            rec = self._ip_usage.get(email)
+            if rec is None:
+                rec = IpUsageRecord(email=email, session=self._session_for(email))
+                self._ip_usage[email] = rec
+            rec.last_ip = ip
+            rec.last_probe_at = time.strftime("%Y-%m-%d %H:%M:%S")
+
+    def get_ip_usage_board(self) -> dict:
+        """单 IP 使用画像看板：按请求数排行 + 累计取出/使用统计。
+
+        「已使用 IP 数」= 有过至少一次调用记录的 session 数。
+        「累计取出 IP 数」= stats.total_extracted（提取入池的 IP 总数）。
+        """
+        with self._lock:
+            rows = [
+                {
+                    "email": r.email,
+                    "session": r.session,
+                    "requests": r.requests,
+                    "fail": r.fail,
+                    "last_used_at": r.last_used_at,
+                    "last_ip": r.last_ip,
+                    "last_probe_at": r.last_probe_at,
+                }
+                for r in self._ip_usage.values()
+            ]
+            extracted = self._stats.total_extracted
+        rows.sort(key=lambda x: x["requests"], reverse=True)
+        return {
+            "used_ip_count": len(rows),
+            "total_extracted": extracted,
+            "leaderboard": rows,  # 已按 requests 降序 = 每 IP 使用排行
+        }
+
+    # ------------------------------------------------------------ 批量出口 IP 探测（定时/手动）
+    def probe_all_account_ips(self, max_workers: int = 8, only_status: tuple[str, ...] = ("正常",)) -> dict:
+        """批量探测所有正常账号经各自粘性住宅代理的出口 IP，回填 last_ip。
+
+        并发探测，单号失败不阻断整体。返回 {probed, ok, failed, duration_s}。
+        """
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        from services.account_service import account_service
+        from services.proxy_service import kookeey_proxy_for
+
+        emails = []
+        for acc in account_service.list_accounts() or []:
+            if not isinstance(acc, dict):
+                continue
+            if only_status and str(acc.get("status") or "") not in only_status:
+                continue
+            email = str(acc.get("email") or "").strip()
+            if email:
+                emails.append(email)
+        if not emails:
+            return {"probed": 0, "ok": 0, "failed": 0, "duration_s": 0}
+
+        start = time.time()
+        ok = 0
+        failed = 0
+
+        def _probe(email: str) -> bool:
+            proxy_url = kookeey_proxy_for(email)
+            if not proxy_url:
+                return False
+            try:
+                with Session(impersonate="chrome110", verify=False,
+                             proxies={"http": proxy_url, "https": proxy_url}) as s:
+                    resp = s.get("https://api.ipify.org?format=json", timeout=20)
+                    ip = str((resp.json() or {}).get("ip") or "")
+                if ip:
+                    self.update_ip_probe(email, ip)
+                    return True
+            except Exception:
+                return False
+            return False
+
+        with ThreadPoolExecutor(max_workers=max(1, max_workers)) as ex:
+            futs = {ex.submit(_probe, e): e for e in emails}
+            for fut in as_completed(futs):
+                try:
+                    if fut.result():
+                        ok += 1
+                    else:
+                        failed += 1
+                except Exception:
+                    failed += 1
+        duration = round(time.time() - start, 1)
+        log_service.add(LOG_TYPE_ACCOUNT, "kookeey 批量出口IP探测", {"probed": len(emails), "ok": ok, "failed": failed})
+        return {"probed": len(emails), "ok": ok, "failed": failed, "duration_s": duration}
     def update_config(self, cfg: dict) -> None:
         with self._lock:
             self._config.enabled = bool(cfg.get("enabled", False))
@@ -87,6 +260,77 @@ class KookeeyService:
                 "last_error": self._stats.last_error,
                 "by_country": dict(self._stats.by_country),
             }
+
+    # ------------------------------------------------------------ 官方开发者 API（流量/账户）
+    def _api_creds(self) -> tuple[str, str]:
+        """返回 (access_id, developer_token)；未配置返回 ('','')。"""
+        with self._lock:
+            return self._config.access_id, self._config.developer_token
+
+    def get_traffic_overview(self) -> dict:
+        """流量总览卡片数据：调 /tinfo（剩余/今日/近30天）+ /package（动态住宅包余额）。
+
+        返回 {ok, balance_mb, today_use_mb, month_use_mb, package:{traffic_left_gb,
+        traffic_total_gb, thread_left, thread_total, expire_time}, error}。
+        未配置 developer_token/access_id 返回 ok=False + need_config。
+        """
+        access_id, token = self._api_creds()
+        if not (access_id and token):
+            return {"ok": False, "need_config": True, "error": "未配置 developer_token / access_id"}
+        try:
+            tinfo = _api_get("tinfo", [], access_id, token)
+        except Exception as exc:
+            return {"ok": False, "error": f"tinfo: {exc}"}
+        result: dict[str, Any] = {
+            "ok": True,
+            "balance_mb": tinfo.get("balance") if isinstance(tinfo, dict) else None,
+            "today_use_mb": tinfo.get("today_use") if isinstance(tinfo, dict) else None,
+            "month_use_mb": tinfo.get("month_use") if isinstance(tinfo, dict) else None,
+        }
+        # /package?t=2 动态住宅包余额（失败不阻断总览）
+        try:
+            pkg = _api_get("package", [("t", "2")], access_id, token)
+            if isinstance(pkg, dict):
+                result["package"] = {
+                    "traffic_left_gb": pkg.get("traffic_left"),
+                    "traffic_total_gb": pkg.get("traffic_total"),
+                    "thread_left": pkg.get("thread_left"),
+                    "thread_total": pkg.get("thread_total"),
+                    "expire_time": pkg.get("expire_time"),
+                    "name": (pkg.get("package") or {}).get("name") if isinstance(pkg.get("package"), dict) else None,
+                }
+        except Exception as exc:
+            result["package_error"] = str(exc)[:120]
+        return result
+
+    def get_account_balance(self) -> dict:
+        """账户余额（/info）：{balance_cents, uncount_cents}。未配置返回 need_config。"""
+        access_id, token = self._api_creds()
+        if not (access_id and token):
+            return {"ok": False, "need_config": True, "error": "未配置 developer_token / access_id"}
+        try:
+            data = _api_get("info", [("u", access_id)], access_id, token)
+            return {
+                "ok": True,
+                "balance_cents": data.get("balance") if isinstance(data, dict) else None,
+                "uncount_cents": data.get("uncount") if isinstance(data, dict) else None,
+            }
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def get_traffic_detail(self, sdate: str, edate: str, gb: str = "d", page: int = 1, psize: int = 50) -> dict:
+        """流量使用明细（/tdetail）：按天/小时聚合，含地区/账号。返回 {ok, list, total}。"""
+        access_id, token = self._api_creds()
+        if not (access_id and token):
+            return {"ok": False, "need_config": True, "error": "未配置 developer_token / access_id"}
+        params = [("sdate", sdate), ("edate", edate), ("gb", gb), ("page", str(page)), ("psize", str(psize))]
+        try:
+            data = _api_get("tdetail", params, access_id, token)
+            if isinstance(data, dict):
+                return {"ok": True, "list": data.get("list") or [], "total": data.get("total"), "raw": data}
+            return {"ok": True, "list": [], "total": 0}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
 
     def test_connection(self) -> dict:
         """测试 kookeey 连接：用提取链接拉 1 个 IP 验证可用。"""
@@ -190,6 +434,37 @@ class KookeeyService:
             self._stats.total_errors += 1
             self._stats.last_error = error[:200]
 
+
+def start_ip_probe_watcher(stop_event, interval_seconds: int = 7200) -> "object":
+    """定时批量探测所有账号出口 IP（默认每 2 小时一轮），常驻刷新看板显示。
+
+    返回线程对象；interval_seconds 可用环境变量 KOOKEEY_IP_PROBE_INTERVAL_SEC 覆盖。
+    """
+    import os
+    from threading import Thread
+
+    try:
+        interval_seconds = max(600, int(os.getenv("KOOKEEY_IP_PROBE_INTERVAL_SEC", str(interval_seconds))))
+    except (TypeError, ValueError):
+        interval_seconds = 7200
+
+    def worker() -> None:
+        # 启动后先等一小段再首探（让服务先起来），之后按间隔循环
+        if stop_event.wait(60):
+            return
+        while not stop_event.is_set():
+            try:
+                cfg = kookeey_service.get_config()
+                if cfg.get("enabled"):
+                    kookeey_service.probe_all_account_ips()
+            except Exception as exc:  # noqa: BLE001
+                log_service.add(LOG_TYPE_ACCOUNT, "kookeey IP探测线程异常", {"error": str(exc)[:120]})
+            if stop_event.wait(interval_seconds):
+                return
+
+    t = Thread(target=worker, name="kookeey-ip-probe", daemon=True)
+    t.start()
+    return t
 
 def _parse_kookeey_ip_line(line: str, country: str = "") -> dict | None:
     """解析 kookeey 提取返回的单行 IP。

@@ -183,3 +183,83 @@ class TestKookeeyEgressEndpoint:
         assert body["ok"] is True
         assert body["ip"] == "1.2.3.4"
         assert body["session"] == "ab12cd34"
+
+
+# ---------------------------------------------------------------- 单 IP 使用画像 + 流量接口
+class TestKookeeyIpUsageBoard:
+    """kookeey 单 IP（按账号 session）使用画像：记录/探测回填/排行榜。"""
+
+    def test_record_and_leaderboard(self) -> None:
+        from services.kookeey_service import KookeeyService
+
+        svc = KookeeyService()
+        svc.record_ip_usage("a@x.com", True)
+        svc.record_ip_usage("a@x.com", True)
+        svc.record_ip_usage("a@x.com", False)
+        svc.record_ip_usage("b@x.com", True)
+        board = svc.get_ip_usage_board()
+        assert board["used_ip_count"] == 2
+        top = board["leaderboard"][0]
+        assert top["email"] == "a@x.com"
+        assert top["requests"] == 2
+        assert top["fail"] == 1
+        assert top["session"] == svc._session_for("a@x.com")
+
+    def test_update_ip_probe_fills_last_ip(self) -> None:
+        from services.kookeey_service import KookeeyService
+
+        svc = KookeeyService()
+        svc.update_ip_probe("c@x.com", "9.9.9.9")
+        board = svc.get_ip_usage_board()
+        row = next(r for r in board["leaderboard"] if r["email"] == "c@x.com")
+        assert row["last_ip"] == "9.9.9.9"
+        assert row["last_probe_at"] != ""
+
+    def test_empty_email_ignored(self) -> None:
+        from services.kookeey_service import KookeeyService
+
+        svc = KookeeyService()
+        svc.record_ip_usage("", True)
+        svc.update_ip_probe("  ", "1.1.1.1")
+        assert svc.get_ip_usage_board()["used_ip_count"] == 0
+
+
+class TestKookeeyTrafficApi:
+    """kookeey 官方开发者 API（流量/余额）：未配置 token 时给 need_config。"""
+
+    def test_traffic_overview_need_config(self) -> None:
+        from services.kookeey_service import KookeeyService
+
+        svc = KookeeyService()  # 未配置 developer_token/access_id
+        r = svc.get_traffic_overview()
+        assert r["ok"] is False
+        assert r["need_config"] is True
+
+    def test_account_balance_need_config(self) -> None:
+        from services.kookeey_service import KookeeyService
+
+        svc = KookeeyService()
+        r = svc.get_account_balance()
+        assert r["ok"] is False
+        assert r["need_config"] is True
+
+    def test_sign_matches_document_example(self) -> None:
+        from services.kookeey_service import _sign
+
+        # 文档口径：HMAC-SHA1(key,'g=1&ts=1609430400') hex → base64
+        sig = _sign([("g", "1"), ("ts", "1609430400")], "1234567ABCDEFG")
+        assert sig == "YzVkMjQxYjVmNjA2MWExMjAwYWYxMzUxM2I1YTY4YWYyOWIxMzA5NA=="
+
+
+class TestPerAccountQuota:
+    """逐账号额度明细（/api/dashboard/quota 数据源）。"""
+
+    def test_structure(self) -> None:
+        from services.usage_forecast import per_account_quota
+
+        q = per_account_quota()
+        for key in ("total_remaining", "total_accounts", "unlimited_accounts",
+                    "restoring_soon_count", "restoring_soon", "accounts"):
+            assert key in q
+        assert isinstance(q["accounts"], list)
+        assert q["total_accounts"] == len(q["accounts"])

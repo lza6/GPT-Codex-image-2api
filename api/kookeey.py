@@ -60,4 +60,43 @@ def create_router() -> APIRouter:
         require_admin(authorization)
         return kookeey_service.extract_to_pool(country=body.country, count=body.count)
 
+    @router.get("/api/kookeey/traffic")
+    async def get_kookeey_traffic(authorization: str | None = Header(default=None)):
+        """kookeey 流量总览卡片：剩余/今日/近30天 + 动态住宅包余额（官方开发者 API）。"""
+        require_admin(authorization)
+        return kookeey_service.get_traffic_overview()
+
+    @router.get("/api/kookeey/balance")
+    async def get_kookeey_balance(authorization: str | None = Header(default=None)):
+        """kookeey 账户余额（分）。"""
+        require_admin(authorization)
+        return kookeey_service.get_account_balance()
+
+    @router.get("/api/kookeey/traffic-detail")
+    async def get_kookeey_traffic_detail(
+        sdate: str = "",
+        edate: str = "",
+        gb: str = "d",
+        authorization: str | None = Header(default=None),
+    ):
+        """kookeey 流量使用明细（按天/小时聚合）。默认查今天。"""
+        require_admin(authorization)
+        import time as _time
+        today = _time.strftime("%Y-%m-%d")
+        sdate = sdate or today
+        edate = edate or today
+        return kookeey_service.get_traffic_detail(sdate, edate, gb=gb)
+
+    @router.get("/api/kookeey/ip-usage")
+    async def get_kookeey_ip_usage(authorization: str | None = Header(default=None)):
+        """单 IP（按账号粘性 session）使用画像看板：排行榜 + 已使用/已取出 IP 数。"""
+        require_admin(authorization)
+        return kookeey_service.get_ip_usage_board()
+
+    @router.post("/api/kookeey/probe-ips")
+    async def probe_kookeey_ips(authorization: str | None = Header(default=None)):
+        """手动触发一次全账号出口 IP 批量探测（回填看板 last_ip）。"""
+        require_admin(authorization)
+        return kookeey_service.probe_all_account_ips()
+
     return router

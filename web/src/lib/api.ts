@@ -1230,3 +1230,78 @@ export function probeKookeeyEgress(email: string) {
     body: { email },
   });
 }
+
+// ──────────────────────── kookeey 流量/账号看板 ────────────────────────
+
+export interface KookeeyConfig {
+  enabled: boolean;
+  extract_url?: string;
+  developer_token?: string;
+  access_id?: string;
+  default_country?: string;
+  default_count?: number;
+}
+
+export interface KookeeyTraffic {
+  ok: boolean;
+  need_config?: boolean;
+  balance_mb?: number | null;
+  today_use_mb?: number | null;
+  month_use_mb?: number | null;
+  package?: {
+    traffic_left_gb?: number | null;
+    traffic_total_gb?: number | null;
+    thread_left?: number | null;
+    thread_total?: number | null;
+    expire_time?: number | null;
+    name?: string | null;
+  };
+  package_error?: string;
+  error?: string;
+}
+
+export interface KookeeyIpUsageRow {
+  email: string;
+  session: string;
+  requests: number;
+  fail: number;
+  last_used_at: string;
+  last_ip: string;
+  last_probe_at: string;
+}
+
+export interface KookeeyIpUsageBoard {
+  used_ip_count: number;
+  total_extracted: number;
+  leaderboard: KookeeyIpUsageRow[];
+}
+
+export interface KookeeyProbeResult {
+  probed: number;
+  ok: number;
+  failed: number;
+  duration_s: number;
+}
+
+export function fetchKookeeyConfig() {
+  return httpRequest<KookeeyConfig>("/api/kookeey/config");
+}
+
+export function updateKookeeyConfig(cfg: KookeeyConfig) {
+  return httpRequest<{ ok: boolean; config: KookeeyConfig }>("/api/kookeey/config", {
+    method: "POST",
+    body: cfg,
+  });
+}
+
+export function fetchKookeeyTraffic() {
+  return httpRequest<KookeeyTraffic>("/api/kookeey/traffic");
+}
+
+export function fetchKookeeyIpUsage() {
+  return httpRequest<KookeeyIpUsageBoard>("/api/kookeey/ip-usage");
+}
+
+export function probeKookeeyIps() {
+  return httpRequest<KookeeyProbeResult>("/api/kookeey/probe-ips", { method: "POST" });
+}

@@ -41,6 +41,14 @@ def create_app() -> FastAPI:
         except Exception:  # noqa: BLE001 - kookeey 配置加载失败不阻断启动
             pass
 
+        # v2.9.0：定时批量探测所有账号出口 IP（默认每 2 小时，KOOKEEY_IP_PROBE_INTERVAL_SEC 可调）
+        ip_probe_thread = None
+        try:
+            from services.kookeey_service import start_ip_probe_watcher
+            ip_probe_thread = start_ip_probe_watcher(stop_event)
+        except Exception:  # noqa: BLE001 - IP 探测线程启动失败不阻断
+            ip_probe_thread = None
+
         agg_thread = start_usage_agg_watcher(stop_event)
         backup_service.start()
         config.cleanup_old_images()

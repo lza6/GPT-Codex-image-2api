@@ -311,6 +311,14 @@ def create_router() -> APIRouter:
 
         return await run_in_threadpool(forecast_quota_depletion)
 
+    @router.get("/api/dashboard/quota")
+    async def quota_detail(authorization: str | None = Header(default=None)):
+        """逐账号额度明细：总额度 + 每号 quota/restore_at + 临近刷新(24h内)列表。"""
+        require_admin(authorization)
+        from services.usage_forecast import per_account_quota
+
+        return await run_in_threadpool(per_account_quota)
+
     @router.get("/api/dashboard/capacity")
     async def capacity_stats(authorization: str | None = Header(default=None), days: int = 7):
         """5.2：容量规划——日均请求/活跃账号/单账号日均消耗/外推需新号数（基于聚合缓存）。"""
