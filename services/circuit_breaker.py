@@ -49,6 +49,12 @@ class CircuitBreaker:
                 if time.monotonic() - self._opened_at >= self.recovery_timeout:
                     self._state = CircuitState.HALF_OPEN
                     self._success_count_half_open = 0
+                    # v2.10.0：熔断状态转移指标
+                    try:
+                        from services.prometheus_metrics import record_circuit_breaker_transition
+                        record_circuit_breaker_transition("open", "half_open")
+                    except Exception:
+                        pass
             return self._state
 
     def allow_request(self) -> bool:
@@ -63,6 +69,12 @@ class CircuitBreaker:
                     # 半开连续成功，恢复闭合
                     self._state = CircuitState.CLOSED
                     self._failure_count = 0
+                    # v2.10.0：熔断状态转移指标
+                    try:
+                        from services.prometheus_metrics import record_circuit_breaker_transition
+                        record_circuit_breaker_transition("half_open", "closed")
+                    except Exception:
+                        pass
                     # 5.3：熔断恢复 → 推送恢复事件（复用告警通道 + 去重机制）
                     if self._key:
                         try:
@@ -92,9 +104,19 @@ class CircuitBreaker:
                 self._trip()
 
     def _trip(self) -> None:
+        prev_state = self._state
         self._state = CircuitState.OPEN
         self._opened_at = time.monotonic()
         self._failure_count = 0
+        # v2.10.0：熔断状态转移指标
+        try:
+            from services.prometheus_metrics import record_circuit_breaker_transition
+            record_circuit_breaker_transition(
+                "half_open" if prev_state == CircuitState.HALF_OPEN else "closed",
+                "open",
+            )
+        except Exception:
+            pass
         # D18：熔断 OPEN 触发告警（token 末 8 位，不泄露完整 token）
         # 直接构造（非经注册表，key=""）时跳过告警——无账号上下文，告警无意义
         if not self._key:

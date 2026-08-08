@@ -244,9 +244,20 @@ def create_router() -> APIRouter:
         health = _collect_account_health(accounts)
         # 更新 prometheus 账号池指标
         try:
-            from services.prometheus_metrics import update_account_pool_size, update_image_tasks_inflight
+            from services.prometheus_metrics import (
+                update_account_pool_size,
+                update_image_tasks_inflight,
+                update_lifetime_risk,
+            )
             update_account_pool_size(health["tiers"])
             update_image_tasks_inflight(health["total_inflight"])
+            # v2.10.0：寿命预测档位分布指标
+            risk_dist: dict[str, int] = {"low": 0, "medium": 0, "high": 0, "critical": 0}
+            for acc in accounts:
+                risk = acc.get("lifetime_risk") or ""
+                if risk in risk_dist:
+                    risk_dist[risk] += 1
+            update_lifetime_risk(risk_dist)
         except Exception:
             import logging
             logging.getLogger("chatgpt2api").warning("Prometheus 指标更新失败")

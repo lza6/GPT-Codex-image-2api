@@ -1,14 +1,28 @@
 # Changelog
 
-## 2.9.2 - 2026-08-08 (图片透传上游直链 + UI 实时开关)
+## 2.10.0 - 2026-08-09 (失败分类中枢收尾 + 可观测性增强 + 指标扩展 + 健康端点)
 
-**图片透传（省上下行流量）：**
+**失败分类中枢收尾（双源熔断合一）：**
++ [文本链路收敛] `image_failure.classify_image_exception` 兼容 str 入参，`conversation.stream_text_deltas` 与 `openai_search` 的熔断判定统一走 `classify_image_exception` + `should_record_circuit_failure`，消除 `is_upstream_instability_error` 双源维护
++ [is_upstream_instability_error 保留] 仅存定义（供 image_failure._classify_message_text 复用关键词），全仓无调用点残留
+
+**结构日志字段过滤：**
++ [/api/logs] 新增 `event=`/`request_id=`/`result=` 可选过滤参数，匹配 `detail.event`/`request_id`/`detail.result`；`log_service.list` 加对应过滤谓词；向后兼容
+
+**Prometheus 指标扩展：**
++ [熔断状态机] `chatgpt2api_circuit_breaker_transitions{from,to}` 在 _trip/state/record_success 三处埋点
++ [调度选取] `chatgpt2api_scheduler_pick_total{tier}` 在 _acquire_next_candidate_token 埋点
++ [寿命预测] `chatgpt2api_lifetime_risk{risk}` 在 dashboard 看板端点埋点
+
+**健康端点：**
++ [存活探针] `GET /api/system/healthz`（无鉴权，200 空 JSON，供 docker healthcheck）
++ [就绪探针] `GET /api/system/health/ready`（存储可写自检，不可用 503 + 原因）
+
+**图片透传上游直链（省上下行流量）：**
 + [开关] `config.json` 新增 `image_passthrough_enabled`（默认 True）/ `image_passthrough_ttl_secs`（默认 3600），设置页新增「图片透传上游直链」开关实时生效
-+ [后端] `services/protocol/conversation.py` 新增 `build_passthrough_items`/`_image_items_from_urls`/`_passthrough_items_to_data`；三处生图下载点（生图主链路、resume-poll 续轮询、模型文本回复兜底）按开关分流
++ [后端] `services/protocol/conversation.py` 新增 `build_passthrough_items`/`_image_items_from_urls`/`_passthrough_items_to_data`；三处生图下载点按开关分流
 + [后端] `services/image_task_service.py` resume-poll 续轮询同步接入透传（评审发现遗漏）
-+ [容错] `config.py._save` 单文件挂载场景原子写失败时回退直接写（解决 docker compose `- ./config.json:/app/config.json` 目录不可写导致 500）
-+ [测试] `test_image_passthrough.py`（6 条：开/关两分支、空 URL、expires_at）+ `test_resume_poll_token.py` 透传分支 + `test_v1_images_edits_live.py` 兼容透传断言
-+ [前端] settings store + config-card 新增透传开关，实时生效
++ [容错] `config.py._save` 单文件挂载场景原子写失败时回退直接写（解决 docker compose 500）
 
 ## 2.9.1 - 2026-08-08 (kookeey 流量看板 + 单IP画像 + 出口IP探测 + 失败分类接入)
 

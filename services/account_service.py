@@ -1179,6 +1179,12 @@ class AccountService:
                         access_token = tokens[self._index % len(tokens)]
                         self._index += 1
                     self._image_inflight[access_token] = int(self._image_inflight.get(access_token, 0)) + 1
+                    # v2.10.0：调度选取指标（tier 分布）
+                    try:
+                        from services.prometheus_metrics import record_scheduler_pick
+                        record_scheduler_pick(self._account_health_tier(self._accounts.get(access_token) or {}))
+                    except Exception:
+                        pass
                     return access_token
                 self._image_slot_condition.wait(timeout=1.0)
 

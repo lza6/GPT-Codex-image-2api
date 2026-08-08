@@ -92,6 +92,24 @@ chatgpt2api_audit_actions_total = Counter(
     ["action", "result"],
 )
 
+chatgpt2api_circuit_breaker_transitions = Counter(
+    "chatgpt2api_circuit_breaker_transitions",
+    "Circuit breaker state transitions",
+    ["from_state", "to_state"],
+)
+
+chatgpt2api_scheduler_pick_total = Counter(
+    "chatgpt2api_scheduler_pick_total",
+    "Scheduler picks by health tier",
+    ["tier"],
+)
+
+chatgpt2api_lifetime_risk = Gauge(
+    "chatgpt2api_lifetime_risk",
+    "Account lifetime risk level distribution",
+    ["risk"],
+)
+
 
 def record_http_request(path: str, method: str, status: int, duration_seconds: float) -> None:
     """记录 HTTP 请求指标。"""
@@ -114,6 +132,22 @@ def update_account_pool_size(tiers: dict[str, int]) -> None:
 def update_image_tasks_inflight(count: int) -> None:
     """更新在途图片任务数。"""
     chatgpt2api_image_tasks_inflight.set(count)
+
+
+def record_circuit_breaker_transition(from_state: str, to_state: str) -> None:
+    """记录熔断状态机转移。"""
+    chatgpt2api_circuit_breaker_transitions.labels(from_state=from_state, to_state=to_state).inc()
+
+
+def record_scheduler_pick(tier: str) -> None:
+    """记录调度选取分布。"""
+    chatgpt2api_scheduler_pick_total.labels(tier=tier).inc()
+
+
+def update_lifetime_risk(risk_distribution: dict[str, int]) -> None:
+    """更新寿命预测档位分布。"""
+    for risk, count in risk_distribution.items():
+        chatgpt2api_lifetime_risk.labels(risk=risk).set(count)
 
 
 def _normalize_audit_action(action: str) -> str:

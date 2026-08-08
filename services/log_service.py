@@ -87,7 +87,7 @@ class LogService:
         return json.dumps(item, ensure_ascii=False, separators=(",", ":"))
 
     @staticmethod
-    def _matches_filters(item: dict[str, Any], *, type: str = "", start_date: str = "", end_date: str = "", account_email: str = "") -> bool:
+    def _matches_filters(item: dict[str, Any], *, type: str = "", start_date: str = "", end_date: str = "", account_email: str = "", event: str = "", request_id: str = "", result: str = "") -> bool:
         # 兼容 text 格式 'time' 与 json 格式 'ts'（json 无 'time' 键，否则日期筛选全失效）
         t = str(item.get("time") or item.get("ts") or "")
         day = t[:10]
@@ -104,6 +104,14 @@ class LogService:
             emails = _collect_account_emails(item)
             if not any(needle in (email or "").lower() for email in emails):
                 return False
+        # 字段级过滤（event/request_id/result）——在 detail 子对象里查，兼容结构化日志
+        detail = item.get("detail") if isinstance(item.get("detail"), dict) else {}
+        if event and str(detail.get("event") or "") != event:
+            return False
+        if request_id and str(item.get("request_id") or detail.get("request_id") or "") != request_id:
+            return False
+        if result and str(detail.get("result") or "") != result:
+            return False
         return True
 
     def _structured_item(self, type: str, summary: str, detail: dict[str, Any]) -> dict[str, Any]:
@@ -255,7 +263,7 @@ class LogService:
                 min_day = bound
         return min_day
 
-    def list(self, type: str = "", start_date: str = "", end_date: str = "", account_email: str = "", limit: int = 200, days: int | None = None) -> list[dict[str, Any]]:
+    def list(self, type: str = "", start_date: str = "", end_date: str = "", account_email: str = "", limit: int = 200, days: int | None = None, event: str = "", request_id: str = "", result: str = "") -> list[dict[str, Any]]:
         """读取日志，按天文件分片（4.1）。
 
         - `days=N`：只读最近 N 天天文件（limit 凑够 early-exit，不触碰更早文件）。
@@ -276,7 +284,7 @@ class LogService:
                 item = self._parse_line(lines[line_number], line_number)
                 if item is None:
                     continue
-                if not self._matches_filters(item, type=type, start_date=start_date, end_date=end_date, account_email=account_email):
+                if not self._matches_filters(item, type=type, start_date=start_date, end_date=end_date, account_email=account_email, event=event, request_id=request_id, result=result):
                     continue
                 items.append(item)
                 if len(items) >= limit:

@@ -85,6 +85,34 @@ def create_router(app_version: str) -> APIRouter:
     async def get_version():
         return {"version": app_version}
 
+    @router.get("/api/system/healthz", include_in_schema=False)
+    async def healthz():
+        """存活探针（无鉴权，供 docker healthcheck 使用）。返回 200 空 JSON。"""
+        return {"status": "ok"}
+
+    @router.get("/api/system/health/ready")
+    async def health_ready():
+        """就绪探针：依赖自检（存储可写 + 各依赖耗时）。不可用时 503 + 具体原因。"""
+        import os
+        from pathlib import Path
+
+        checks: dict[str, object] = {"storage": False}
+        # 存储可写检查
+        test_path = Path(config.path) if hasattr(config, "path") else None
+        if test_path:
+            try:
+                test_path.parent.mkdir(parents=True, exist_ok=True)
+                probe = test_path.with_name(f".health_probe_{os.getpid()}.tmp")
+                probe.write_text("ok", encoding="utf-8")
+                probe.unlink(missing_ok=True)
+                checks["storage"] = True
+            except Exception as e:
+                checks["storage_error"] = str(e)[:200]
+        if not all(checks.values()):
+            from fastapi import HTTPException
+            raise HTTPException(503, {"status": "unhealthy", "checks": checks})
+        return {"status": "ok", "checks": checks}
+
     @router.get("/api/settings")
     async def get_settings(authorization: str | None = Header(default=None)):
         require_admin(authorization)
@@ -132,7 +160,7 @@ def create_router(app_version: str) -> APIRouter:
         return get_image_download_response(image_path)
 
     @router.get("/api/logs")
-    async def get_logs(type: str = "", start_date: str = "", end_date: str = "", account_email: str = "", days: int | None = Query(default=None), authorization: str | None = Header(default=None)):
+    async def get_logs(type: str = "", start_date: str = "", end_date: str = "", account_email: str = "", days: int | None = Query(default=None), event: str = "", request_id: str = "", result: str = "", authorization: str | None = Header(default=None)):
         require_admin(authorization)
         return {
             "items": log_service.list(
@@ -141,6 +169,9 @@ def create_router(app_version: str) -> APIRouter:
                 end_date=end_date.strip(),
                 account_email=account_email.strip(),
                 days=days,
+                event=event.strip(),
+                request_id=request_id.strip(),
+                result=result.strip(),
             )
         }
 

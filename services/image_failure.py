@@ -167,11 +167,13 @@ def _classify_400_body(body: Any) -> str:
     return "invalid_image_input"
 
 
-def classify_image_exception(exc: BaseException) -> str:
+def classify_image_exception(exc: BaseException | str) -> str:
     """把生图链路的自定义异常/字符串错误分类为失败码（N6b 接入入口）。
 
     对齐上游用法：把 conversation 的 last_error 字符串 / 自定义异常映射到注册表主码，
     供熔断判定（should_record_circuit_failure）与对外错误码统一。
+    兼容 str 入参——文本链路 error_message 直接走 _classify_message_text，不再
+    散落 is_upstream_instability_error 白名单。
 
     规则（异常类型优先，其次字符串关键词，最后兜底）：
     - UpstreamHTTPError → classify_upstream_http_error（真实状态码优先）
@@ -181,6 +183,9 @@ def classify_image_exception(exc: BaseException) -> str:
     - InvalidAccessTokenError → auth_invalid（ACCOUNT）
     - 其他异常/字符串 → 走 _classify_message_text 关键词识别
     """
+    # str 入参直接走文本分类（文本链路统一入口）
+    if isinstance(exc, str):
+        return _classify_message_text(exc)
     # 延迟 import 避免循环依赖（openai_backend_api 也 import 本模块）
     from utils.helper import UpstreamHTTPError as _UpstreamHTTPError
 

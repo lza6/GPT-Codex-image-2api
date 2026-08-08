@@ -907,8 +907,11 @@ def stream_text_deltas(backend: OpenAIBackendAPI, request: ConversationRequest) 
                     continue
             # 仅真上游抖动（5xx/超时/TLS/连接错误）记熔断失败；业务拒绝(4xx)不记，
             # 否则恶意/违规用户输入可逐个熔断健康账号造成拒绝服务
-            if token and is_upstream_instability_error(error_message):
-                circuit_breaker_registry.get(token).record_failure()
+            # v2.10.0：文本链路熔断判定收敛到 image_failure 单一事实来源（与图片链路一致）
+            if token:
+                _fail_code = classify_image_exception(error_message)
+                if should_record_circuit_failure(_fail_code):
+                    circuit_breaker_registry.get(token).record_failure()
             raise
         finally:
             if active_backend is not None:
