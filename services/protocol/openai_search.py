@@ -5,6 +5,7 @@ from services.openai_backend_api import SEARCH_MODEL, OpenAIBackendAPI
 from services.image_failure import (
     classify_image_exception,
     should_record_circuit_failure,
+    verify_account,
 )
 
 MODEL = SEARCH_MODEL
@@ -26,6 +27,9 @@ def handle(body: dict[str, object]) -> dict[str, object]:
         fail_code = classify_image_exception(str(exc))
         if should_record_circuit_failure(fail_code):
             breaker.record_failure()
+        # v2.10.0：verify_account 挂钩——账号态错误触发核验
+        if verify_account(fail_code):
+            account_service.remove_invalid_token(token, "search_verify")
         raise
     finally:
         backend.close()

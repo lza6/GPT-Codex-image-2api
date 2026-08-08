@@ -19,6 +19,7 @@ from services.image_failure import (
     classify_image_exception,
     failure_policy,
     should_record_circuit_failure,
+    verify_account,
 )
 from services.image_storage_service import image_storage_service
 from services.openai_backend_api import (
@@ -912,6 +913,9 @@ def stream_text_deltas(backend: OpenAIBackendAPI, request: ConversationRequest) 
                 _fail_code = classify_image_exception(error_message)
                 if should_record_circuit_failure(_fail_code):
                     circuit_breaker_registry.get(token).record_failure()
+                # v2.10.0：verify_account 挂钩——账号态错误（auth_invalid/限流/配额耗尽）触发核验
+                if verify_account(_fail_code):
+                    account_service.remove_invalid_token(token, "text_stream_verify")
             raise
         finally:
             if active_backend is not None:
@@ -1823,6 +1827,9 @@ def _generate_single_image(
                 _fail_code = classify_image_exception(exc)
                 if should_record_circuit_failure(_fail_code):
                     circuit_breaker_registry.get(token).record_failure()
+                # v2.10.0：verify_account 挂钩——账号态错误触发核验
+                if verify_account(_fail_code):
+                    account_service.remove_invalid_token(token, "image_stream_verify")
             else:
                 _fail_code = classify_image_exception(exc)
             _record_upstream("error")
