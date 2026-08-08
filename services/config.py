@@ -446,7 +446,14 @@ class ConfigStore:
         # 原子写（第七轮 B9）：复用 json_storage 的 _atomic_write_text，
         # 防写入中途断电/杀进程导致 config.json 截断损坏
         from services.storage.json_storage import _atomic_write_text
-        _atomic_write_text(self.path, json.dumps(self.data, ensure_ascii=False, indent=2) + "\n")
+        payload = json.dumps(self.data, ensure_ascii=False, indent=2) + "\n"
+        try:
+            _atomic_write_text(self.path, payload)
+        except PermissionError:
+            # 单文件挂载（docker compose `- ./config.json:/app/config.json`）场景：
+            # 原子替换需对父目录建 tmp + rename，但挂载点只给了文件写权限、目录不可写，
+            # 原子写必 PermissionError。回退为直接写（非原子），保证 UI 运行时改配置可用。
+            self.path.write_text(payload, encoding="utf-8")
 
     @property
     def auth_key(self) -> str:

@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.9.2 - 2026-08-08 (图片透传上游直链 + UI 实时开关)
+
+**图片透传（省上下行流量）：**
++ [开关] `config.json` 新增 `image_passthrough_enabled`（默认 True）/ `image_passthrough_ttl_secs`（默认 3600），设置页新增「图片透传上游直链」开关实时生效
++ [后端] `services/protocol/conversation.py` 新增 `build_passthrough_items`/`_image_items_from_urls`/`_passthrough_items_to_data`；三处生图下载点（生图主链路、resume-poll 续轮询、模型文本回复兜底）按开关分流
++ [后端] `services/image_task_service.py` resume-poll 续轮询同步接入透传（评审发现遗漏）
++ [容错] `config.py._save` 单文件挂载场景原子写失败时回退直接写（解决 docker compose `- ./config.json:/app/config.json` 目录不可写导致 500）
++ [测试] `test_image_passthrough.py`（6 条：开/关两分支、空 URL、expires_at）+ `test_resume_poll_token.py` 透传分支 + `test_v1_images_edits_live.py` 兼容透传断言
++ [前端] settings store + config-card 新增透传开关，实时生效
+
 ## 2.9.1 - 2026-08-08 (kookeey 流量看板 + 单IP画像 + 出口IP探测 + 失败分类接入)
 
 **kookeey 集成（流量/账号可视）：**
