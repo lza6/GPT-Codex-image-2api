@@ -723,6 +723,23 @@ class ConfigStore:
         return _normalize_bool(self.data.get("image_remove_conversation_always"), False)
 
     @property
+    def image_passthrough_enabled(self) -> bool:
+        """出图直接返回上游签名 URL（服务器不下载/重托管，省服务器上下行流量与带宽压力）。
+
+        开启后生图响应 data[].url 为上游签名直链（带 TTL，约 1-24h 过期，过期 410），
+        客户端应即时下载。默认开启（省上下行流量；UI 可实时切换回服务端下载重托管）。
+        """
+        return _normalize_bool(self.data.get("image_passthrough_enabled"), True)
+
+    @property
+    def image_passthrough_ttl_secs(self) -> int:
+        """透传直链标注的有效期（秒），过期后直链 410 不可用。"""
+        try:
+            return max(60, int(self.data.get("image_passthrough_ttl_secs", 3600)))
+        except (TypeError, ValueError):
+            return 3600
+
+    @property
     def image_settle_secs(self) -> float:
         """二次确认等待时间（秒）。"""
         try:

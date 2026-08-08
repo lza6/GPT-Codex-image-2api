@@ -342,6 +342,57 @@ def format_image_result(
     return result
 
 
+def build_passthrough_items(
+    image_urls: list[str],
+    prompt: str,
+) -> list[dict[str, Any]]:
+    """把上游签名 URL 组装成透传 data[]（不下载/不重托管，省服务器上下行流量）。
+
+    仅在 config.image_passthrough_enabled 开启时使用。
+    - url 为上游签名直链（带 TTL，约 1h 过期，过期 410），客户端应即时下载。
+    - response_format=b64_json 时 url 与 b64_json 均给（b64_json 需下载后由调用方补，
+      透传模式不下载故 b64_json 为空串，调用方应优先用 url）。
+    """
+    expires_at = int(time.time()) + config.image_passthrough_ttl_secs
+    items: list[dict[str, Any]] = []
+    for url in image_urls:
+        if not url:
+            continue
+        items.append({
+            "url": url,
+            "b64_json": "",
+            "revised_prompt": prompt,
+            "expires_at": expires_at,
+        })
+    return items
+
+
+def _image_items_from_urls(backend: OpenAIBackendAPI, image_urls: list[str], prompt: str) -> list[dict[str, Any]]:
+    """按开关组装图片 items：透传模式直返上游 URL，否则服务端下载转 b64。"""
+    if config.image_passthrough_enabled:
+        return build_passthrough_items(image_urls, prompt)
+    return [
+        {"b64_json": base64.b64encode(image_data).decode("ascii")}
+        for image_data in backend.download_image_bytes(image_urls)
+    ]
+
+
+def _passthrough_items_to_data(items: list[dict[str, Any]], prompt: str) -> list[dict[str, Any]]:
+    """透传 items → OpenAI 兼容 data[]（url 直链 + revised_prompt；不下载、不 base64）。"""
+    data: list[dict[str, Any]] = []
+    for item in items:
+        url = str(item.get("url") or "").strip()
+        if not url:
+            continue
+        entry: dict[str, Any] = {
+            "url": url,
+            "revised_prompt": str(item.get("revised_prompt") or prompt).strip() or prompt,
+            "expires_at": item.get("expires_at"),
+        }
+        data.append(entry)
+    return data
+
+
 @dataclass
 class ConversationRequest:
     model: str = "auto"
@@ -1144,17 +1195,17 @@ def stream_image_outputs(
     if image_urls:
         if request.progress_callback:
             request.progress_callback("receiving_image")
-        image_items = [
-            {"b64_json": base64.b64encode(image_data).decode("ascii")}
-            for image_data in backend.download_image_bytes(image_urls)
-        ]
-        data = format_image_result(
-            image_items,
-            request.prompt,
-            request.response_format,
-            request.base_url,
-            int(time.time()),
-        )["data"]
+        image_items = _image_items_from_urls(backend, image_urls, request.prompt)
+        if config.image_passthrough_enabled:
+            data = _passthrough_items_to_data(image_items, request.prompt)
+        else:
+            data = format_image_result(
+                image_items,
+                request.prompt,
+                request.response_format,
+                request.base_url,
+                int(time.time()),
+            )["data"]
         if data:
             yield ImageOutput(kind="result", model=request.model, index=index, total=total, data=data, conversation_id=conversation_id)
         return
@@ -1241,17 +1292,17 @@ def stream_image_outputs(
                 if image_urls:
                     if request.progress_callback:
                         request.progress_callback("receiving_image")
-                    image_items = [
-                        {"b64_json": base64.b64encode(image_data).decode("ascii")}
-                        for image_data in backend.download_image_bytes(image_urls)
-                    ]
-                    data = format_image_result(
-                        image_items,
-                        request.prompt,
-                        request.response_format,
-                        request.base_url,
-                        int(time.time()),
-                    )["data"]
+                    image_items = _image_items_from_urls(backend, image_urls, request.prompt)
+                    if config.image_passthrough_enabled:
+                        data = _passthrough_items_to_data(image_items, request.prompt)
+                    else:
+                        data = format_image_result(
+                            image_items,
+                            request.prompt,
+                            request.response_format,
+                            request.base_url,
+                            int(time.time()),
+                        )["data"]
                     if data:
                         yield ImageOutput(kind="result", model=request.model, index=index, total=total, data=data, conversation_id=conversation_id)
                         return
@@ -1353,17 +1404,17 @@ def stream_image_outputs(
             if image_urls:
                 if request.progress_callback:
                     request.progress_callback("receiving_image")
-                image_items = [
-                    {"b64_json": base64.b64encode(image_data).decode("ascii")}
-                    for image_data in backend.download_image_bytes(image_urls)
-                ]
-                data = format_image_result(
-                    image_items,
-                    request.prompt,
-                    request.response_format,
-                    request.base_url,
-                    int(time.time()),
-                )["data"]
+                image_items = _image_items_from_urls(backend, image_urls, request.prompt)
+                if config.image_passthrough_enabled:
+                    data = _passthrough_items_to_data(image_items, request.prompt)
+                else:
+                    data = format_image_result(
+                        image_items,
+                        request.prompt,
+                        request.response_format,
+                        request.base_url,
+                        int(time.time()),
+                    )["data"]
                 if data:
                     yield ImageOutput(kind="result", model=request.model, index=index, total=total, data=data, conversation_id=conversation_id)
                     return

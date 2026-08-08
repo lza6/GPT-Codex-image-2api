@@ -122,6 +122,60 @@ def test_resume_poll_marks_failed_when_account_gone(tmp_path) -> None:
     assert "gone@example.com" in str(task.get("error")), "错误信息必须指明原账号已不可用"
 
 
+def test_resume_poll_passthrough_returns_direct_url(tmp_path) -> None:
+    """透传开关开启时，resume-poll 续轮询结果应返回上游直链而非服务端下载的 b64。
+
+    与主生图链路一致：省服务器上下行流量（评审 MEDIUM：续轮询路径此前未接入透传）。
+    """
+    service = _make_service(tmp_path)
+    task_id = _seed_error_task(service, email="plus@example.com")
+
+    fake_account = {"access_token": "tok-original-123"}
+    _downloaded = False
+
+    class _FakeBackend:
+        def __init__(self, token: str = "") -> None:
+            pass
+
+        def _poll_image_results(self, conversation_id: str, timeout: float):  # noqa: ARG002
+            return (["file-1"], [])
+
+        def resolve_conversation_image_urls(self, *a, **k):  # noqa: ANN002, ANN003
+            return ["https://img/upstream/1.png"]
+
+        def download_image_bytes(self, urls):  # noqa: ANN001
+            nonlocal _downloaded
+            _downloaded = True
+            return [b"png-bytes"]
+
+        def close(self) -> None:
+            pass
+
+    with (
+        patch("services.account_service.account_service.get_account_by_email", return_value=fake_account),
+        patch("services.openai_backend_api.OpenAIBackendAPI", _FakeBackend),
+        patch.object(type(its.config), "image_passthrough_enabled", new_callable=lambda: property(lambda self: True)),
+        patch.object(type(its.config), "image_passthrough_ttl_secs", new_callable=lambda: property(lambda self: 3600)),
+    ):
+        service.resume_poll({"id": "u1"}, task_id, extra_timeout_secs=5.0)
+        import time
+
+        deadline = time.time() + 5
+        task = {}
+        while time.time() < deadline:
+            with service._lock:
+                task = service._tasks[its._task_key(its._owner_id({"id": "u1"}), task_id)]
+            if task["status"] != its.TASK_STATUS_RUNNING:
+                break
+            time.sleep(0.05)
+
+    assert not _downloaded, "透传模式 resume-poll 不应调用 download_image_bytes"
+    data = task.get("data") or []
+    assert data, "透传 resume-poll 应产出 data"
+    assert data[0]["url"] == "https://img/upstream/1.png"
+    assert data[0]["expires_at"] > 0
+
+
 def test_resume_poll_without_email_falls_back_to_anonymous(tmp_path) -> None:
     """历史任务（无 account_email）保持匿名链路行为，不回归。"""
     service = _make_service(tmp_path)

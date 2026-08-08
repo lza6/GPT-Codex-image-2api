@@ -29,6 +29,7 @@ export function ConfigCard() {
   const setImageSettleEnabled = useSettingsStore((state) => state.setImageSettleEnabled);
   const setImageRemoveConversationAfterResult = useSettingsStore((state) => state.setImageRemoveConversationAfterResult);
   const setImageRemoveConversationAlways = useSettingsStore((state) => state.setImageRemoveConversationAlways);
+  const setImagePassthroughEnabled = useSettingsStore((state) => state.setImagePassthroughEnabled);
   const setImageSettleSecs = useSettingsStore((state) => state.setImageSettleSecs);
   const setImageTimeoutRetrySecs = useSettingsStore((state) => state.setImageTimeoutRetrySecs);
   const setAutoRemoveInvalidAccounts = useSettingsStore((state) => state.setAutoRemoveInvalidAccounts);
@@ -409,6 +410,19 @@ export function ConfigCard() {
               <span className="text-sm text-stone-700">出图后移除本地对话</span>
             </div>
             <p className="text-xs text-stone-500">成功拿到图片后，异步隐藏 ChatGPT 侧对应的本地对话记录。</p>
+          </div>
+          <div className="space-y-2">
+            <div className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-4 py-3">
+              <Checkbox
+                checked={config?.image_passthrough_enabled ?? true}
+                onCheckedChange={(checked) => setImagePassthroughEnabled(Boolean(checked))}
+              />
+              <span className="text-sm text-stone-700">图片透传上游直链（省流量）</span>
+            </div>
+            <p className="text-xs text-stone-500">
+              开：生图响应直接返回上游签名 URL，服务器不下行、不重托管，省上下行流量与带宽；
+              直链有有效期（约 1 小时），过期后需重新生成。关：服务端下载入库，图片长期可访问。
+            </p>
           </div>
           <div className="space-y-2">
             <div className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-4 py-3">

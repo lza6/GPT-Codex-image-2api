@@ -33,7 +33,12 @@ class ImageEditsLiveTests(unittest.TestCase):
     """图生图真实 E2E —— 验证 v2.8.2 download_image_bytes headers 修复在图生图链路有效。"""
 
     def test_image_edit_multipart_returns_b64_json(self):
-        """multipart 上传 + 编辑 + 返回可解码 b64_json。"""
+        """multipart 上传 + 编辑 + 返回结果。
+
+        透传开启（默认）：data[].url 为上游直链（非本地 /images/ 或 /api/images/），
+        b64_json 为空——省服务器上下行流量。
+        透传关闭：b64_json 可解码为合法 PNG（服务端下载重托管）。
+        """
         source = _find_latest_local_image()
         if source is None or not source.exists():
             pytest.skip("无本地图片素材（data/images 下无 png），跳过图生图 E2E")
@@ -61,15 +66,23 @@ class ImageEditsLiveTests(unittest.TestCase):
         data = payload.get("data") or []
         self.assertGreater(len(data), 0, "图生图返回空 data")
 
-        # 断言 b64_json 存在且可解码为合法 PNG（验证 download_image_bytes headers 修复有效）
         first_item = data[0] or {}
         b64 = str(first_item.get("b64_json") or "")
-        self.assertTrue(b64, "图生图返回 b64_json 为空")
+        url = str(first_item.get("url") or "")
 
-        decoded = base64.b64decode(b64)
-        self.assertGreater(len(decoded), 100, "图生图解码后字节数过小，疑似损坏")
-        # PNG 魔数断言
-        self.assertEqual(decoded[:8], b"\x89PNG\r\n\x1a\n", "图生图返回非合法 PNG 字节")
+        if b64:
+            # 透传关闭：服务端下载重托管，b64_json 可解码为合法 PNG
+            decoded = base64.b64decode(b64)
+            self.assertGreater(len(decoded), 100, "图生图解码后字节数过小，疑似损坏")
+            self.assertEqual(decoded[:8], b"\x89PNG\r\n\x1a\n", "图生图返回非合法 PNG 字节")
+        else:
+            # 透传开启：应返回上游直链（非本地 /images/、/api/images/），b64_json 空
+            self.assertTrue(url, "透传模式图生图 url 为空")
+            self.assertNotIn(f"{BASE_URL}/", url, "透传模式 url 不应是本地服务地址")
+            self.assertTrue(
+                url.startswith("http"),
+                f"透传模式 url 应为绝对直链，实际: {url[:120]}",
+            )
 
     def test_image_edit_url_input(self):
         """JSON 图片链接输入方式图生图（验证 URL 路径的 download 也带 headers）。"""

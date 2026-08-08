@@ -292,6 +292,7 @@ type SettingsStore = {
   setImageCheckBeforeHitEnabled: (value: boolean) => void;
   setImageRemoveConversationAfterResult: (value: boolean) => void;
   setImageRemoveConversationAlways: (value: boolean) => void;
+  setImagePassthroughEnabled: (value: boolean) => void;
   setImageSettleSecs: (value: string) => void;
   setImageTimeoutRetrySecs: (value: string) => void;
   setAutoRemoveInvalidAccounts: (value: boolean) => void;
@@ -548,6 +549,10 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
 
   setImageRemoveConversationAlways: (value) => {
     set((state) => state.config ? { config: { ...state.config, image_remove_conversation_always: value } } : {});
+  },
+
+  setImagePassthroughEnabled: (value) => {
+    set((state) => state.config ? { config: { ...state.config, image_passthrough_enabled: value } } : {});
   },
 
   setImageSettleSecs: (value) => {

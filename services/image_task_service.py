@@ -550,7 +550,11 @@ class ImageTaskService:
         try:
             from services.account_service import account_service
             from services.openai_backend_api import OpenAIBackendAPI
-            from services.protocol.conversation import format_image_result
+            from services.protocol.conversation import (
+                _image_items_from_urls,
+                _passthrough_items_to_data,
+                format_image_result,
+            )
 
             # C9/P0-2 修复：图片挂在已登录会话上，匿名 token 无权读取该 conversation，
             # 必须按任务记录的原账号 email 找回 token 重连；email 缺失（历史任务）回退匿名。
@@ -585,22 +589,22 @@ class ImageTaskService:
             if not image_urls:
                 raise RuntimeError("图片 URL 解析失败")
 
-            image_items = [
-                {"b64_json": __import__("base64").b64encode(image_data).decode("ascii")}
-                for image_data in backend.download_image_bytes(image_urls)
-            ]
+            image_items = _image_items_from_urls(backend, image_urls, "")
             # 获取 task 的原始 prompt（从 _public_task 的 mode 判断）
             with self._lock:
                 task = self._tasks.get(key)
                 _clean(task.get("quality"), "auto") if task else "auto"
                 _clean(task.get("size")) if task else None
-            data = format_image_result(
-                image_items,
-                "",  # prompt 已不重要，结果已经拿到了
-                "b64_json",
-                "",
-                int(time.time()),
-            )["data"]
+            if config.image_passthrough_enabled:
+                data = _passthrough_items_to_data(image_items, "")
+            else:
+                data = format_image_result(
+                    image_items,
+                    "",  # prompt 已不重要，结果已经拿到了
+                    "b64_json",
+                    "",
+                    int(time.time()),
+                )["data"]
             self._update_task(key, status=TASK_STATUS_SUCCESS, data=data, error="", duration_ms=int((time.time() - started) * 1000))
             self._log_call(
                 identity,
