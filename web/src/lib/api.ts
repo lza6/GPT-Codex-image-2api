@@ -62,6 +62,8 @@ export type Account = {
   invalid_count?: number;
   /** v2.9.0：最近失效时间。 */
   last_invalid_at?: string | null;
+  /** Phase B：账号归属提供商（"chatgpt" / "grok" 等）。 */
+  provider?: string;
 };
 
 export type AccountImportPayload = {
@@ -390,8 +392,24 @@ export async function login(authKey: string) {
   });
 }
 
-export async function fetchAccounts() {
-  return httpRequest<AccountListResponse>("/api/accounts");
+export type ProviderInfo = {
+  name: string;
+  display_name: string;
+  enabled: boolean;
+  description: string;
+};
+
+type ProviderListResponse = {
+  providers: ProviderInfo[];
+};
+
+export async function fetchAccounts(provider?: string) {
+  const params = provider ? `?provider=${encodeURIComponent(provider)}` : "";
+  return httpRequest<AccountListResponse>(`/api/accounts${params}`);
+}
+
+export async function fetchProviders() {
+  return httpRequest<ProviderListResponse>("/api/providers");
 }
 
 export async function fetchModels() {
@@ -1265,6 +1283,8 @@ export interface KookeeyIpUsageRow {
   session: string;
   requests: number;
   fail: number;
+  total_bytes: number;
+  estimated_mb: number;
   last_used_at: string;
   last_ip: string;
   last_probe_at: string;
@@ -1273,6 +1293,8 @@ export interface KookeeyIpUsageRow {
 export interface KookeeyIpUsageBoard {
   used_ip_count: number;
   total_extracted: number;
+  total_bytes: number;
+  estimated_mb: number;
   leaderboard: KookeeyIpUsageRow[];
 }
 

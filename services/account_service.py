@@ -288,6 +288,14 @@ class AccountService:
         return cls._normalize_source_type(account.get("source_type")) == cls._normalize_source_type(source_type)
 
     @classmethod
+    def _account_matches_provider(cls, account: dict, provider: str | None = None) -> bool:
+        """provider 为空或不传时不过滤（兼容全量返回场景）。"""
+        if not provider:
+            return True
+        from services.providers import normalize_provider
+        return normalize_provider(account.get("provider")) == normalize_provider(provider)
+
+    @classmethod
     def _account_matches_any_plan_type(cls, account: dict, plan_types: set[str] | tuple[str, ...] | None = None) -> bool:
         if not plan_types:
             return True
@@ -1091,6 +1099,7 @@ class AccountService:
             plan_type: str | None = None,
             source_type: str | None = None,
             plan_types: set[str] | tuple[str, ...] | None = None,
+            provider: str | None = None,
     ) -> list[str]:
         excluded = set(excluded_tokens or set())
         return [
@@ -1100,6 +1109,7 @@ class AccountService:
                and self._account_matches_plan_type(item, plan_type)
                and self._account_matches_any_plan_type(item, plan_types)
                and self._account_matches_source_type(item, source_type)
+               and self._account_matches_provider(item, provider)
                and (token := item.get("access_token") or "")
                and token not in excluded
         ]
@@ -1110,6 +1120,7 @@ class AccountService:
             plan_type: str | None = None,
             source_type: str | None = None,
             plan_types: set[str] | tuple[str, ...] | None = None,
+            provider: str | None = None,
     ) -> list[str]:
         """按 优先级 > 健康档位 > 调度分 排序的候选 token 列表。
 
@@ -1118,7 +1129,7 @@ class AccountService:
         2. 同优先级内按健康档位（healthy > warm > risky）
         3. 同档位内按调度分（配额/成功率/最近错误）竞争
         """
-        candidates = self._list_ready_candidate_tokens(excluded_tokens, plan_type, source_type, plan_types)
+        candidates = self._list_ready_candidate_tokens(excluded_tokens, plan_type, source_type, plan_types, provider)
         ranked = sorted(
             candidates,
             key=lambda token: (
@@ -1143,11 +1154,12 @@ class AccountService:
             plan_type: str | None = None,
             source_type: str | None = None,
             plan_types: set[str] | tuple[str, ...] | None = None,
+            provider: str | None = None,
     ) -> list[str]:
         max_concurrency = max(1, int(config.image_account_concurrency or 1))
         return [
             token
-            for token in self._ranked_candidate_tokens(excluded_tokens, plan_type, source_type, plan_types)
+            for token in self._ranked_candidate_tokens(excluded_tokens, plan_type, source_type, plan_types, provider)
             if int(self._image_inflight.get(token, 0)) < max_concurrency
         ]
 
@@ -1157,15 +1169,16 @@ class AccountService:
             plan_type: str | None = None,
             source_type: str | None = None,
             plan_types: set[str] | tuple[str, ...] | None = None,
+            provider: str | None = None,
     ) -> str:
         with self._image_slot_condition:
             while True:
-                if not self._list_ready_candidate_tokens(excluded_tokens, plan_type, source_type, plan_types):
+                if not self._list_ready_candidate_tokens(excluded_tokens, plan_type, source_type, plan_types, provider):
                     raise RuntimeError(
                         f"no available {plan_type or source_type or ''} image quota".replace("  ", " ").strip()
                         if plan_type or source_type else "no available image quota"
                     )
-                tokens = self._list_available_candidate_tokens(excluded_tokens, plan_type, source_type, plan_types)
+                tokens = self._list_available_candidate_tokens(excluded_tokens, plan_type, source_type, plan_types, provider)
                 if tokens:
                     if config.scheduler_mode == "remaining_quota":
                         # remaining_quota：直接取排序后第一个（已按 quota 降序）
@@ -1215,6 +1228,7 @@ class AccountService:
             plan_type: str | None = None,
             source_type: str | None = None,
             plan_types: set[str] | tuple[str, ...] | None = None,
+            provider: str | None = None,
     ) -> str:
         """从候选池中获取一个可用的图片生图 token。
 
@@ -1229,6 +1243,7 @@ class AccountService:
                 plan_type=plan_type,
                 source_type=source_type,
                 plan_types=plan_types,
+                provider=provider,
             )
             attempted_tokens.add(access_token)
             # 熔断器：熔断中的账号直接跳过，避免上游抖动雪崩
@@ -1274,6 +1289,7 @@ class AccountService:
             self,
             excluded_tokens: set[str] | None = None,
             model: str = "auto",
+            provider: str | None = None,
     ) -> str:
         excluded = set(excluded_tokens or set())
         requested_model = str(model or "auto").strip() or "auto"
@@ -1287,6 +1303,7 @@ class AccountService:
                 token
                 for account in self._accounts.values()
                 if account.get("status") not in {"禁用", "异常"}
+                   and self._account_matches_provider(account, provider)
                    and (
                        route is None
                        or self._normalize_account_type(account.get("type")) in route.account_types
@@ -1788,7 +1805,7 @@ class AccountService:
                 return False
         return True
 
-    def mark_image_result(self, access_token: str, success: bool) -> dict | None:
+    def mark_image_result(self, access_token: str, success: bool, bytes: int | None = None) -> dict | None:
         if not access_token:
             return None
         self.release_image_slot(access_token)
@@ -1828,7 +1845,7 @@ class AccountService:
                 from services.kookeey_service import kookeey_service
                 _email = str(account.get("email") or "").strip()
                 if _email:
-                    kookeey_service.record_ip_usage(_email, success)
+                    kookeey_service.record_ip_usage(_email, success, bytes=bytes)
             except Exception:  # noqa: BLE001 - 画像记录失败不影响主流程
                 pass
             return dict(account)

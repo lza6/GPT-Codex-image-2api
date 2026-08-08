@@ -1527,6 +1527,19 @@ def _generate_single_image(
         except Exception:
             pass
 
+    # 估算图片字节数的工具函数（从 ImageOutput.data 中累计 b64 解码后的字节数）
+    _TEXT_REQUEST_ESTIMATED_BYTES = 512 * 1024  # 512KB 文本请求估算（含图片元数据）
+
+    def _image_outputs_bytes(outputs: list[ImageOutput]) -> int:
+        total = 0
+        for o in outputs:
+            if o.kind == "result":
+                for item in o.data:
+                    b64 = str(item.get("b64_json") or "")
+                    if b64:
+                        total += len(b64) * 3 // 4  # base64 ≈ 4/3 膨胀
+        return total or _TEXT_REQUEST_ESTIMATED_BYTES
+
     while True:
         try:
             if request.progress_callback:
@@ -1628,7 +1641,7 @@ def _generate_single_image(
                         conversation_id=conv_id,
                     )
                 return outputs
-            account_service.mark_image_result(token, True)
+            account_service.mark_image_result(token, True, bytes=_image_outputs_bytes(outputs))
             if token:
                 circuit_breaker_registry.get(token).record_success()
             _record_upstream("success")

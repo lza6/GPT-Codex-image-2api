@@ -267,14 +267,21 @@ def create_router() -> APIRouter:
         return {"items": auth_service.list_keys(role="user")}
 
     @router.get("/api/accounts")
-    async def get_accounts(page: int = 0, page_size: int = 0, authorization: str | None = Header(default=None)):
+    async def get_accounts(page: int = 0, page_size: int = 0, provider: str | None = None, authorization: str | None = Header(default=None)):
         """账号列表。
 
         6.3：支持服务端分页（page 从 1 起，page_size>0 时启用；默认 0/0 = 全量返回，
         向后兼容旧调用方）。响应含 total 便于前端渲染总数。
+        provider 参数可选，按账号归属的提供商过滤（"chatgpt" / "grok" 等），不传返回全部。
         """
         require_admin(authorization)
         items = account_service.list_accounts()
+        # Phase B：按 provider 过滤（provider 为空/none 时不过滤，兼容旧调用方）
+        if provider:
+            from services.providers import normalize_provider
+
+            norm = normalize_provider(provider)
+            items = [a for a in items if normalize_provider(a.get("provider")) == norm]
         # 5.1：附加寿命预测字段（lifetime_risk / lifetime_eta_days），供账号页徽章展示
         try:
             from services.account_lifetime import compute_lifetime_risk

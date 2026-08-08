@@ -238,7 +238,7 @@ export function KookeeyCard() {
             </Button>
           </div>
           <p className="mb-3 text-xs text-stone-500">
-            后台每 2 小时自动批量探测一次各账号出口 IP；点按钮立即刷新。请求数 = 该账号粘性 IP 的调用次数。
+            后台每 2 小时自动批量探测一次各账号出口 IP；点按钮立即刷新。请求数 = 该账号粘性 IP 的调用次数。流量 = 估算值（kookeey API 不提供单 IP 真实流量）。
           </p>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
@@ -249,13 +249,14 @@ export function KookeeyCard() {
                   <th className="py-2 pr-3 font-medium">出口 IP</th>
                   <th className="py-2 pr-3 font-medium">调用次数</th>
                   <th className="py-2 pr-3 font-medium">失败</th>
+                  <th className="py-2 pr-3 font-medium">流量</th>
                   <th className="py-2 font-medium">最近使用</th>
                 </tr>
               </thead>
               <tbody>
                 {(board?.leaderboard ?? []).length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="py-6 text-center text-stone-400">
+                    <td colSpan={7} className="py-6 text-center text-stone-400">
                       暂无使用记录（有调用后自动统计）
                     </td>
                   </tr>
@@ -267,6 +268,7 @@ export function KookeeyCard() {
                       <td className="py-2 pr-3 font-mono text-stone-600">{row.last_ip || "未探测"}</td>
                       <td className="py-2 pr-3 text-stone-800">{row.requests}</td>
                       <td className="py-2 pr-3 text-stone-500">{row.fail}</td>
+                      <td className="py-2 pr-3 text-stone-600">{row.estimated_mb ? `${row.estimated_mb} MB` : "—"}</td>
                       <td className="py-2 text-stone-400">{row.last_used_at || "—"}</td>
                     </tr>
                   ))

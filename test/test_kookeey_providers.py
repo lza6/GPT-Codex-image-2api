@@ -165,7 +165,7 @@ class TestKookeeyEgressEndpoint:
 
     def test_session_extracted_from_proxy_url(self) -> None:
         """粘性 session 应从代理 URL 正确解析出（供前端展示）。"""
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
 
         app, pp, client = self._client()
         proxy_url = "http://UID-SUSER:SPASS-US-ab12cd34@gate.kookeey.info:1000"
@@ -193,10 +193,10 @@ class TestKookeeyIpUsageBoard:
         from services.kookeey_service import KookeeyService
 
         svc = KookeeyService()
-        svc.record_ip_usage("a@x.com", True)
-        svc.record_ip_usage("a@x.com", True)
+        svc.record_ip_usage("a@x.com", True, bytes=500_000)
+        svc.record_ip_usage("a@x.com", True, bytes=1_200_000)
         svc.record_ip_usage("a@x.com", False)
-        svc.record_ip_usage("b@x.com", True)
+        svc.record_ip_usage("b@x.com", True, bytes=300_000)
         board = svc.get_ip_usage_board()
         assert board["used_ip_count"] == 2
         top = board["leaderboard"][0]
@@ -204,6 +204,15 @@ class TestKookeeyIpUsageBoard:
         assert top["requests"] == 2
         assert top["fail"] == 1
         assert top["session"] == svc._session_for("a@x.com")
+        assert top["total_bytes"] == 1_700_000
+        assert top["estimated_mb"] == round(1_700_000 / (1024 * 1024), 3)
+        # b 号只有 300KB
+        b_row = board["leaderboard"][1]
+        assert b_row["email"] == "b@x.com"
+        assert b_row["total_bytes"] == 300_000
+        # 全量合计
+        assert board["total_bytes"] == 2_000_000
+        assert board["estimated_mb"] == round(2_000_000 / (1024 * 1024), 3)
 
     def test_update_ip_probe_fills_last_ip(self) -> None:
         from services.kookeey_service import KookeeyService

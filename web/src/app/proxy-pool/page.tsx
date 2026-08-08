@@ -470,6 +470,7 @@ function ProxyPoolContent() {
                 <TableHead>出口 IP</TableHead>
                 <TableHead className="text-right">请求数</TableHead>
                 <TableHead className="text-right">失败数</TableHead>
+                <TableHead className="text-right">流量</TableHead>
                 <TableHead className="text-right">最近使用</TableHead>
                 <TableHead className="text-right">最近探测</TableHead>
               </TableRow>
@@ -477,7 +478,7 @@ function ProxyPoolContent() {
             <TableBody>
               {!kookeeyBoard || kookeeyBoard.leaderboard.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="py-8 text-center text-stone-400">
+                  <TableCell colSpan={8} className="py-8 text-center text-stone-400">
                     暂无画像数据，等待账号经 kookeey 代理发起请求后自动出现
                   </TableCell>
                 </TableRow>
@@ -497,6 +498,7 @@ function ProxyPoolContent() {
                     </TableCell>
                     <TableCell className="text-right">{row.requests}</TableCell>
                     <TableCell className="text-right text-rose-600">{row.fail}</TableCell>
+                    <TableCell className="text-right text-xs text-stone-600">{row.estimated_mb ? `${row.estimated_mb} MB` : "—"}</TableCell>
                     <TableCell className="text-right text-xs text-stone-400">{row.last_used_at || "-"}</TableCell>
                     <TableCell className="text-right text-xs text-stone-400">{row.last_probe_at || "-"}</TableCell>
                   </TableRow>

@@ -53,6 +53,7 @@ import {
   fetchAccounts,
   fetchCircuitBreakers,
   fetchModels,
+  fetchProviders,
   fetchProxies,
   fetchRefreshProgress,
   fetchReLoginProgress,
@@ -68,6 +69,7 @@ import {
   type AccountStatus,
   type KookeeyEgressResult,
   type Model,
+  type ProviderInfo,
   type RefreshProgressResponse,
   type SystemLog,
 } from "@/lib/api";
@@ -203,6 +205,9 @@ function AccountsPageContent() {
   const [sortBy, setSortBy] = useState("default");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState("10");
+  // Phase B：provider 筛选器
+  const [providers, setProviders] = useState<ProviderInfo[]>([]);
+  const [providerFilter, setProviderFilter] = useState("all");
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [editStatus, setEditStatus] = useState<AccountStatus>("正常");
   const [editProxy, setEditProxy] = useState("");
@@ -259,7 +264,7 @@ function AccountsPageContent() {
       setIsLoading(true);
     }
     try {
-      const data = await fetchAccounts();
+      const data = await fetchAccounts(providerFilter !== "all" ? providerFilter : undefined);
       setAccounts(data.items);
       setSelectedIds((prev) => prev.filter((id) => data.items.some((item) => item.access_token === id)));
     } catch (error) {
@@ -292,6 +297,16 @@ function AccountsPageContent() {
     didLoadRef.current = true;
     void loadAccounts();
     void loadModels();
+
+    // Phase B：加载已注册提供商列表供筛选器渲染
+    void (async () => {
+      try {
+        const data = await fetchProviders();
+        setProviders(data.providers);
+      } catch {
+        // 提供商列表加载失败不阻断
+      }
+    })();
 
     // 熔断状态：15s 轮询（熔断是秒级变化，频率低于主列表 30s 兜底）
     const loadBreakers = async () => {
@@ -1377,6 +1392,28 @@ function AccountsPageContent() {
                 {accountTypeOptions.map((option) => (
                   <SelectItem key={option.value} value={option.value}>
                     {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {/* Phase B：provider 筛选器——从 /api/providers 获取列表，grok 灰显"即将支持" */}
+            <Select
+              value={providerFilter}
+              onValueChange={(value) => {
+                setProviderFilter(value);
+                setPage(1);
+              }}
+            >
+              <SelectTrigger className="h-10 w-full rounded-xl border-stone-200 bg-white/85 lg:w-[130px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">全部提供商</SelectItem>
+                {providers.map((p) => (
+                  <SelectItem key={p.name} value={p.name} disabled={!p.enabled}>
+                    <span className={cn(!p.enabled ? "text-stone-400" : "")}>
+                      {p.display_name}{!p.enabled ? "（即将支持）" : ""}
+                    </span>
                   </SelectItem>
                 ))}
               </SelectContent>

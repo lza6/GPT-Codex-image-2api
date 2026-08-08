@@ -105,6 +105,7 @@ class IpUsageRecord:
     session: str  # kookeey 粘性 session（md5(email)[:8]）
     requests: int = 0  # 成功调用次数（≈ 该 IP 请求数）
     fail: int = 0
+    request_bytes: int = 0  # 累计请求字节数（估算，kookeey API 不提供单 IP 真实流量）
     last_used_at: str = ""
     last_ip: str = ""  # 最近一次批量探测到的出口 IP
     last_probe_at: str = ""
@@ -125,8 +126,12 @@ class KookeeyService:
     def _session_for(email: str) -> str:
         return hashlib.md5(str(email or "").strip().lower().encode("utf-8")).hexdigest()[:8]
 
-    def record_ip_usage(self, email: str, success: bool) -> None:
-        """记录一次账号调用（≈ 该账号粘性 IP 的一次请求）。供账号用量挂钩调用。"""
+    def record_ip_usage(self, email: str, success: bool, bytes: int | None = None) -> None:
+        """记录一次账号调用（≈ 该账号粘性 IP 的一次请求）。供账号用量挂钩调用。
+
+        bytes：本次请求估算字节数（图片从 upstream Content-Length 取，文本用固定值估算）。
+        kookeey 官方 API 不提供单 IP 级别流量，此值为估算，精确值待 kookeey 支持。
+        """
         email = str(email or "").strip()
         if not email:
             return
@@ -139,6 +144,8 @@ class KookeeyService:
                 rec.requests += 1
             else:
                 rec.fail += 1
+            if bytes is not None and bytes > 0:
+                rec.request_bytes += bytes
             rec.last_used_at = time.strftime("%Y-%m-%d %H:%M:%S")
 
     def update_ip_probe(self, email: str, ip: str) -> None:
@@ -155,10 +162,11 @@ class KookeeyService:
             rec.last_probe_at = time.strftime("%Y-%m-%d %H:%M:%S")
 
     def get_ip_usage_board(self) -> dict:
-        """单 IP 使用画像看板：按请求数排行 + 累计取出/使用统计。
+        """单 IP 使用画像看板：按请求数排行 + 累计取出/使用统计 + 流量估算。
 
         「已使用 IP 数」= 有过至少一次调用记录的 session 数。
         「累计取出 IP 数」= stats.total_extracted（提取入池的 IP 总数）。
+        total_bytes / estimated_mb：所有账号累计估算流量（kookeey API 不提供单 IP 真实流量）。
         """
         with self._lock:
             rows = [
@@ -167,17 +175,22 @@ class KookeeyService:
                     "session": r.session,
                     "requests": r.requests,
                     "fail": r.fail,
+                    "total_bytes": r.request_bytes,
+                    "estimated_mb": round(r.request_bytes / (1024 * 1024), 3) if r.request_bytes else 0.0,
                     "last_used_at": r.last_used_at,
                     "last_ip": r.last_ip,
                     "last_probe_at": r.last_probe_at,
                 }
                 for r in self._ip_usage.values()
             ]
+            total_bytes = sum(r.request_bytes for r in self._ip_usage.values())
             extracted = self._stats.total_extracted
         rows.sort(key=lambda x: x["requests"], reverse=True)
         return {
             "used_ip_count": len(rows),
             "total_extracted": extracted,
+            "total_bytes": total_bytes,
+            "estimated_mb": round(total_bytes / (1024 * 1024), 3) if total_bytes else 0.0,
             "leaderboard": rows,  # 已按 requests 降序 = 每 IP 使用排行
         }
 

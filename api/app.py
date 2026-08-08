@@ -9,7 +9,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
-from api import accounts, ai, dashboard, image_tasks, kookeey, proxy_pool, system
+from api import accounts, ai, dashboard, image_tasks, kookeey, providers, proxy_pool, system
 from api.errors import install_exception_handlers
 from api.rate_limit import RateLimitMiddleware
 from api.support import resolve_web_asset, start_limited_account_watcher, start_proactive_probe
@@ -133,6 +133,7 @@ def create_app() -> FastAPI:
     app.include_router(dashboard.create_router())
     app.include_router(proxy_pool.create_router())
     app.include_router(kookeey.create_router())
+    app.include_router(providers.create_router())
 
     @app.api_route("/{full_path:path}", methods=["GET", "HEAD"], include_in_schema=False)
     async def serve_web(full_path: str):
