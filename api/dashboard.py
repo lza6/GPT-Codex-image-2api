@@ -307,6 +307,8 @@ def create_router() -> APIRouter:
     async def usage_totals(authorization: str | None = Header(default=None)):
         """累计用量：总请求/成功/失败/成功率 + 图片累计 + 按类型分布（全时段）。"""
         require_admin(authorization)
+        from services.usage_agg import usage_agg
+
         return await run_in_threadpool(usage_agg.totals)
 
     @router.get("/api/dashboard/usage-forecast")
