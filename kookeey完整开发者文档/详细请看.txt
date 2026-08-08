@@ -1,0 +1,3159 @@
+
+Back to Home
+API Usage Instructions
+
+Order
+
+Line
+
+Security Policy
+
+Account
+
+API Version Updates
+
+kkoip
+
+API Usage Instructions  v2023.12.01
+
+ 
+
+Request
+
+ 
+
+API request path: https://kookeey.com/
+
+All requests use HTTP GET method
+
+Requests must include 3 parameters: accessid, signature, and ts
+
+Request frequency limit: 10 qps/s per account
+
+https://kookeey.com/[method]?accessid=[developer_id]&signature=[signature_value]&ts=[request_timestamp]
+EXAMPLE:
+
+https://kookeey.com/stock?accessid=1&signature=ZDQyNmExY2FiOWZhNDdiMjAzNTYyYmFhZDZmMWIyNzM4N2FjM2JmMA==&g=433&ts=1609430400
+ 
+
+ 
+
+Signature
+
+ 
+
+Signing method: Concatenate all request parameters, calculate HMAC-SHA1 using developer token, then perform base64 encoding
+
+accessid: Developer ID (obtained from account information)
+
+Encryption key: Obtained from account center
+
+Parameter string: See specific interface definitions. Note that parameter order must match URL parameter order (e.g., encrypted string: g=1&ts=1609430400)
+
+Note: All examples use encryption key 1234567ABCDEFG for demonstration. Use real data in production requests
+
+ 
+
+EXAMPLE:
+
+JAVA:
+Base64(HMAC-SHA1(encryption_key,UTF-8-Encoding-Of(parameter_string)))
+PHP(>=5.1.2):
+base64_encode(hash_hmac("sha1", parameter_string, encryption_key, false))
+PYTHON(>=3.0):
+base64.b64encode((hmac.new(bytes(encryption_key,encoding='utf-8'),bytes(parameter_string.strip('&'),encoding='utf-8'),hashlib.sha1).hexdigest()).encode("utf-8"))
+ 
+
+ 
+
+Response
+
+Responses use JSON format
+
+Standard response includes 4 parameters: success/data/msg/code
+
+Parameter	Type	Description
+success	bool	Request status: true = success, false = failure
+data	object	Response data payload
+msg	string	Status message
+code	int	Result code
+ 
+
+Result Codes
+
+0	success
+10003	System Data Error
+10005	System Busy
+10006	Param Error
+10015	Signature Timeout
+10032	Operation not support
+10045	Wrong Time
+10056	The remark information submitted is too long
+10059	Signature error or timeout
+10061	Amount must between 1 and 99
+10066	Avaliable amount is 1MB - 100TB
+10071	Please do not submit your application again if it is already under review!
+20001	Data Status Error
+20002	Data Not Exist
+20003	Data Already Exist
+20004	Username Already Exist
+30030	Reach maximum proxies a single order can placed
+30044	User status is not activated, only activation email can be sent
+30051	Selected GEO no available UDP stock
+30052	UDP not available for http
+30054	Risk IP,rejected by system
+30055	Authentication Fail. Please open the IP Authentication Link under the correct IP
+30056	No avaliable whitelist IP,need to auth your white IP first
+30063	Please enter an account number of 6-16 digits (all case insensitive)
+30064	Please enter an 8-24 alphanumeric (case insensitive) password
+40001	Bad Auth
+40002	Bad Param
+40003	Param Error
+40005	Insufficient Balance
+40008	At Least One Security Rule Is Needed
+40009	No Permission For This Action
+40010	User/password auth is closed
+40011	Exist Dedicated User/password Proxy
+40012	No Enough Traffic
+40013	No Enough Thread
+40014	Product Not On Stock
+40015	Not activity user
+40016	User not belong to current agent
+40017	Too many data
+40019	IP whitelist cannot be empty
+40022	Not allow to renew dynamic proxy
+40031	The current account has a cancellation record. Please register again after 30 days
+40033	Reach the quantity limit
+40034	UserID and Developer-Token do not match
+40035	This user has already been linked as a sub-account to another account
+40036	Too many unactive Thread,please release unactive ports
+40041	No Enough Traffic
+60001	Frequently Request
+60005	Please set up param value correctly
+70001	Static Datacenter proxy cannot visit target website
+70003	Exist not finish operation
+70004	No avaliable Bandwidth Package
+70005	Geo information not match
+70006	No avaliable Gre Tunnel,or lack of avaliable resources
+80003	No Stock
+80004	No Order
+80005	Pay Fail
+80006	Proxy Under Config
+80007	Repeat Submit,Your Order Is Under Paying
+80008	Can not release static Proxy
+80010	Invalid Coupon
+80011	Order Amount Not Reach Coupon Threshol
+80012	Coupon Not Avaliable For Current Order
+80013	Coupon Locked By Other Order
+
+ 
+
+
+kookeey is a leading IP proxy provider dedicated to delivering premium network resources and professional support.
+
+Leveraging an extensive, ethically sourced global infrastructure, we empower our partners to unlock sustainable competitive advantages at scale.
+
+Proxies
+Static ISP Proxies
+Static Datacenter Proxies
+Residential Proxies
+Mobile Proxies
+Resources
+Blog
+Developer API
+Documentation
+FAQ
+Legal
+Privacy Policy
+Legal Notices
+Refund Policy
+Company
+Affiliate
+Contact Us
+About Us
+Authentication
+
+Contact Service
+
+WeChat Official Account
+
+WeChat
+
+Telegram
+
+Enterprise Service
+
+
+
+Back to Home
+API Usage Instructions
+
+Request
+Signature
+Response
+Result Codes
+Order
+
+Line
+
+Security Policy
+
+Account
+
+API Version Updates
+
+kkoip
+
+API Usage Instructions  v2023.12.01
+
+ 
+
+Request
+
+ 
+
+API request path: https://kookeey.com/
+
+All requests use HTTP GET method
+
+Requests must include 3 parameters: accessid, signature, and ts
+
+Request frequency limit: 10 qps/s per account
+
+https://kookeey.com/[method]?accessid=[developer_id]&signature=[signature_value]&ts=[request_timestamp]
+EXAMPLE:
+
+https://kookeey.com/stock?accessid=1&signature=ZDQyNmExY2FiOWZhNDdiMjAzNTYyYmFhZDZmMWIyNzM4N2FjM2JmMA==&g=433&ts=1609430400
+ 
+
+ 
+
+Signature
+
+ 
+
+Signing method: Concatenate all request parameters, calculate HMAC-SHA1 using developer token, then perform base64 encoding
+
+accessid: Developer ID (obtained from account information)
+
+Encryption key: Obtained from account center
+
+Parameter string: See specific interface definitions. Note that parameter order must match URL parameter order (e.g., encrypted string: g=1&ts=1609430400)
+
+Note: All examples use encryption key 1234567ABCDEFG for demonstration. Use real data in production requests
+
+ 
+
+EXAMPLE:
+
+JAVA:
+Base64(HMAC-SHA1(encryption_key,UTF-8-Encoding-Of(parameter_string)))
+PHP(>=5.1.2):
+base64_encode(hash_hmac("sha1", parameter_string, encryption_key, false))
+PYTHON(>=3.0):
+base64.b64encode((hmac.new(bytes(encryption_key,encoding='utf-8'),bytes(parameter_string.strip('&'),encoding='utf-8'),hashlib.sha1).hexdigest()).encode("utf-8"))
+ 
+
+ 
+
+Response
+
+Responses use JSON format
+
+Standard response includes 4 parameters: success/data/msg/code
+
+Parameter	Type	Description
+success	bool	Request status: true = success, false = failure
+data	object	Response data payload
+msg	string	Status message
+code	int	Result code
+ 
+
+Result Codes
+
+0	success
+10003	System Data Error
+10005	System Busy
+10006	Param Error
+10015	Signature Timeout
+10032	Operation not support
+10045	Wrong Time
+10056	The remark information submitted is too long
+10059	Signature error or timeout
+10061	Amount must between 1 and 99
+10066	Avaliable amount is 1MB - 100TB
+10071	Please do not submit your application again if it is already under review!
+20001	Data Status Error
+20002	Data Not Exist
+20003	Data Already Exist
+20004	Username Already Exist
+30030	Reach maximum proxies a single order can placed
+30044	User status is not activated, only activation email can be sent
+30051	Selected GEO no available UDP stock
+30052	UDP not available for http
+30054	Risk IP,rejected by system
+30055	Authentication Fail. Please open the IP Authentication Link under the correct IP
+30056	No avaliable whitelist IP,need to auth your white IP first
+30063	Please enter an account number of 6-16 digits (all case insensitive)
+30064	Please enter an 8-24 alphanumeric (case insensitive) password
+40001	Bad Auth
+40002	Bad Param
+40003	Param Error
+40005	Insufficient Balance
+40008	At Least One Security Rule Is Needed
+40009	No Permission For This Action
+40010	User/password auth is closed
+40011	Exist Dedicated User/password Proxy
+40012	No Enough Traffic
+40013	No Enough Thread
+40014	Product Not On Stock
+40015	Not activity user
+40016	User not belong to current agent
+40017	Too many data
+40019	IP whitelist cannot be empty
+40022	Not allow to renew dynamic proxy
+40031	The current account has a cancellation record. Please register again after 30 days
+40033	Reach the quantity limit
+40034	UserID and Developer-Token do not match
+40035	This user has already been linked as a sub-account to another account
+40036	Too many unactive Thread,please release unactive ports
+40041	No Enough Traffic
+60001	Frequently Request
+60005	Please set up param value correctly
+70001	Static Datacenter proxy cannot visit target website
+70003	Exist not finish operation
+70004	No avaliable Bandwidth Package
+70005	Geo information not match
+70006	No avaliable Gre Tunnel,or lack of avaliable resources
+80003	No Stock
+80004	No Order
+80005	Pay Fail
+80006	Proxy Under Config
+80007	Repeat Submit,Your Order Is Under Paying
+80008	Can not release static Proxy
+80010	Invalid Coupon
+80011	Order Amount Not Reach Coupon Threshol
+80012	Coupon Not Avaliable For Current Order
+80013	Coupon Locked By Other Order
+
+ 
+
+
+kookeey is a leading IP proxy provider dedicated to delivering premium network resources and professional support.
+
+Leveraging an extensive, ethically sourced global infrastructure, we empower our partners to unlock sustainable competitive advantages at scale.
+
+Proxies
+Static ISP Proxies
+Static Datacenter Proxies
+Residential Proxies
+Mobile Proxies
+Resources
+Blog
+Developer API
+Documentation
+FAQ
+Legal
+Privacy Policy
+Legal Notices
+Refund Policy
+Company
+Affiliate
+Contact Us
+About Us
+Authentication
+
+Contact Service
+
+WeChat Official Account
+
+WeChat
+
+Telegram
+
+Enterprise Service
+
+
+Back to Home
+API Usage Instructions
+
+Request
+Signature
+Response
+Result Codes
+Order
+
+Line
+
+Security Policy
+
+Account
+
+API Version Updates
+
+kkoip
+
+API Usage Instructions  v2023.12.01
+
+ 
+
+Request
+
+ 
+
+API request path: https://kookeey.com/
+
+All requests use HTTP GET method
+
+Requests must include 3 parameters: accessid, signature, and ts
+
+Request frequency limit: 10 qps/s per account
+
+https://kookeey.com/[method]?accessid=[developer_id]&signature=[signature_value]&ts=[request_timestamp]
+EXAMPLE:
+
+https://kookeey.com/stock?accessid=1&signature=ZDQyNmExY2FiOWZhNDdiMjAzNTYyYmFhZDZmMWIyNzM4N2FjM2JmMA==&g=433&ts=1609430400
+ 
+
+ 
+
+Signature
+
+ 
+
+Signing method: Concatenate all request parameters, calculate HMAC-SHA1 using developer token, then perform base64 encoding
+
+accessid: Developer ID (obtained from account information)
+
+Encryption key: Obtained from account center
+
+Parameter string: See specific interface definitions. Note that parameter order must match URL parameter order (e.g., encrypted string: g=1&ts=1609430400)
+
+Note: All examples use encryption key 1234567ABCDEFG for demonstration. Use real data in production requests
+
+ 
+
+EXAMPLE:
+
+JAVA:
+Base64(HMAC-SHA1(encryption_key,UTF-8-Encoding-Of(parameter_string)))
+PHP(>=5.1.2):
+base64_encode(hash_hmac("sha1", parameter_string, encryption_key, false))
+PYTHON(>=3.0):
+base64.b64encode((hmac.new(bytes(encryption_key,encoding='utf-8'),bytes(parameter_string.strip('&'),encoding='utf-8'),hashlib.sha1).hexdigest()).encode("utf-8"))
+ 
+
+ 
+
+Response
+
+Responses use JSON format
+
+Standard response includes 4 parameters: success/data/msg/code
+
+Parameter	Type	Description
+success	bool	Request status: true = success, false = failure
+data	object	Response data payload
+msg	string	Status message
+code	int	Result code
+ 
+
+Result Codes
+
+0	success
+10003	System Data Error
+10005	System Busy
+10006	Param Error
+10015	Signature Timeout
+10032	Operation not support
+10045	Wrong Time
+10056	The remark information submitted is too long
+10059	Signature error or timeout
+10061	Amount must between 1 and 99
+10066	Avaliable amount is 1MB - 100TB
+10071	Please do not submit your application again if it is already under review!
+20001	Data Status Error
+20002	Data Not Exist
+20003	Data Already Exist
+20004	Username Already Exist
+30030	Reach maximum proxies a single order can placed
+30044	User status is not activated, only activation email can be sent
+30051	Selected GEO no available UDP stock
+30052	UDP not available for http
+30054	Risk IP,rejected by system
+30055	Authentication Fail. Please open the IP Authentication Link under the correct IP
+30056	No avaliable whitelist IP,need to auth your white IP first
+30063	Please enter an account number of 6-16 digits (all case insensitive)
+30064	Please enter an 8-24 alphanumeric (case insensitive) password
+40001	Bad Auth
+40002	Bad Param
+40003	Param Error
+40005	Insufficient Balance
+40008	At Least One Security Rule Is Needed
+40009	No Permission For This Action
+40010	User/password auth is closed
+40011	Exist Dedicated User/password Proxy
+40012	No Enough Traffic
+40013	No Enough Thread
+40014	Product Not On Stock
+40015	Not activity user
+40016	User not belong to current agent
+40017	Too many data
+40019	IP whitelist cannot be empty
+40022	Not allow to renew dynamic proxy
+40031	The current account has a cancellation record. Please register again after 30 days
+40033	Reach the quantity limit
+40034	UserID and Developer-Token do not match
+40035	This user has already been linked as a sub-account to another account
+40036	Too many unactive Thread,please release unactive ports
+40041	No Enough Traffic
+60001	Frequently Request
+60005	Please set up param value correctly
+70001	Static Datacenter proxy cannot visit target website
+70003	Exist not finish operation
+70004	No avaliable Bandwidth Package
+70005	Geo information not match
+70006	No avaliable Gre Tunnel,or lack of avaliable resources
+80003	No Stock
+80004	No Order
+80005	Pay Fail
+80006	Proxy Under Config
+80007	Repeat Submit,Your Order Is Under Paying
+80008	Can not release static Proxy
+80010	Invalid Coupon
+80011	Order Amount Not Reach Coupon Threshol
+80012	Coupon Not Avaliable For Current Order
+80013	Coupon Locked By Other Order
+
+ 
+
+
+kookeey is a leading IP proxy provider dedicated to delivering premium network resources and professional support.
+
+Leveraging an extensive, ethically sourced global infrastructure, we empower our partners to unlock sustainable competitive advantages at scale.
+
+Proxies
+Static ISP Proxies
+Static Datacenter Proxies
+Residential Proxies
+Mobile Proxies
+Resources
+Blog
+Developer API
+Documentation
+FAQ
+Legal
+Privacy Policy
+Legal Notices
+Refund Policy
+Company
+Affiliate
+Contact Us
+About Us
+Authentication
+
+Contact Service
+
+WeChat Official Account
+
+WeChat
+
+Telegram
+
+Enterprise Service
+
+
+Back to Home
+API Usage Instructions
+
+Order
+
+Region Query
+Dynamic City Query
+Price Query
+New Purchase
+Renewal
+Bulk Renewal
+Traffic Distribution
+Payment
+Order Information
+Order List
+IP Extraction(Residential)
+IP Extraction (Whitelist)
+Mobile Proxy – IP Extraction
+Dynamic IP Mode Switch
+Available Proxy Type IDs
+Available Acceleration Cities
+Line
+
+Security Policy
+
+Account
+
+API Version Updates
+
+kkoip
+
+Order
+
+ 
+
+Region Query
+
+ 
+
+Interface: /stockv2?g=parent_region_id
+
+This interface returns available regions and their current stock status
+
+If the returned array is empty, it means random allocation within the parent region during purchase
+
+Request Parameters
+
+Parameter	Type	Description	Example
+g	int	Parent region ID	1: Get available countries for static data center proxies
+2: Get available countries for dynamic residential proxies
+4: Get available countries for static ISP proxies
+[Supported Proxy Types]
+Response Data
+
+Type: Array of objects (region stock info)
+Note: 'stock' field is only valid for static data center/ISP proxies
+
+Property	Type	Description	Example
+cid	int	Continent ID	1
+cnname	string	Continent Chinese Name	Americas & Europe
+id	int	Country ID	432
+name	string	Country English Name	US
+cnname	string	Country Chinese Name	United States
+stock	bool	Stock Status	true: Available / false: Out of Stock
+child	array	Sub-regions and their stock status	Contains id, name, cnname, stock properties
+ 
+
+EXAMPLE:
+
+PHP Example: '/stockv2?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'g=1&ts=1609430400', '1234567ABCDEFG', false)).'&g=1&ts=1609430400'
+Response Example: /stock?accessid=1&signature=YzVkMjQxYjVmNjA2MWExMjAwYWYxMzUxM2I1YTY4YWYyOWIxMzA5NA==&g=1&ts=1609430400
+{"success":true,"data":[{"cid":1,"cnname":"Americas & Europe","child":[{"id":432,"name":"US","cnname":"United States","stock":true,"child":[{"id":530,"name":"California/Los Angeles","cnname":"California(Los Angeles)","stock":true},{"id":2151,"name":"California/San Jose","cnname":"California(San Jose)","stock":true},{"id":2171,"name":"Dallas","cnname":"Dallas","stock":false},{"id":2126,"name":"Illinois/Chicago","cnname":"Illinois(Chicago)","stock":true},{"id":531,"name":"New York/New York City","cnname":"New York(New York City)","stock":true},{"id":2133,"name":"Washington D.C.","cnname":"Washington D.C.","stock":true},{"id":2150,"name":"Washington/Seattle","cnname":"Washington(Seattle)","stock":true}]}
+
+ 
+
+Dynamic City Query
+
+ 
+
+Endpoint: clientapi/citylist?g=parent_region_id
+
+This interface returns listed cities.
+
+ 
+
+Request Parameters
+
+Parameter	Type	Description	Example
+g	int	Parent region ID	
+If agency type is passed, returns all cities under that agency type
+If country ID is passed, returns all cities under that country
+If region ID is passed, returns all cities under that region
+If city ID is passed, returns that city's information
+Response Data
+
+Type: Array of objects
+
+Property	Type	Description	Example
+id	int	City ID	101406
+name	string	Name code	Butler
+enname	string	City English name	Butler
+ 
+
+EXAMPLE:
+
+PHP Example: '/citylist?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'g=626&ts=1609430400', '1234567ABCDEFG',
+false)).'&g=626&ts=1609430400'
+Response Example: /stock?accessid=1&signature=YzVkMjQxYjVmNjA2MWExMjAwYWYxMzUxM2I1YTY4YWYyOWIxMzA5NA==&g=626&ts=1609430400
+{{ "success": true, "data": [ {"id": 101406, "name": "Butler", "enname": "Butler"}, {"id": 101407, "name": "Calhoun", "enname": "Calhoun"}, {"id": 101408, "name": "Covington", "enname": "Covington"}, {"id": 101409, "name": "Cullman", "enname": "Cullman"}, {"id": 101410, "name": "Dallas", "enname": "Dallas"}, {"id": 101411, "name": "Franklin", "enname": "Franklin"}, {"id": 101284, "name": "Houston", "enname": "Houston"}, {"id": 101285, "name": "Jackson", "enname": "Jackson"}, {"id": 101412, "name": "Lawrence", "enname": "Lawrence"}, {"id": 101413, "name": "Macon", "enname": "Macon"}, {"id": 101291, "name": "Madison", "enname": "Madison"}, {"id": 101414, "name": "Marion", "enname": "Marion"}, {"id": 101415, "name": "Marshall", "enname": "Marshall"}, {"id": 101292, "name": "Mobile", "enname": "Mobile"}, {"id": 101416, "name": "Monroe", "enname": "Monroe"}, {"id": 101417, "name": "Montgomery", "enname": "Montgomery"}, {"id": 101418, "name": "Perry", "enname": "Perry"}, {"id": 101419, "name": "Russell", "enname": "Russell"}, {"id": 101420, "name": "Sumter", "enname": "Sumter"}, {"id": 101421, "name": "Tuscaloosa", "enname": "Tuscaloosa"}, {"id": 101422, "name": "Washington", "enname": "Washington"} ], "msg": "Operation successful", "code": 0 }}
+
+ 
+
+Price Query
+
+ 
+
+Interface: /price?g=region_id
+
+This interface returns region-specific pricing
+
+Request Parameters
+
+Parameter	Type	Description	Example
+g	int	Region ID	433
+bw	int	Bandwidth value (returns split bandwidth pricing) [Optional]	5
+udp	int	Enable UDP (returns custom service pricing) [Optional]	1
+p	string	Order protocol (returns custom service pricing) [Optional]	vmess
+d	int	Purchase duration (1-36 months, default 1) [Optional]	1
+sp	int	Acceleration city ID (returns discounted bandwidth price) [Optional]
+[Supported Acceleration Cities]	0
+Protocol Parameter Reference
+
+Parameter	Protocol
+http	HTTP
+socks5	SOCKS5
+vmess	VMess
+ss	Shadowsocks
+wg	WireGuard
+Response Data
+
+Type: Object (region pricing)
+
+Property	Type	Description	Example
+price	int	Price in cents	1000
+unit	string	Pricing unit	Port/30 Days
+[Unit Explanation]
+currency	string	Currency symbol	￥
+ip_price	number	IP component price (in cents)	2500
+service_price	number	Protocol service fee (in cents)	200
+bw_price	number	Bandwidth component price (in cents)	4900
+extra_bw_price	number	Additional 1Mbps bandwidth price (in cents)	1400
+ 
+
+Pricing Units
+
+Proxy Type	Description	Example
+Static Proxies (Data Center/ISP)	Port/Validity Period	Port/30 Days: Billed per port with 30-day validity
+Dynamic Proxies (Residential)	GB/Validity Period	GB/30 Days: Billed per GB with 30-day validity
+For regular accounts, validity is fixed at 30 days; trial periods may have adjustable validity
+ 
+
+EXAMPLE:
+
+PHP Example: '/price?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'g=433&ts=1609430400', '1234567ABCDEFG', false)).'&g=433&ts=1609430400'
+Response Example: /price?accessid=1&signature=ZDQyNmExY2FiOWZhNDdiMjAzNTYyYmFhZDZmMWIyNzM4N2FjM2JmMA==&g=433&ts=1609430400
+{"success":true,"data":{"price":"1000","unit":"Port/30 Days","currency":"￥"},"msg":"Operation successful","code":0}
+
+ 
+
+New Purchase
+
+ 
+
+API: /check?g=area_id&p=protocol&n=quantity
+
+This API generates an unpaid new order and returns pricing details
+
+Unpaid orders expire after 10 minutes and cannot be confirmed after expiration
+
+Request Parameters
+
+Parameter	Type	Description	Example
+g	int	Area ID	439
+p	string	Protocol	socks5 / http
+n	int	Quantity	1
+t	int	Business Type [Optional]	1 = Amazon
+d	int	Months (30 days = 1 month) [Optional]	3 = 3 months (90 days)
+udp	int	UDP Enable (0=off/1=on) [Optional]	0/1
+bw	int	Bandwidth (-1=package, 5-200) [Optional]	6
+soft	int	Environment Selection [Optional]	201
+sp	int	Acceleration Entry City ID [Optional]
+[Supported Cities]	0
+Business Type Mapping
+
+t	Business	t	Business
+1	Amazon	27	BetterNikeBot
+2	Paypal	28	EasyCop Bot
+3	Twitter	29	FootLocker
+4	Facebook	30	Dashe
+5	Wish	31	Eve
+6	Walmart	32	SoleAIO
+7	Zalo	33	Cybersole
+8	Shopee	34	Steam
+9	eBay	35	Etsy
+10	Coinlist	36	LinkedIn
+11	Lazada	37	ChatGPT
+12	Tokopedia	38	AliExpress
+13	Bestbuy	39	loot.tv
+14	Gmail	40	Alibris
+15	Whatsapp	41	Shopify
+16	Tinder	42	stockx
+17	Telegram	43	Tokopedia
+18	Instagram	44	Bumble
+19	Youtube	45	Badoo
+20	Tiktok	46	Vinted
+21	Google	47	Allegro.pl
+22	Adidas	48	Seeking
+23	Nike	49	SilverSingles
+24	Supreme	50	Eharmony
+25	SoleSlayer	51	Depop
+26	SupremeSlayer	 	 
+Environment Mapping
+
+soft	Environment	soft	Environment
+1	General	303	Huawei Cloud
+201	ZNiao Browser	399	Other Cloud/VPS
+202	MoreLogin	401	Shadowrocket
+203	Adspower	402	V2ray
+204	Bit Browser	403	WireGuard
+205	Hubstudio	404	Andproxy
+209	Other Fingerprint Browsers	5	Script/Bot Control
+301	GeeLark	405	SaleSmartly
+302	Aliyun	 	 
+ 
+
+Response Data
+
+Type: Object (Temporary Order)
+
+Field	Type	Description	Example
+orderid	string	Unpaid Order ID	5283163557995843913770
+price	int	Price (cents)	1000
+unit	string	Package Unit	Port/1 Day
+[Unit Details]
+currency	string	Currency	CNY
+balance	int	Account Balance (cents)	20000
+uncount	int	Unallocated Balance (cents)	0
+cost	int	Immediate Payment Amount (cents)	1000
+ 
+
+EXAMPLE:
+
+PHP Example: '/check?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'g=439&n=1&ts=1609430400', '1234567ABCDEFG', false)).'&g=439&n=1&ts=1609430400'
+Response Example: /check?accessid=1&signature=MDJlZTBiMzQ3OGI1NDAzNGJlMzgyMjc0YzVkMWY1YWJhNGU5OWNhNQ==&g=439&n=1&ts=1609430400
+{"success":true,"data":{"orderid":"5283163557995843913770","balance":548,"uncount":0,"price":20000,"unit":"GB(1天)","cost":20000,"currency":"￥"},"msg":"Success","code":0}
+
+ 
+
+Renewal
+
+API: /checkr?p=line_id
+
+Generate an unpaid renewal order and return cost details
+
+Unpaid orders expire in 10 minutes
+
+Only valid for active lines
+
+Request Parameters
+
+Parameter	Type	Description	Example
+p	int	Line ID	2300790
+d	int	Months to purchase (30 days = 1 month)[Optional]	3 = 90-day period
+Response Data
+
+Type: Object (Temporary Renewal Order)
+
+Property	Type	Description	Example
+orderid	string	Unpaid order ID	5283163558121643316178
+price	int	Price, in cents	1000
+unit	string	Package unit	Port/1 Day
+[Unit Spec]
+currency	string	Currency	￥
+balance	int	Account balance, in cents	20000
+uncount	int	Unprocessed traffic fees, in cents	0
+cost	int	Immediate payment amount, in cents	1000
+days	int	Renewal days	1
+autorenew	int	Auto-renewal configuration	0: Follow global setting
+1: Force enable
+2: Force disable
+ 
+
+EXAMPLE:
+
+PHP Example: '/checkr?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'p=2300790&ts=1609430400', '1234567ABCDEFG', false)).'&p=2300790&ts=1609430400'
+Response Example: /checkr?accessid=1&signature=ZDI0ZjYxODI5MTIzMDViODY0ZTI0YWJhYzUxZDIwNGEyMjEwM2EzMw==&p=2300790&ts=1609430400
+{"success":true,"data":{"orderid":"5283163558121643316178","balance":548,"uncount":0,"price":20000,"days":1,"unit":"GB(1天)","cost":20000,"currency":"￥","autorenew":0},"msg":"Success","code":0}
+
+ 
+
+Bulk Renewal
+
+API: /checkbr?ps=line_id1,line_id2
+
+Generate bulk unpaid renewal orders
+
+Orders expire in 10 minutes
+
+Only valid for active lines
+
+Request Parameters
+
+Parameter	Type	Description	Example
+ps	string	Line IDs (comma-separated, max 50)	2300790,2300791,2300792
+d	int	Months to purchase (1-36), default=1 [Optional]	3 = 90-day period
+Response Data
+
+Type: Object (Temporary Renewal Order)
+
+Property	Type	Description	Example
+orderid	string	Unpaid order ID	5283163558121643316179
+price	int	Total price, in cents	20000
+unit	string	Package unit	Port/90 Days
+currency	string	Currency	￥
+balance	int	Account balance, in cents	548
+cost	int	Immediate payment amount, in cents	14904
+days	int	Total renewal days	90
+ 
+
+EXAMPLE:
+
+PHP Example: '/checkbr?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'ps=2300790,2300791,2300792&ts=1609430400', '1234567ABCDEFG', false)).'&ps=2300790,2300791,2300792&ts=1609430400'
+Response Example: /checkbr?accessid=1&signature=ZDI0ZjYxODI5MTIzMDViODY0ZTI0YWJhYzUxZDIwNGEyMjEwM2EzMw==&ps=2300790,2300791,2300792&ts=1609430400
+{"success":true,"data":{"orderid":"5283163558121643316179","balance":548,"price":20000,"cost":14904,"days":90,"unit":"端口/90天)","currency":"￥"},"msg":"Success","code":0}
+
+ 
+
+Traffic Distribution
+
+Interface: /checkt?to=target_user_id&p=package_id&n=quantity
+
+This interface generates an unprocessed traffic distribution order and returns distribution details
+
+Traffic distribution orders don't incur charges. Upon payment, traffic is deducted from the agent's account and added to the sub-account
+
+Unprocessed orders expire after 10 minutes
+
+Request Parameters
+
+Parameter	Type	Description	Example
+to	int	Target user ID	12345678
+(Account ID under agent)
+p	int	Distribution package	1: 1GB Basic
+2: 10GB Pro
+3: 100GB Premium
+100: 100MB Test
+3001： Mobile Proxy 1GB Starter Package
+3002： Mobile Proxy 10GB Advanced Package
+3003： Mobile Proxy 100GB Premium Package
+3005： Mobile Proxy 1TB Professional Package
+3006： Mobile Proxy 5TB Enterprise Package
+n	int	Distribution quantity	1
+toun	string	Target username (requires verification if not under the agent's account) [optional parameter]	hello
+t	int	Traffic type [optional parameter]	2 => Residential Proxy (Dynamic)
+3 => Mobile Proxy
+Default is 2 if not specified.
+Response Data
+
+Type: Object (Temporary Distribution Order)
+
+Field	Type	Description	Example
+orderid	string	Unprocessed order ID	5283163557995843913770
+package	object
+[Package Object]	Traffic package details	{"id":1,"name":"Basic","traffic":1,"threads":30,"period":30,"rawprice":5800}
+currency	string	Currency unit	￥
+amount	int	Distribution quantity	1
+ 
+
+Traffic Package Specification
+
+Field	Type	Description	Example
+id	int	Package ID	1
+type	int	Traffic Type	2
+name	string	Package name	Basic
+traffic	float	Traffic included (GB)	1
+threads	int	Max concurrent connections	30
+period	int	Validity period (days)	30
+rawprice	int	Original price (cents)	5800
+EXAMPLE:
+
+PHP Example: '/checkt?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'to=12345678&p=1&n=1&ts=1609430400', '1234567ABCDEFG', false)).'&to=12345678&p=1&n=1&ts=1609430400'
+Response Example: /checkt?accessid=1&signature=ZmI0Nzk1NDFmYzgyZDUzNjg4ZjFiZTMxMzFkYmI5NzY1ODdiMTY1NQ==&to=12345678&p=1&n=1&ts=1609430400
+{"success":true,"data":{"orderid":"2687711168327639650112287","package":{"id":1,"type":2,"name":"Basic","traffic":1,"threads":30,"period":30,"rawprice":5800},"currency":"￥","amount":1},"msg":"Success","code":0}
+
+ 
+
+Payment
+
+Interface: /pay?o=unpaid_order_id
+
+Confirms payment for unpaid orders
+
+Creates real order and allocates/renews connections after payment
+
+Connection allocation is asynchronous (usually completes within 3 minutes)
+
+Failed allocations result in automatic refund
+
+Request Parameters
+
+Parameter	Type	Description	Example
+o	string	Unpaid order ID	5283163557995843913770
+autor	int	Auto-renewal (1=enable)	1
+remark	string	Connection remarks (supports multiple for bulk orders)	Test
+Response Data
+
+Type: array [int]
+
+Description: Real order ID
+
+Example: 462084126
+
+EXAMPLE:
+
+PHP Example: '/pay?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'o=5283163557995843913770&ts=1609430400', '1234567ABCDEFG', false)).'&o=5283163557995843913770&ts=1609430400'
+Response Example: /pay?accessid=1&signature=NTM5MWNmMGU5YmUwNjQ0ZTM5MmEzMmUyOTgxMjY3MTc0NGJlZjg2ZQ==&o=5283163557995843913770&ts=1609430400
+{"success":true,"data":462084126,"msg":"Success","code":0}
+
+ 
+
+Order Information
+
+API:/oiv2?o=Order ID
+
+API returns order information
+
+Request Parameters
+
+Parameter	Type	Description	Example
+o	int	Order ID	462084126
+Response Data
+
+Type: Object (Order Information)
+
+Property	Type	Description	Example
+orderid	int	Order ID	462084126
+ordertype	string	Order type	New Purchase / Renewal
+days	int	Order corresponding product days	1
+type	object
+[Type/Region Object ]	Selected type object	{"id":2,"name":"RESIDENTIAL","cnname":"Residential Port"}
+geo	object
+[Type/Region Object ]	Selected country object	{"id":433,"name":"US","cnname":"United States"}
+region	object
+[Type/Region Object ]	Selected region object	{"id":0,"name":"","cnname":""}
+share	string	Line sharing mode	dedicated / shared
+protocol	string	Line protocol	socks5
+price	int	Unit price (cents)	1000
+unit	string	Package unit	Port/1 day
+[Package Unit Description]
+currency	string	Currency unit	￥
+num	int	Quantity purchased	2
+realnum	int	Actual successful purchase quantity	1
+ports	array [int]	Line ID array	[2300790]
+status	string	Order status	pending: Uncompleted (unpaid/processing)
+confirm: Completed
+refund: Refunded (purchase failed/manual refund)
+add_time	string	Order creation timestamp	1609430400
+ 
+
+Type/Region Object
+
+Property	Type	Description	Example
+id	int	Type/country/region ID	433
+0: Indicates random parent region
+name	string	English name	US
+cnname	string	Chinese name	United States
+ 
+
+EXAMPLE:
+
+PHP Example: '/oiv2?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'o=462084126&ts=1609430400', '1234567ABCDEFG', false)).'&o=462084126&ts=1609430400'
+Example Result: /oiv2?accessid=1&signature=N2ZlYjg3ZGNmMjFlZDYzZjhmNmI3YWZiYzZlNDUwNjIzMmQ0ZTg4NA==&o=462084126&ts=1609430400
+{"success":true,"data":{"orderid":462084126,"type":{"id":2,"name":"RESIDENTIAL","cnname":"Residential Port"},"geo":{"id":433,"name":"US","cnname":"United States"},"region":{"id":0,"name":"","cnname":""},"ordertype":"New Purchase","protocol":"socks5","share":"dedicated","num":1,"realnum":1,"price":20000,"unit":"GB(1 day)","currency":"￥","days":1,"ports":[2300790],"status":"confirm","time":1635581109},"msg":"Operation successful","code":0}
+
+ 
+
+Order List
+
+API:/ol?s=Start Timestamp&e=End Timestamp&ot=Order Type&p=Page Number
+
+API returns order information list
+
+Request Parameters
+
+Parameter	Type	Description	Example
+s	int	Start timestamp	1633017600
+e	int	End timestamp	1633622399
+ot	int	Order type	0: All / 1: New Purchase / 2: Renewal
+st	string	Order status	
+pending: Uncompleted (unpaid/processing)
+confirm: Completed
+refund: Refunded (purchase failed/manual refund)
+
+Default returns all statuses if not specified
+
+pi	int	Associated line ID	8888888
+p	int	Page number	1
+psize	int	Items per page	10/20/50 items per page
+Response Data
+
+Type: Object (List Information)
+
+Property	Type	Description	Example
+page	int	Current page number	1
+page_size	int	Items per page	10
+total	int	Total items	13
+total_page	int	Total pages	2
+list	array of objects
+[Order Info Object]	Result data	[{Order Info Object},{Order Info Object}...]
+ 
+
+EXAMPLE:
+
+PHP Example: '/ol?accessid=1&signature='.base64_encode(hash_hmac("sha1", 's=1633017600&e=1633622399&ot=0&p=1&ts=1609430400', '1234567ABCDEFG', false)).'&s=1633017600&e=1633622399&ot=0&p=1&ts=1609430400'
+Example Result: /ol?accessid=1&signature=ZjhjOGQ4OTRkMDEyOWVkMDU4YzA0NTFhOGVjYmQyM2NjN2E2MWIyNQ==&s=1633017600&e=1633622399&ot=0&p=1&ts=1609430400
+{"success":true,"data":{"page":2,"page_size":10,"total":13,"total_page":2,"list":[{"orderid":897918527,"ordertype":"Renewal","protocol":"socks5","share":"dedicated","num":1,"realnum":0,"price":20000,"unit":"GB(3 days)","currency":"￥","type":{"id":2,"name":"RESIDENTIAL","cnname":"Residential Port"},"geo":{"id":451,"name":"IT","cnname":"Italy"},"region":{"id":0,"name":"","cnname":""},"status":"refund","time":1635168701},{"orderid":864401537,"ordertype":"New Purchase","protocol":"socks5","share":"dedicated","num":1,"realnum":1,"price":20000,"unit":"GB(3 days)","currency":"￥","type":{"id":2,"name":"RESIDENTIAL","cnname":"Residential Port"},"geo":{"id":451,"name":"IT","cnname":"Italy"},"region":{"id":0,"name":"","cnname":""},"status":"confirm","time":1635155600}]},"msg":"Operation successful","code":0}
+
+ 
+
+IP Extraction(Residential)
+
+Hong Kong, Macau and Taiwan regions need to first verify their real names before they can use the account
+
+This section introduces methods for fast extraction of dynamic residential IPs
+
+Extraction Format:UserID-SecurityUsername:SecurityPassword-CountryISO-RandomSession-IPRotationInterval@kookeeyGateway:1000
+
+Parameter Details
+
+Parameter	Type	Description	Example
+UserID	int	User ID	123456789
+SecurityUsername	string	Global security policy username	abcdefg
+SecurityPassword	string	Global security policy password	abcdefg1234
+CountryISO	string	ISO country code, supports regional targeting	US
+global = global mix
+Hong Kong, Macau and Taiwan regions need to first verify their real names before they can use the account
+RandomSession	string	8-character random string[Optional]	12345678
+Omit to rotate per request
+IPRotationInterval	string	IP rotation interval[Optional]	5m = 5 minutes
+1h = 1 hour
+Omit for sticky session
+kookeeyGateway	string	 	gate.kookeey.info
+Country ISO Code Rules
+
+Format	Example	Description
+{countrycode}	US	National level
+{countrycode}_{regioncode}	US_California	State level
+{countrycode}_{regioncode}_city_{citycode}	US_California_city_LosAngeles	City level: Falls back to state if city code invalid, to country if state code invalid
+{countrycode}_city_{citycode}	US_city_LosAngeles	City level (equivalent to US_random_city_LosAngeles)
+Alternative Gateways
+
+Default	gate.kookeey.info
+East Asia Optimized	gate-hk.kookeey.info
+US/Canada Optimized	gate-us.kookeey.info
+Southeast Asia Optimized	gate-sea.kookeey.info
+Europe Optimized	gate-eu.kookeey.info
+UK Optimized	gate-gb.kookeey.info
+Australia Optimized	gate-au.kookeey.info
+South Asia Optimized	gate-in.kookeey.info
+Thailand Optimized	gate-th.kookeey.info
+gate-th2.kookeey.info
+Japan Optimized	gate-jp.kookeey.info
+ 
+
+EXAMPLE:
+
+Usage Examples
+
+US, rotate per request: 123456789-abcdef:12345678-US@gate.kookeey.info:1000
+
+Global mix, rotate per request: 123456789-abcdef:12345678-global@gate.kookeey.info:1000
+
+US, sticky session: 123456789-abcdef:12345678-US-71261427@gate.kookeey.info:1000
+
+US, 5-minute rotation: 123456789-abcdef:12345678-US-86822206-5m@gate.kookeey.info:1000
+
+US, 1-hour rotation: 123456789-abcdef:12345678-US-86822206-1h@gate.kookeey.info:1000
+
+US_California, sticky: 123456789-abcdef:12345678-US_California-86822206@gate.kookeey.info:1000
+
+US_California_city_LosAngeles, sticky: 123456789-abcdef:12345678-US_California_city_LosAngeles-86822206@gate.kookeey.info:1000
+
+ 
+
+Dynamic Proxy IP Extraction (Whitelist)
+
+ 
+接口：clientapi/pickdynamicipsbyw?g=Dynamic Region ID&n=Extraction Quantity&t=Whitelist Type
+
+This endpoint retrieves connection information for proxy lines under a specified whitelist.
+
+Request Parameters
+
+Parameter	Type	Description	Example
+g	int	Dynamic geo-location ID	433
+n	int	Number of Extractions (1-100, default 10)	10
+t	int	Whitelist Type	2=>Dynamic Residential
+3=>Mobile Proxy
+EXAMPLE:
+
+PHP Example: '/pickdynamicipsbyw?accessid=1234&signature='.base64_encode(hash_hmac("sha1", 'g=433&n=1&t=2&ts=1609430400', '1234567ABCDEFG', false)).'&g=433&n=1&t=2&ts=1609430400’
+Sample Response: /clientapi/pickdynamicipsbyw?accessid=1&signature=YmJmMDhlMTg4Njc3YzA3ZTViNmE0MTNlNjRiZTI1MTVlZGYwNzcxZQ==&g=433&n=2&t=2&ts=1609430400
+{"success":true,"data":["107.150.111.223:7135","118.194.234.125:7500","118.194.233.132:7442"],"msg":"Operation Successful","code":0}
+
+ 
+
+Mobile Proxy – IP Extraction
+
+Hong Kong, Macau, and Taiwan regions require real-name verification before usage.
+
+This section introduces how to quickly extract dynamic residential IPs.
+
+Extraction Format:UserID-SecurityPolicyUsername:SecurityPolicyPassword-CountryISOCode-RandomSession-IPRotationInterval@mobile.kookeey.info:1086
+
+Extraction Parameter Details
+
+Parameter	Type	Description	Example
+UserID	int	User ID	123456789
+Security Policy Username	string	Username of the user's global security policy	abcdefg
+Security Policy Password	string	Password of the user's global security policy	abcdefg1234
+Country ISO Code	string	Standard country ISO code. Supports precise regional targeting.Use 'global' for global mixed routing.Hong Kong, Macau, and Taiwan regions require real-name verification.	US
+Random Session	string	Random string, 8 characters [Optional parameter].If not provided, IP will switch on every request.	12345678
+IP Rotation Interval	string	IP rotation time interval [Optional parameter].
+5m: auto-rotate every 5 minutes
+1h: auto-rotate every 1 hour
+If not provided, IP remains sticky.	5m / 1h
+mobile.kookeey.info	string	Default gateway	mobile.kookeey.info
+Country ISO Code Parameter Rules
+
+Format	Example	Description
+{countrycode}	US	Country-level targeting
+{countrycode}_{regioncode}	US_California	State-level targeting
+{countrycode}_{regioncode}_city_{citycode}	US_California_city_LosAngeles	City-level targeting: If city code is invalid, falls back to state-level. If state code is invalid, falls back to country-level.
+{countrycode}_city_{citycode}	US_city_LosAngeles	City-level targeting: Equivalent to US_random_city_LosAngeles
+ 
+
+EXAMPLE:
+
+Usage Examples
+
+US, switch on every request: 123456789-abcdef:12345678-US@mobile.kookeey.info:1086
+
+Global mixed routing, switch on every request: 123456789-abcdef:12345678-global@mobile.kookeey.info:1086
+
+US, sticky session: 123456789-abcdef:12345678-US-71261427@mobile.kookeey.info:1086
+
+US, auto-rotate every 5 minutes: 123456789-abcdef:12345678-US-86822206-5m@mobile.kookeey.info:1086
+
+US, auto-rotate every 1 hour: 123456789-abcdef:12345678-US-86822206-86822206-1h@mobile.kookeey.info:1086
+
+US_California, sticky session: 123456789-abcdef:12345678-US_California-86822206@mobile.kookeey.info:1086
+
+US_California_city_LosAngeles, sticky session:123456789-abcdef:12345678-US_California_city_LosAngeles-86822206@mobile.kookeey.info:1086
+
+ 
+
+Dynamic IP Switching
+
+Hong Kong, Macau and Taiwan regions need to first verify their real names before they can use the account
+
+This section introduces how to actively switch exit IPs for dynamic extraction mode by constructing URL links for integration with third-party software
+
+API Endpoint:/clientapi/chgsessionip?uid=UserID&token=DeveloperToken&geo=CountryISO
+
+Parameter Details:
+
+Parameter	Type	Description	Example
+uid	int	User ID	5201314
+token	string	MD5-hashed developer token (32 lowercase)	abcdefg
+geo	string	Country ISO code	US /US_Washington
+Hong Kong, Macau and Taiwan regions need to first verify their real names before they can use the account
+session	string	Session to switch[Optional]	12344524567
+client_ip	string	Client IP for whitelist mode[Optional]	127.0.0.1
+port	string	Gateway port for whitelist mode[Optional]	102.113.11.2:1234
+EXAMPLE:
+
+With session (password mode): https://kookeey.com/clientapi/chgsessionip?uid=5288&token=abcdefg&geo=US&session=12344524567
+With client IP and port (whitelist mode): https://kookeey.com/clientapi/chgsessionip?uid=5288&token=abcdefg&geo=US&client_ip=127.0.0.1&port=102.113.11.2:1234
+ 
+
+Available Proxy Type IDs
+
+ 
+
+Related Interfaces: [Region Query] [Port List]
+
+Related Data Structures: [Region/Type Object ]
+
+ID	Description
+1	Static Data Center
+2	Dynamic Residential
+4	Static ISP Residential
+ 
+
+Available Acceleration Cities
+
+ 
+
+sp	Acceleration City
+0	Native
+1	Hong Kong
+2	Bangkok
+5	Los Angeles
+ 
+
+
+kookeey is a leading IP proxy provider dedicated to delivering premium network resources and professional support.
+
+Leveraging an extensive, ethically sourced global infrastructure, we empower our partners to unlock sustainable competitive advantages at scale.
+
+Proxies
+Static ISP Proxies
+Static Datacenter Proxies
+Residential Proxies
+Mobile Proxies
+Resources
+Blog
+Developer API
+Documentation
+FAQ
+Legal
+Privacy Policy
+Legal Notices
+Refund Policy
+Company
+Affiliate
+Contact Us
+About Us
+Authentication
+
+Contact Service
+
+WeChat Official Account
+
+WeChat
+
+Telegram
+
+Enterprise Service
+
+
+
+Back to Home
+API Usage Instructions
+
+Order
+
+Line
+
+Line Information
+Line List
+Resume/Disable
+Batch Resume/Disable
+Batch Modify Line Bandwidth Specification (Pre-check)
+Release Dynamic IP Pool
+Batch Release Dynamic IP Pool
+Modify IP Rotation Cycle
+Modify Auto Renew
+Set Independent Credentials
+Usage Query
+Batch Switch Dynamic IP
+Set Line Remark
+Batch Set Line Remark
+Get IP
+Security Policy
+
+Account
+
+API Version Updates
+
+kkoip
+
+Line Information
+
+Interface：/pi?p=LineID
+
+Interface returns line information
+
+Request Parameters
+
+Parameter	Type	Description	Example
+p	int	Line ID	462084126
+sa	int	Include auth info for each line[Optional]	1: Yes
+Not provided by default
+c	int	Include exit IP info[Optional]	1: Yes
+Not provided by default
+Response Data
+
+Type: Object (Line Information)
+
+Property	Type	Description	Example
+portid	int	Line ID	2300790
+protocol	string	Line protocol	socks5
+proxyip	string	IP address	107.151.187.174
+proxyport	int	Port	64825
+share	string	Line sharing mode	dedicated / share
+rotate_mode	int	IP switching mode	1: Sticky / 2: 30min / 3: 10min / 4: 5min
+Static lines always show 1
+next_changeip_time	int	Dynamic IP manual switch timestamp	1609430400
+Static lines show -
+type	object
+[Type/Region Object]	Order type object	{"id":4,"name":"ISP","cnname":"Static Residential ISP"}
+geo	object
+[Type/Region Object]	Order country object	{"id":566,"name":"US","cnname":"United States"}
+region	object
+[Type/Region Object]	Order region object	{"id":0,"name":"","cnname":""}
+status	string	Line status	Normal/Paused/Expired/Insufficient Balance/Exception
+autorenew	int	Auto-renew configuration	0: Follow global policy
+1: Force enabled
+2: Force disabled
+default_autorenew	int	Global auto-renew policy	0: Disabled
+1: Enabled
+add_time	int	Line creation timestamp	1609430400
+expire_time	int	Line expiration timestamp	1635667562
+ip	string	Current exit IP
+[Optional] Only returned with parameter	192.168.1.1
+Shows - for paused/expired lines
+defaultauth	int	Use global credentials
+[Optional] Only returned with parameter	0: No, uses independent credentials
+1: Yes
+authstr	string	Connection credentials
+[Optional] Only returned with parameter	username:password (e.g., aaaaaaaa:bbbbbbbb)
+Shows - for paused/expired lines
+remark	string	Line remark
+[Optional] Only returned with parameter	Test purpose
+PHP Example: '/pi?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'p=462084126&ts=1609430400', '1234567ABCDEFG', false)).'&p=462084126&ts=1609430400'
+Response Example: /pi?accessid=1&signature=NGRmMDMzYjljNDk0MWVjYTk4MWVhZjJkYTNhZWYyZmQ3YTAzM2IyZg==&p=462084126&ts=1609430400
+{"success":true,"data":{"portid":462084126,"protocol":"socks5","proxyip":"107.151.187.174","proxyport":64825,"share":"dedicated","rotate_mode":1,"type":{"id":2,"name":"RESIDENTIAL","cnname":"Residential Port"},"geo":{"id":433,"name":"US","cnname":"United States"},"region":{"id":0,"name":"","cnname":""},"status":"正常","autorenew":0,"add_time":1635581163,"expire_time":1635667562,"default_renew":0},"msg":"Operation successful","code":0}
+
+ 
+
+ 
+
+Line List
+
+Interface:/pl?t=Line Type&g=Region ID&p=Page Number
+
+Interface returns line information list
+
+Request Parameters
+
+Parameter Name	Type	Description	Example
+t	int	Line Type	2 
+[Currently Supported Proxy Types]
+g	int	Region ID[Optional Parameter]	433 
+0 means no limit
+p	int	Query Page Number	1
+s	int	Line Status[Optional Parameter]	1: Normal 
+2: Manual Disable 
+3: Expired 
+Default is all status
+a	string	Line Account and Password[Optional Parameter]	Query lines with specific username/password authentication, supports fuzzy search
+o	int	Associated Order ID[Optional Parameter]	111111111, Exact Match
+ip	string	Exit/Line IP Query Line, Supports Fuzzy Search[Optional Parameter]	1.2.3.4 / 1.2.3, Supports Fuzzy Search
+c	int	Whether to append line exit IP information[Optional Parameter]	1: Yes 
+Default is not returned
+sa	int	Whether to append each line account and password authentication, bandwidth, UDP, etc.附加信息[可选参数]	1: Yes 
+Default is not returned
+Result Data
+
+Type: Object (List Information)
+
+Property	Type	Description	Example
+page	int	Current Page Number	1
+page_size	int	Number of Data per Page	10
+total	int	Total Data Quantity	2
+total_page	int	Total Number of Pages	1
+list	array Object Array 
+[Line Information Object]	Result Data	[{Line Information Object},{Line Information Object}...]
+Type: Object (Result Data)
+
+Property	Type	Description	Example
+portid	int	Line ID	2070871534
+proxyip	string	Server IP	102.129.224.117
+protocol	string	Line Protocol	socks5
+proxyport	int	Port	28448
+share	string	Line Shared Mode	dedicated / share
+rotate_mode	int	IP Switching Mode	1: Sticky / 2: 30min / 3: 10min / 4: 5min 
+Static line this value is always 0
+type	object 
+[Type/Region Object ]	Order Selected Type Object	{"id": 1,"name": "STATIC","cnname": "Static Data Center"}
+geo	object 
+[Type/Region Object ]	Order Selected Country Object	{"id": 433,"name": "US","cnname": "United States"}
+region	object 
+[Type/Region Object ]	Order Selected Region Object	{"id": 2174,    "name": "Arkansas",    "cnname": "Arkansas"}
+proxydomain	string	Backbone IP Corresponding Domain Name
+[Optional Parameter] Only returned with parameter	us7.kookeey.info
+spip	string	Acceleration Entry IP
+[Optional Parameter] Only returned with parameter	122.10.197.112
+spdomain	string	Acceleration Entry IP Corresponding Domain Name
+[Optional Parameter] Only returned with parameter	sp-hk1.kookeey.info
+spcity	string	Acceleration Entry City ID
+[Optional Parameter] Only returned with parameter	1
+spcityname	string	Acceleration Entry City Name
+[Optional Parameter] Only returned with parameter	Hong Kong
+spport	string	Acceleration Port
+[Optional Parameter] Only returned with parameter	12288
+status	int	Line Status	Normal/Disabled/Expired/Insufficient Balance/Abnormal
+autorenew	int	Current Renewal Configuration for This Line	0: Follow User Global Renewal Strategy 
+1: This Line Forces Automatic Renewal 
+2: This Line Forces Automatic Renewal Off
+default_autorenew	int	User Global Renewal Strategy for This Type of Line	0: No Automatic Renewal 
+1: Automatic Renewal
+bandwidth	 int	Bandwidth, in Mbps, returned when sa=1
+[Optional Parameter] Only returned with parameter	5
+add_time	int	Line Add Time Stamp	1721792804
+next_changeip_time	int	Dynamic Line Allows Manual Switch IP Time Stamp	1609430400 
+Static line this value is always -
+expire_time	int	Line Expiration Time Stamp	1724384803
+ip	string	Current Exit IP for This Line 
+[Optional Parameter] Only returned with parameter	23.20.13.233
+For paused/expired lines, this value is always -
+defaultauth	 int	Whether This Line Uses Global Connection Account 
+[Optional Parameter] Only returned with parameter	0: No, the line uses independent account 
+1: Yes
+authstr	string	Connection Account for This Line 
+[Optional Parameter] Only returned with parameter	Connection Username: Connection Password (e.g. aaaaaaaa:bbbbbbbb) 
+For paused/expired lines, this value is always -
+udp	int	Whether to Enable UDP, 1 represents enabled, 0 represents disabled
+[Optional Parameter] Only returned with parameter	0
+remark	string	Line Remark 
+[Optional Parameter] Only returned with parameter	Test Use
+ 
+
+PHP Example: '/pl?accessid=1&signature='.base64_encode(hash_hmac("sha1", 't=2&g=0&p=1&ts=1609430400', '1234567ABCDEFG', false)).'&t=2&g=0&p=1&ts=1609430400'
+Example Result: /pl?accessid=1&signature=NzQ0ZWY2ZDk2NjZhNjc2Njk5MzlmMzJmNGUwYzYyMDE2N2JmNjYzOA==&t=2&g=0&p=1&ts=1609430400
+{"success": true,"data": {"page": 1,"page_size": 10,"total": 1,"total_page": 1,"list": [{"portid": 2070871534,"proxyip": "102.129.224.117","proxyport": 28448,"protocol": "socks5","share": "dedicated","rotate_mode": 0,"type": {"id": 1,"name": "STATIC","cnname": "Static Data Center"},"geo": {"id": 433,"name": "US","cnname": "United States"},"region": {    "id": 2174,    "name": "Arkansas",    "cnname": "Arkansas"},"autorenew": 0,"default_autorenew": 0,"status": "正常","status_code": 1,"renew_status": 2,"add_time": 1721792804,"next_changeip_time": "-","expire_time": 1724384803,"ip": "23.20.13.233","authstr": "aaaaaaaa:bbbbbbbb","bandwidth": 5,"udp": 0,"backboneip": "102.129.224.117","proxydomain": "us7.kookeey.info","spcity": 1,"spcityname": "Hong Kong","spip": "122.10.197.112","spdomain": "sp-hk.kookeey.info","spport": 12288,"defaultauth": 0,"remark": "","purpose":8 }]},"msg": "Operation Successful","code": 0}
+
+ 
+
+ 
+
+Resume/Disable
+
+API: /toggle?p=line_id&s=target_status
+
+This API resumes/disables lines
+
+Disable operation only temporarily restricts line connections and does not extend expiration time
+
+Changes take effect in 3 minutes
+
+Request Parameters
+
+Parameter	Type	Description	Example
+p	int	Line ID	2300790
+s	int	Target Status	1: Enable
+2: Disable
+Response Data
+
+Type: string
+
+Description: None
+
+PHP Example: '/toggle?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'p=2300790&s=1&ts=1609430400', '1234567ABCDEFG', false)).'&p=2300790&s=1&ts=1609430400'
+Sample Response: /toggle?accessid=1&signature=NzczOWQ1Y2VmM2E1NWY5MDIyZWE1ZWYwMjBmZGIzMjk1Mjk1YzcyMQ==&p=2300790&s=1&ts=1609430400
+{"success":true,"data":"","msg":"Operation successful","code":0}
+
+ 
+
+ 
+
+Batch Resume/Disable
+
+API: /batchchangestatus?ps=line_ids&s=target_status
+
+This API batch resumes/disables lines
+
+Disable operation only temporarily restricts line connections and does not extend expiration time
+
+Changes take effect in 3 minutes
+
+Request Parameters
+
+Parameter	Type	Description	Example
+ps	string	Line IDs (comma-separated)	2300790,4427674
+s	int	Target Status	1: Enable
+2: Disable
+Response Data
+
+Type: string
+
+Description: None
+
+PHP Example: '/batchchangestatus?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'p=2300790,4427674&s=1&ts=1609430400', '1234567ABCDEFG', false)).'&p=2300790,4427674&s=1&ts=1609430400'
+Sample Response: /batchchangestatus?accessid=1&signature=SQNhNGI5NjY4ZWU3YjM1MThmZGFkZDE0NGIyMmUxZDZkNTljZWI1Ns==&p=2300790,4427674&s=1&ts=1609430400
+{"success":true,"data":"","msg":"Operation successful","code":0}
+
+ 
+
+ 
+
+Batch Modify Line Bandwidth Specification (Pre-check)
+
+Endpoint: /clientapi/checkbatchchangebw?bw=bandwidth_value&ps=line_ids
+
+This interface is used for pre-check before batch adjusting line bandwidth, returning information such as bandwidth, price, and price difference for each line after adjustment.
+
+ 
+
+Request Parameters
+
+Parameter	Type	Description	Example
+bw	int	Adjustment value (bandwidth size, unit: Mbps; -1 for shared bandwidth package)
+
+Adjustable range: [5, 200]	10
+ps	string	Line IDs (comma-separated)	2300790,1323780
+Response Data
+
+Type: Array of objects
+
+Property	Type	Description	Example
+proxy_id	number	Line ID	2300790
+expire_time	number	Line expiration timestamp	1703228526
+current_bandwidth	number	Current line bandwidth	5
+pay_price	number	Original unit price (unit: cents)	4200
+to_bandwidth	number	Adjusted bandwidth value	10
+to_price	number	Adjusted unit price (unit: cents)	9100
+pay_days	number	Purchase days	30
+left_days	number	Remaining days for price difference calculation	29
+need_pay	number	Price difference (unit: cents)	4737
+ 
+
+EXAMPLE:
+
+PHP Example: '/clientapi/checkbatchchangebw?accessid=1&signature='.base64_encode(hash_hmac("sha1",
+'bw=10&ps=2300790,1323780&ts=1609430400', '1234567ABCDEFG', false)).'&bw=10&ps=2300790,1323780&ts=1609430400'
+"{ "success": true, "data": [ { "proxy_id": 2300790, "expire_time": 1703228526, "current_bandwidth": 5, "pay_price": 4200, "to_bandwidth": 10, "to_price": 9100, "pay_days": 30, "left_days": 29, "need_pay": 4737 }, { "proxy_id": 1323780, "expire_time": 1703228526, "current_bandwidth": 5, "pay_price": 4200, "to_bandwidth": 10, "to_price": 9100, "pay_days": 30, "left_days": 29, "need_pay": 4737 } ], "msg": "Operation successful", "code": 0 }"
+
+ 
+
+ 
+
+Release Dynamic IP Pool
+
+Interface: /release?p=line_id
+
+This interface can release unexpired dynamic IP pools in advance
+
+For lines billed by cycle, unconsumed billing cycles will be refunded after release
+
+After releasing the dynamic IP pool, the connected line cannot be recovered
+
+Only available for dynamic lines
+
+The line will be released immediately after modification
+
+Request Parameters
+
+Parameter Name	Type	Description	Example
+p	int	Line ID	2300790
+Response Data
+
+Type: string
+
+Description: None
+
+PHP Example: '/release?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'p=462084126&ts=1609430400', '1234567ABCDEFG', false)).'&p=462084126&ts=1609430400'
+Sample Result: /release?accessid=1&signature=NGRmMDMzYjljNDk0MWVjYTk4MWVhZjJkYTNhZWYyZmQ3YTAzM2IyZg==&p=462084126&ts=1609430400
+{"success":true,"data":"","msg":"Operation succeeded","code":0}
+
+ 
+
+Batch Release Dynamic IP Pool
+
+Interface: /batchrelease?ps=line_id,line_id,line_id,line_id
+
+This interface can release unexpired dynamic IP pools in advance
+
+For lines billed by cycle, unconsumed billing cycles will be refunded after release
+
+After releasing the dynamic IP pool, the connected line cannot be recovered
+
+Only available for dynamic lines
+
+The line will be released immediately after modification
+
+Request Parameters
+
+Parameter Name	Type	Description	Example
+ps	int,int,int,int	Line IDs (separated by English commas, up to 50 IDs supported)	2300790,1323780,3295059,1503589
+Response Data
+
+Type: array [int]
+
+Description: Successfully released line IDs
+
+PHP Example: '/batchrelease?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'ps=2300790,1323780,3295059,1503589&ts=1609430400', '1234567ABCDEFG', false)).'&ps=2300790,1323780,3295059,1503589&ts=1609430400'
+Sample Result: /batchrelease?accessid=1&signature=ZDMwNDIxNTU0OWMwNjdhNTNiNmJiODY0YzA0YTk5NjQzZGMxYTliOA==&ps=2300790,1323780,3295059,1503589&ts=1609430400
+{"success":true,"data":[2300790,1323780,3295059,1503589],"msg":"Operation succeeded","code":0}
+
+ 
+
+Modify IP Rotation Cycle
+
+Interface: /rotate?p=line_id&m=target_rotation_cycle
+
+This interface modifies the IP rotation cycle for lines
+
+Only applicable to dynamic lines
+
+Request Parameters
+
+Parameter	Type	Description	Example
+p	int	Line ID	2300790
+m	int	Target IP rotation cycle	1: Sticky / 2: 30min / 3: 10min / 4: 5min
+Response Data
+
+Type: string
+
+Description: None
+
+PHP Example: '/rotate?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'p=2300790&m=1&ts=1609430400', '1234567ABCDEFG', false)).'&p=2300790&m=1&ts=1609430400'
+Sample Response: /rotate?accessid=1&signature=ZTZjYWI5ZDkzN2Q1OWE2N2VlN2I4MjNlYTQ0MDc0OTc0YjlkOTk5NA==&p=2300790&m=1&ts=1609430400
+{"success":true,"data":"","msg":"Operation successful","code":0}
+
+ 
+
+Modify Auto-Renewal
+
+Interface: /prenew?p=line_id&s=target_renewal_mode
+
+This interface modifies the auto-renewal mode for lines
+
+If configured, it will override the user's global renewal policy
+
+Request Parameters
+
+Parameter	Type	Description	Example
+p	int	Line ID	2300790
+s	int	Target renewal mode	1: Force auto-renewal for this line
+2: Force disable auto-renewal for this line
+Response Data
+
+Type: string
+
+Description: None
+
+PHP Example: '/prenew?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'p=2300790&s=1&ts=1609430400', '1234567ABCDEFG', false)).'&p=2300790&s=1&ts=1609430400'
+Sample Response: /prenew?accessid=1&signature=NzczOWQ1Y2VmM2E1NWY5MDIyZWE1ZWYwMjBmZGIzMjk1Mjk1YzcyMQ==&p=2300790&s=1&ts=1609430400
+{"success":true,"data":"","msg":"Operation successful","code":0}
+
+ 
+
+Set Independent Credentials
+
+Interface: /changeauth?p=line_id&n=username&pwd=password&del=delete_flag
+
+This interface sets independent credentials for a specific line
+
+If configured, it will override the global security policy credentials
+
+This setting only affects credential policies. IP whitelists from global security policy remain effective
+
+If any line has independent credentials, the global "Account Authentication" cannot be disabled. Conversely, if global authentication is disabled, independent credentials cannot be set
+
+Changes take effect within 3 minutes
+
+Request Parameters
+
+Parameter	Type	Description	Example
+p	int	Line ID	2300790
+n	string	Authentication username[Optional]	kookeey (6-16 alphanumeric characters)
+pwd	string	Authentication password[Optional]	12345678 (8-24 alphanumeric characters)
+del	int	Delete independent credentials[Optional]	1: Delete independent credentials and use global credentials
+del parameter and n+pwd parameters are mutually exclusive
+Response Data
+
+Type: string
+
+Description: None
+
+PHP Example: '/changeauth?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'p=2300790&n=kookeey&pwd=12345678&ts=1609430400', '1234567ABCDEFG', false)).'&p=2300790&n=kookeey&pwd=12345678&ts=1609430400'
+Sample Response: /changeauth?accessid=1&signature=ZGU2OTUzM2VmOTE3Y2QyZmM2NGU2Y2QxNWVkY2ZlYjU5NDMxNjZlNg==&p=2300790&n=kookeey&pwd=12345678&ts=1609430400
+{"success":true,"data":"","msg":"Operation successful","code":0}
+
+ 
+
+Usage Query
+
+Interface: /pusage?p=line_id&d=query_date
+
+Returns hourly traffic statistics for the specified line and date
+
+Data has a 2-hour delay
+
+Statistics cached for 15 minutes
+
+Request Parameters
+
+Parameter	Type	Description	Example
+p	int	Line ID	2300790
+d	string	Query date	2021-10-01 (UTC+8 timezone)
+Response Data
+
+Type: Object (Hourly statistics)
+
+Property	Type	Description	Example
+hour	int	Hour	1
+count	int	Traffic volume in KB	2365
+fee	int	Traffic cost in cents	45
+PHP Example: '/pusage?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'p=2300790&d=2021-10-01&ts=1609430400', '1234567ABCDEFG', false)).'&p=2300790&d=2021-10-01&ts=1609430400'
+Sample Response: /pusage?accessid=1&signature=ZTdmNWIxMzQ3NzBlMTk5NGIxZDE3NTVmZTI3OTI4NzY5MDViOTc5ZA==&p=2300790&d=2021-10-01&ts=1609430400
+{"success":true,"data":[{"hour":0,"count":983,"fee":18},{"hour":1,"count":2365,"fee":45},{"hour":2,"count":3072,"fee":58},{"hour":3,"count":3061,"fee":58},{"hour":4,"count":40990,"fee":781},{"hour":5,"count":115650,"fee":2205},{"hour":6,"count":69478,"fee":1325},{"hour":7,"count":72161,"fee":1376},{"hour":8,"count":80046,"fee":1526},{"hour":9,"count":2283,"fee":43},{"hour":10,"count":128215,"fee":2445},{"hour":11,"count":119347,"fee":2276},{"hour":12,"count":82647,"fee":1576},{"hour":13,"count":95703,"fee":1825},{"hour":14,"count":80322,"fee":1532},{"hour":15,"count":74403,"fee":1419},{"hour":16,"count":66201,"fee":1262},{"hour":17,"count":105328,"fee":2008},{"hour":18,"count":54753,"fee":1044},{"hour":19,"count":0,"fee":0},{"hour":20,"count":0,"fee":0},{"hour":21,"count":0,"fee":0},{"hour":22,"count":0,"fee":0},{"hour":23,"count":0,"fee":0}],"msg":"Operation successful","code":0}
+
+ 
+
+Batch Switch Dynamic IP
+
+API: /batchchangeip?ps=line_id,line_id,line_id,line_id
+
+This interface initiates active switching of exit IPs for multiple lines
+
+Single line switching frequency limit: 1 time/minute
+
+Connection interruption may occur during switching (typically ~30 seconds)
+
+Request Parameters
+
+Parameter	Type	Description	Example
+ps	int,int,int,int	Line IDs (comma-separated, up to 50 IDs supported)	2300790,1323780,3295059,1503589
+Response Data
+
+Type: array [int]
+
+Description: Successfully switched line IDs
+
+PHP Example: '/batchchangeip?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'ps=2300790,1323780,3295059,1503589&ts=1609430400', '1234567ABCDEFG', false)).'&ps=2300790,1323780,3295059,1503589&ts=1609430400'
+Sample Response: /batchchangeip?accessid=1&signature=ZDMwNDIxNTU0OWMwNjdhNTNiNmJiODY0YzA0YTk5NjQzZGMxYTliOA==&ps=2300790,1323780,3295059,1503589&ts=1609430400
+{"success":true,"data":[2300790,1323780,3295059,1503589],"msg":"Operation successful","code":0}
+
+ 
+
+Set Line Remark
+
+API: /changeremark?p=line_id&r=remark_content
+
+This interface sets remarks for a specific line
+
+Remark length: 1-50 characters
+
+Request Parameters
+
+Parameter	Type	Description	Example
+p	int	Line ID	2300790
+r	string	Remark content (empty value deletes remark)	test
+Response Data
+
+None
+
+PHP Example: '/changeremark?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'p=2300790&r=test&ts=1609430400', '1234567ABCDEFG', false)).'&p=2300790&r=test&ts=1609430400'
+Sample Response: /changeremark?accessid=1&signature=ODZkZjI5MGIyNzA0MGYxMzdiZmUyN2U1MTA2MDJhZTMwNjIyMDRmMQ==&p=2300790&r=test&ts=1609430400
+{"success":true,"data":"","msg":"Operation successful","code":0}
+
+ 
+
+Batch Set Line Remarks
+
+API: /batchchangeremark?ps=line_id,line_id,line_id,line_id&r=remark_content
+
+This interface sets remarks for multiple lines
+
+Remark length: 1-50 characters
+Request Parameters
+
+Parameter	Type	Description	Example
+ps	int,int,int,int	Line IDs (comma-separated, up to 50 IDs supported)	2300790,1323780,3295059,1503589
+r	string	Remark content (empty value deletes remarks)	helloworld
+Response Data
+
+None
+
+PHP Example: '/batchchangeremark?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'ps=2300790,1323780,3295059,1503589&r=helloworld&ts=1609430400', '1234567ABCDEFG', false)).'&ps=2300790,1323780,3295059,1503589&r=helloworld&ts=1609430400'
+Sample Response: /batchchangeremark?accessid=1&signature=NzA0OTlhZGVjN2EyNjJiY2NiMDhhYjA2YWU5NWVkNjJlZmRlYTc0YQ==&ps=2300790,1323780,3295059,1503589&r=helloworld&ts=1609430400
+{"success":true,"data":"","msg":"Operation successful","code":0}
+
+ 
+
+Get IP
+
+API: /ip?p=line_id
+
+This interface retrieves the current exit IP for a line. Note: IP retrieval uses caching, suitable for static data center/ISP line queries.
+
+For dynamic line IP verification, use third-party checkers like https://checkip.amazonaws.com/ or https://lumtest.com/myip.json
+
+Request Parameters
+
+Parameter	Type	Description	Example
+p	int	Line ID	2300790
+Response Data
+
+Type: string
+
+Description: Current line exit IP
+
+Example: 127.0.0.1
+
+PHP Example: '/ip?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'p=2300790&ts=1609430400', '1234567ABCDEFG', false)).'&p=2300790&ts=1609430400'
+/ip?accessid=1&signature=ZDI0ZjYxODI5MTIzMDViODY0ZTI0YWJhYzUxZDIwNGEyMjEwM2EzMw==&p=2300790&ts=1609430400
+{"success":true,"data":"127.0.0.1","msg":"Operation successful","code":0}
+
+
+ 
+
+
+kookeey is a leading IP proxy provider dedicated to delivering premium network resources and professional support.
+
+Leveraging an extensive, ethically sourced global infrastructure, we empower our partners to unlock sustainable competitive advantages at scale.
+
+Proxies
+Static ISP Proxies
+Static Datacenter Proxies
+Residential Proxies
+Mobile Proxies
+Resources
+Blog
+Developer API
+Documentation
+FAQ
+Legal
+Privacy Policy
+Legal Notices
+Refund Policy
+Company
+Affiliate
+Contact Us
+About Us
+Authentication
+
+Contact Service
+
+WeChat Official Account
+
+WeChat
+
+Telegram
+
+Enterprise Service
+
+
+
+
+Back to Home
+API Usage Instructions
+
+Order
+
+Line
+
+Security Policy
+
+Get
+Set
+Modify Circuit Credentials
+Add Whitelist IP
+Remove Whitelist IP
+Add PAC Blacklist
+Remove PAC Blacklist
+Get PAC Blacklist
+Dynamic Extraction - Add Whitelist IP
+Dynamic Extraction - Get IP Verification Link
+Dynamic Extraction - Retrieve Credentials
+Dynamic Extraction - Modify Credentials
+Account
+
+API Version Updates
+
+kkoip
+
+Security Policies
+
+ 
+
+Get
+
+API:/security?u=developerID
+
+This API returns the user's current security policy configuration.
+
+Request Parameters
+
+Parameter Name	Type	Description	Example
+u	int	Developer ID	1
+Response Data
+
+Type: Object
+
+Attribute	Type	Description	Example
+openauth	int	Credential Authentication	1: Enable / 2: Disable
+openwhiteip	int	IP Whitelist Authentication	1: Enable / 2: Disable
+PHP Example: '/security?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'u=1&ts=1609430400', '1234567ABCDEFG', false)).'&u=1&ts=1609430400'
+Example Result: /security?accessid=1&signature=YWJjNDkyM2M2YTYyOGEyZTIwMzAyOWIyNzliYTkzNmI5Zjg2NTJkZg==&u=1&ts=1609430400
+{"success":true,"data":{"openauth":1,"openwhiteip":1},"msg":"Operation successful","code":0}
+
+ 
+
+Set
+
+API:/mod?i=authenticationMode&t=targetStatus
+
+This API modifies security policies.
+
+Changes take effect within 3 minutes.
+
+Request Parameters
+
+Parameter Name	Type	Description	Example
+i	string	Authentication Mode	openauth: Credential Authentication / openwhiteip: IP Whitelist Authentication
+t	int	Target Status	1: Enable / 2: Disable
+Response Data
+
+Type: string
+
+Description: None
+
+PHP Example: '/mod?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'i=openauth&t=1&ts=1609430400', '1234567ABCDEFG', false)).'&i=openauth&t=1&ts=1609430400'
+Example Result: /mod?accessid=1&signature=NGY4ZWQzNDMxMzQxMzU4YjRmNDUzZDU4NzE3YTdmOWRjOTgyOGQzYQ==&i=openauth&t=1&ts=1609430400
+{"success":true,"data":"","msg":"Operation successful","code":0}
+
+ 
+
+Modify Line Credentials
+
+API:/auth?n=authUsername&p=authPassword
+
+This API modifies the user's global account password.
+
+Changes take effect within 3 minutes.
+
+Request Parameters
+
+Parameter Name	Type	Description	Example
+n	string	Authentication Username	kookeey (6-16 digits or letters)
+p	string	Authentication Password	12345678 (8-24 digits or letters)
+Response Data
+
+Type: string
+
+Description: None
+
+PHP Example: '/auth?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'n=kookeey&p=12345678&ts=1609430400', '1234567ABCDEFG', false)).'&n=kookeey&p=12345678&ts=1609430400'
+Example Result: /auth?accessid=1&signature=YmJmMDhlMTg4Njc3YzA3ZTViNmE0MTNlNjRiZTI1MTVlZGYwNzcxZQ==&n=kookeey&p=12345678&ts=1609430400
+{"success":true,"data":"","msg":"Operation successful","code":0}
+
+ 
+
+Add Whitelist
+
+API:/addwhite?ip=ipv4Address
+
+This API adds an IP to the whitelist.
+
+Changes take effect within 3 minutes.
+
+Request Parameters
+
+Parameter Name	Type	Description	Example
+ip	string	IPv4 Address	192.168.1.1
+Response Data
+
+Type: string
+
+Description: None
+
+PHP Example: '/addwhite?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'ip=192.168.1.1&ts=1609430400', '1234567ABCDEFG', false)).'&ip=192.168.1.1&ts=1609430400'
+Example Result: /addwhite?accessid=1&signature=ZTBlYTk4NTljMzViYzIzODE4M2QzMDU4ZTNhZDMwMmQ2OWZkMzMyNw==&ip=192.168.1.1&ts=1609430400
+{"success":true,"data":"","msg":"Operation successful","code":0}
+
+ 
+
+Remove Whitelist
+
+API:/delwhite?ip=ipv4Address
+
+This API removes an IP from the whitelist.
+
+Changes take effect within 3 minutes.
+
+Request Parameters
+
+Parameter Name	Type	Description	Example
+ip	string	IPv4 Address	192.168.1.1
+Response Data
+
+Type: string
+
+Description: None
+
+PHP Example: '/delwhite?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'ip=192.168.1.1&ts=1609430400', '1234567ABCDEFG', false)).'&ip=192.168.1.1&ts=1609430400'
+Example Result: /delwhite?accessid=1&signature=ZTBlYTk4NTljMzViYzIzODE4M2QzMDU4ZTNhZDMwMmQ2OWZkMzMyNw==&ip=192.168.1.1&ts=1609430400
+{"success":true,"data":"","msg":"Operation successful","code":0}
+
+ 
+
+
+Add PAC Blacklist
+
+API:/addpacb?domain=domainName
+
+This API adds a domain to the PAC blacklist.
+
+Domain names must not contain special characters and should not include http(s)://. The system will match all subdomains under the domain. For example, configuring google.com will also block mail.google.com and accounts.google.com.
+
+Changes take effect within 3 minutes.
+
+Request Parameters
+
+Parameter Name	Type	Description	Example
+domain	string	Domain Name	kookeey.com
+Response Data
+
+Type: string
+
+Description: None
+
+PHP Example: '/addpacb?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'domain=kookeey.com&ts=1609430400', '1234567ABCDEFG', false)).'&domain=kookeey.com&ts=1609430400'
+Example Result: /addpacb?accessid=1&signature=MjBiOThlNGQ0NDM1MTE2ODg0ZmI2YjljMmNmN2JlOGM2Nzc2MTgxOA==&domain=kookeey.com&ts=1609430400
+{"success":true,"data":"","msg":"Operation successful","code":0}
+
+ 
+
+Remove PAC Blacklist
+
+API:/delpacb?domain=domainName
+
+This API removes a domain from the PAC blacklist.
+
+Domain names must not contain special characters and should not include http(s)://.
+
+Changes take effect within 3 minutes.
+
+Request Parameters
+
+Parameter Name	Type	Description	Example
+domain	string	Domain Name	kookeey.com
+Response Data
+
+Type: string
+
+Description: None
+
+PHP Example: '/delpacb?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'domain=kookeey.com&ts=1609430400', '1234567ABCDEFG', false)).'&domain=kookeey.com&ts=1609430400'
+Example Result: /delpacb?accessid=1&signature=MjBiOThlNGQ0NDM1MTE2ODg0ZmI2YjljMmNmN2JlOGM2Nzc2MTgxOA==&domain=kookeey.com&ts=1609430400
+{"success":true,"data":"","msg":"Operation successful","code":0}
+
+ 
+
+Get PAC Blacklist List
+
+API:/pacb
+
+This API retrieves the current PAC blacklist configuration.
+
+Request Parameters
+
+None
+
+Response Data
+
+Type: string
+
+Description: None
+
+PHP Example: '/pacb?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'ts=1609430400', '1234567ABCDEFG', false)).'&ts=1609430400'
+Example Result: /pacb?accessid=1&signature=ZDk4YmRiYzllYjQzNzhkNjIwMDg1YTQzYzM2NzcwZTQzODQ4ZTNkZQ==&ts=1609430400
+{"success":true,"data":["kookeey.com"],"msg":"Operation successful","code":0}
+
+ 
+
+Dynamic Extraction Mode - Add Whitelist IP
+
+API:/addreswip? ip=ipv4Address & slock=securityLockStatus
+
+This API adds a non-China mainland IPv4 address to the whitelist.
+
+Request Parameters
+
+Parameter Name	Type	Description	Example
+ip	string	IPv4	45.153.129.73
+slock	int	Security Lock Status, 1 for enable, 0 for disable	1
+Response Data
+
+Type: string
+
+Description: None
+
+PHP Example: '/addreswip?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'ip=45.153.129.73&slock=1&ts=1609430400', '1234567ABCDEFG', false)).'&ip=45.153.129.73&slock=1&ts=1609430400'
+Example Result: /addreswip?accessid=1&signature=MjBiOThlNGQ0NDM1MTE2ODg0ZmI2YjljMmNmN2JlOGM2Nzc2MTgxOA==&ip=45.153.129.73&slock=1&ts=1609430400
+{"success":true,"data":"","msg":"Operation successful","code":0}
+
+ 
+
+Dynamic Extraction Mode - Get Whitelist IP Verification Link
+
+API:/authreswiplink? ip=ipv4Address
+
+This API returns a verification link valid for 15 minutes.
+
+Request Parameters
+
+Parameter Name	Type	Description	Example
+ip	string	IPv4	45.153.129.73
+Response Data
+
+Type: Object
+
+Attribute	Type	Description	Example
+data	string	Verification Link (valid for 15 minutes)	https://www.kookeey.com/clientapi/authreswhiteip?aut=MTUwODY2dsafagggdagDE3MjMxNzYxNTYuMTEyNw==
+PHP Example: '/authreswiplink?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'ip=45.153.129.73&ts=1609430400', '1234567ABCDEFG', false)).'&ip=45.153.129.73&ts=1609430400'
+Example Result: /authreswiplink?accessid=1&signature=MjBiOThlNGQ0NDM1MTE2ODg0ZmI2YjljMmNmN2JlOGM2Nzc2MTgxOA==&ip=45.153.129.73&ts=1609430400
+{   "success": true,   "data": "https://www.kookeey.com/clientapi/authreswhiteip?aut=MTUwODY2dsafagggdagDE3MjMxNzYxNTYuMTEyNw==",   "msg": "Operation successful",   "code": 0 }
+
+ 
+
+Dynamic Extraction Mode - Get Credentials
+
+API：/resauth
+
+This API retrieves the username and password for the line.
+
+Request Parameters
+
+None
+
+Response Data
+
+Type: string
+
+Description: None
+
+PHP Example: '/resauth?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'ts=1609430400', '1234567ABCDEFG', false)).'&ts=1609430400'
+Example Result: /resauth?accessid=1&signature=ZDk4YmRiYzllYjQzNzhkNjIwMDg1YTQzYzM2NzcwZTQzODQ4ZTNkZQ==&ts=1609430400
+{"success": true,"data": {"authname": "123456abc","authpwd": "123456abc"},"msg": "Operation successful","code": 0}
+
+ 
+
+Dynamic Extraction Mode - Modify Credentials
+
+API：/chgresauth?n=username&p=password
+
+This API modifies the username and password for dynamic extraction mode lines.
+
+Request Parameters
+
+Parameter Name	Type	Description	Example
+n	string	Username	123456abc (6-16 digits or letters)
+p	string	Password	123456abc (8-24 digits or letters)
+Response Data
+
+Type: string
+
+Description: None
+
+PHP Example: '/chgresauth?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'n=kookeey&p=123456abc&ts=123456abc', '1234567ABCDEFG', false)).'&n=kookeey&p=123456abc&ts=123456abc'
+Example Result: /chgresauth?accessid=1&signature=YmJmMDhlMTg4Njc3YzA3ZTViNmE0MTNlNjRiZTI1MTVlZGYwNzcxZQ==&n=123456abc&p=123456abc&ts=1609430400
+{"success": true,"data": "","msg": "Operation successful","code": 0}
+
+ 
+
+
+kookeey is a leading IP proxy provider dedicated to delivering premium network resources and professional support.
+
+Leveraging an extensive, ethically sourced global infrastructure, we empower our partners to unlock sustainable competitive advantages at scale.
+
+Proxies
+Static ISP Proxies
+Static Datacenter Proxies
+Residential Proxies
+Mobile Proxies
+Resources
+Blog
+Developer API
+Documentation
+FAQ
+Legal
+Privacy Policy
+Legal Notices
+Refund Policy
+Company
+Affiliate
+Contact Us
+About Us
+Authentication
+
+Contact Service
+
+WeChat Official Account
+
+WeChat
+
+Telegram
+
+Enterprise Service
+
+
+
+
+Back to Home
+API Usage Instructions
+
+Order
+
+Line
+
+Security Policy
+
+Account
+
+Balance
+Dynamic Package Remaining
+Traffic Usage Details
+Traffic Usage Details Export
+Create Subaccount
+Sub-Account List
+Delete Sub-Account Binding
+Traffic Change Records
+API Version Updates
+
+kkoip
+
+Account
+
+ 
+
+Balance
+
+Interface:/info?u=Developer ID
+
+This interface returns the current balance information of the user
+
+Request Parameters
+
+Parameter Name	Type	Description	Example
+u	int	Developer ID	1
+Result Data
+
+Type: Object
+
+Attribute	Type	Description	Example
+balance	int	Current account balance, in cents	548
+uncount	int	Undeducted traffic fees in the account balance, in cents	10
+ 
+
+PHP Example: '/info?accessid=1&signature='.base64_encode(hash_hmac("sha1",'u=1&ts=1609430400', '1234567ABCDEFG', false)).'&u=1&ts=1609430400'
+Example Result:    /info?accessid=1&signature=YWJjNDkyM2M2YTYyOGEyZTIwMzAyOWIyNzliYTkzNmI5Zjg2NTJkZg==&u=1&ts=1609430400
+ 
+
+{"success":true,"data":{"balance":548,"uncount":10},"msg":"Operation successful","code":0}
+
+ 
+
+ 
+
+Dynamic Package Remaining
+
+Interface:/package
+
+This interface returns the dynamic package balance information of the current user
+
+Request Parameters
+
+Parameter Name	Type	Description	Example
+t	int	Traffic type	2 => Residential Proxy (Dynamic)
+3 => Mobile Proxy
+Default is 2 if not specified.
+Result Data
+
+Type: Object
+
+Attribute	Type	Description	Example
+package	object
+[Traffic Package Object ]	Traffic package object	{"id":1,"type":2,"name":"Primary Package","traffic":1,"threads":30,"period":30,"rawprice":5800}
+traffic_left	float	Current remaining available traffic, in GB	1
+traffic_total	float	Total recharged traffic under the current package, in GB
+This data accumulates when the user purchases multiple traffic packages before the package expires	1
+thread_total	float	Total available independent lines in the package	30
+thread_left	int	Current remaining available independent line limit	30
+expire_time	int	Package expiration timestamp	1685869185
+ 
+
+PHP Example: '/package?accessid=1&signature='.base64_encode(hash_hmac("sha1",'u=1&ts=1609430400', '1234567ABCDEFG', false)).'&u=1&ts=1609430400'
+Example Result:    /package?accessid=1&signature=YWJjNDkyM2M2YTYyOGEyZTIwMzAyOWIyNzliYTkzNmI5Zjg2NTJkZg==&u=1&ts=1609430400
+ 
+
+{"success":true,"data":{"package":{"id":1,"type":2,"name":"Primary Package","traffic":1,"threads":30,"period":30,"rawprice":5800},"traffic_left":1,"traffic_total":1,"thread_total":30,"thread_left":30,"expire_time":1685869185},"msg":"Operation successful","code":0,"debug_log":[]}
+
+ 
+
+Traffic Usage Details
+
+Interface：/clientapi/tdetail?sdate=Start Date&edate=End Date&gb=Aggregation Type
+
+This interface can query the traffic usage details of the main account and sub-accounts
+
+Request Parameters
+
+Parameter Name	Type	Description	Example
+sdate	string	
+Start date for query
+
+2025-03-11
+edate	string	
+End date for query
+
+2025-03-11
+page	int	
+Page number[Optional parameter]
+
+1
+psize	int	
+Items per page (10,20,30,50), default 10[Optional parameter]
+
+10
+gb	string	
+Time aggregation type, d=day, h=hour
+
+“d”
+gbg	int	
+Whether to display detailed region, 1 for displaying detailed region[Optional parameter]
+
+1
+subid	String	Account ID, -1 for main account + sub-accounts, default (0 or empty) for main account only[Optional parameter]	-1
+t	int	Traffic type[Optional parameter]	2 => Residential Proxy (Dynamic)
+3 => Mobile Proxy
+Default is 2 if not specified.
+Result Data
+
+Type: string
+
+Description: Object (list information)
+
+Attribute	Type	Description	Example
+page	int	Current page number	1
+page_size	int	Items per page	10
+total	int	Total number of items	1
+total_page	int	Total number of pages	1
+time	string	Data date	2025-03-11
+uid	number	User ID	1234567
+username	string	Username	kookeey
+geo	string	Country	GLOBAL
+count	string	Traffic consumed	4.68 GB
+PHP Example: '/clientapi/tdetail?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'sdate=2023-07-10&edate=2023-07-10&gb=d&ts=1609430400', '1234567ABCDEFG', false)).'&sdate=2023-07-10&edate=2023-07-10&gb=d&ts=1609430400'
+Example Result: /clientapi/tdetail?accessid=1&signature=YmJmMDhlMTg4Njc3YzA3ZTViNmE0MTNlNjRiZTI1MTVlZGYwNzcxZQ==&sdate=2023-07-10&edate=2023-07-10&gb=d&ts=1609430400
+{"success":true,"data":{"page":1,"page_size":10,"total":2,"total_page":1,"list":[{"time":"2025-03-11","uid":1234567,"geo":"GLOBAL","region":"","count":"4.68 GB","username":"kookeey"},{"time":"2025-03-11","uid":1234568,"geo":"GLOBAL","region":"","count":"8.27 GB","username":"kookeey2"}]},"msg":"Operation successful","code":0}
+
+ 
+
+Traffic Usage Details Export
+
+Interface：clientapi/tdetailex
+
+This interface returns the dynamic package balance information of the current user
+
+Request Parameters
+
+Parameter Name	Type	Description	Example
+sdate	string	Start date for query	2024-11-1
+edate	string	End date for query	2024-11-11
+gb	string	Time aggregation type,
+d=day, h=hour	d
+gb2	string	Detailed information aggregation[Optional parameter]
+Optional: geo=Region, mode=Usage Mode, proxy=Line ID	geo,mode,proxy
+t	int	Traffic type[Optional parameter]	2 => Residential Proxy (Dynamic)
+3 => Mobile Proxy
+Default is 2 if not specified.
+Result Data
+
+This interface has no JSON response; a .csv file will be downloaded automatically upon successful request
+
+PHP Example: '/tdetailex?accessid=1&signature='.base64_encode(hash_hmac("sha1",'sdate=2024-11-1&edate=2024-11-11&gb=d&ts=1609430400', '1234567ABCDEFG', false)).'&sdate=2024-11-1&edate=2024-11-11&gb=d&ts=1609430400'
+Example Result:/tdetailex?accessid=1&signature=YWJjNDkyM2M2YTYyOGEyZTIwMzAyOWIyNzliYTkzNmI5Zjg2NTJkZg==&sdate=2024-11-1&edate=2024-11-11&gb=d&ts=1609430400
+ 
+
+ 
+
+Create Sub-Account
+
+Interface：/addaccount?u=Username&e=User Email&md5p=MD5-encrypted Password
+
+This interface is used to create sub-accounts under the agent's account
+
+Created sub-accounts are activated by default and can be used to log in to the user backend
+
+Username and email parameters are checked for duplication; at least one is required
+
+Only agent accounts can call this interface
+
+Request Parameters
+
+Parameter Name	Type	Description	Example
+u	string	Username[Optional parameter]
+6-32 digits or letters
+Defaults to user email if not provided	testuser
+e	string	User email	test@kookeey.com
+md5p	string	MD5-encrypted password	3b3e9bf9e01962fe4fb9ef658533392e
+showrepeat
+
+int
+
+Whether to show duplicate information[Optional parameter]
+
+1: Returns duplicate user information if the username already exists under the agent
+≠1: Returns error code 20004 for duplicates
+
+1
+
+Result Data
+
+Type: Object
+
+Attribute	Type	Description	Example
+id	int	User ID	12345678
+token	string	User's developer token	1234567ABCDEFG
+repeat
+
+int
+
+Whether it is a duplicate user
+
+1: Username already exists under the agent; 0: New user for the agent
+Only displayed when showrepeat=1; returns error code 20004 for duplicates if showrepeat≠1
+
+0
+
+ 
+
+PHP Example: '/addaccount?accessid=1&signature='.base64_encode(hash_hmac("sha1",'u=testuser&e=test@kookeey.com&md5p=3b3e9bf9e01962fe4fb9ef658533392e&ts=1609430400', '1234567ABCDEFG', false)).'&u=testuser&e=test@kookeey.com&md5p=3b3e9bf9e01962fe4fb9ef658533392e&ts=1609430400'
+Example Result:    /addaccount?accessid=1&signature=NjkyNTdkNTRmODhhZDlhOWE2Y2U4ZDI2ZmVkYjkzOGJmOGYyMmYyNw==&u=testuser&e=test@kookeey.com&md5p=3b3e9bf9e01962fe4fb9ef658533392e&ts=1609430400
+ 
+
+{"success":true,"data":{"id":12345678,"token":"1234567ABCDEFG","repeat":0},"msg":"Operation successful","code":0}
+
+ 
+
+ 
+
+ 
+
+Sub-Accounts
+
+Interface:clientapi/subaccounts
+
+This interface retrieves the list of sub-accounts under the current account
+
+Request Parameters
+
+Parameter Name	Type	Description	Example
+page	int	Page number [optional]	1
+psize	int	Items per page [optional]	10
+Result Data
+
+Type: object
+
+Attribute	Type	Description	Example
+page	int	Page number	1
+page_size	int	Items per page	10
+total	int	Total count	2
+total_page	int	Total pages	1
+list	object []	Array of objects	[{object},{object}...]
+uid	int	User ID	1234567
+authname	String	Default authentication username	1dfd7584
+authpwd	String	Default authentication password	2dfq7584
+status	int	Status: 1 active, 2 deleted, 3 invalid (token refreshed)	1
+dc_proxys	int	Datacenter proxy count	10
+isp_proxys	int	Static residential proxy count	15
+traffic_left	int	Traffic balance	1024
+expire_time	int	Traffic expiration time	1748952407
+remark	String	Remark	111
+示例结果:
+    /subaccounts?accessid=4412414&signature=MDBhMGZQODQ5YzYzlTc1ODNhYTc1OGIwOWVhMGFlNTNhYzJiZDRiZQ==&page=1&page_size=10&ts=1745062690
+ 
+
+Delete Sub-Account Binding
+
+Interface:/delsub
+
+This interface removes a sub-account binding relationship
+
+Request Parameters
+
+Headers：
+Parameter Name	Type	Description	Example
+Content-Type	None	None	application/x-www-form-urlencoded
+Body:
+Parameter Name	Type	Description	Example
+to_uid	Text	User ID	None
+Result Data
+
+None
+
+ 
+
+Traffic Change Log
+
+Interface:clientapi/tchglog?sdate=Start Date&edate=End Date
+
+This interface queries the traffic change details under the account
+
+Request Parameters
+
+Parameter Name	Type	Description	Example
+sdate	string	Start date for query	2024-07-01
+edate	string	End date for query	2024-07-12
+page	int	Page number[Optional parameter]	1
+psize	int	Items per page (10,20,30,50), default 10[Optional parameter]	10
+t	string	Type, 'use','buy','send'; defaults to all types if not provided[Optional parameter]	 
+pt	int	Traffic type[Optional parameter]	2 => Residential Proxy (Dynamic)
+3 => Mobile Proxy
+Default is 2 if not specified.
+Result Data
+
+Type: string
+
+Description: Object (list information)
+
+Attribute	Type	Description	Example
+page	int	Current page number	1
+page_size	int	Items per page	10
+total	int	Total number of items	3
+total_page	int	Total number of pages	1
+list	array Object Array 
+[Line Information Object]	Result data	[{Line Information Object},{Line Information Object}...]
+PHP示例: '/tchglog?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'sdate=2023-07-10&edate=2023-07-10&ts=1609430400', '1234567ABCDEFG', false)).'&sdate=2024-07-01&edate=2024-07-12&ts=1609430400'
+示例结果: /tchglog?accessid=1&signature=YmJmMDhlMTg4Njc3YzA3ZTViNmE0MTNlNjRiZTI1MTVlZGYwNzcxZQ==&sdate=2024-07-01&edate=2024-07-12&ts=1609430400
+{ "success": true, "data": {"page": 1, "page_size": 10, "total": 10, "total_page": 1,"list":  
+[ {"date_time": "2024-07-12 14:56:19", "type": "send","amount": "-1 GB","after": "953.65 TB","remark": "ToUid#6465720" }, 
+{"date_time": "2024-07-05 23:59:59","type": "use","amount": "6.45 TB","after": "12.97 TB","remark": "Date#2024-07-05"}, 
+{"date_time": "2024-07-01 08:53:52","type": "buy", "amount": "20 TB", "after": "20 TB","remark": "" }]   
+},   "msg": "操作成功",   "code": 0 }
+
+
+ 
+
+ 
+
+
+kookeey is a leading IP proxy provider dedicated to delivering premium network resources and professional support.
+
+Leveraging an extensive, ethically sourced global infrastructure, we empower our partners to unlock sustainable competitive advantages at scale.
+
+Proxies
+Static ISP Proxies
+Static Datacenter Proxies
+Residential Proxies
+Mobile Proxies
+Resources
+Blog
+Developer API
+Documentation
+FAQ
+Legal
+Privacy Policy
+Legal Notices
+Refund Policy
+Company
+Affiliate
+Contact Us
+About Us
+Authentication
+
+Contact Service
+
+WeChat Official Account
+
+WeChat
+
+Telegram
+
+Enterprise Service
+
+
+
+
+Back to Home
+API Usage Instructions
+
+Order
+
+Line
+
+Security Policy
+
+Account
+
+API Version Updates
+
+kkoip
+
+Request
+Get Authentication Credentials
+Modify Authentication Credentials
+Add Whitelist IP
+Get Whitelist IP Verification Link
+Whitelist Mode - Extract Proxy Lines
+Check Traffic Allocation Eligibility
+Generate Traffic Allocation Order
+Pay for Traffic Allocation Order
+Account Traffic Overview
+Traffic Usage Details
+Traffic Change Records
+Dynamic IP Mode Switch
+Sub-account List
+kkoip
+
+ 
+
+Request
+
+API request path is: https://www.kkoip.com/
+
+All requests use the HTTP GET method
+
+Requests must include 3 fixed parameters: accessid, signature, and ts
+
+The request frequency limit per account is 10 qps/s
+
+https://kkoip.com/method_name?accessid=developer_id&signature=signature_value_of_parameter_string_and_timestamp&ts=request_initiation_timestamp(seconds)
+EXAMPLE:
+
+https://kkoip.com/stock?accessid=1&signature=ZDQyNmExY2FiOWZhNDdiMjAzNTYyYmFhZDZmMWIyNzM4N2FjM2JmMA==&g=433&ts=1609430400
+ 
+
+Get Authentication Credentials
+
+Interface:/security?u=developer_id
+
+This interface returns the user's current authentication credential configuration
+
+Request Parameters
+
+Parameter Name	Type	Description	Example
+u	int	Developer ID	1
+Result Data
+
+Type: Object
+
+Attribute	Type	Description	Example
+authname	string	Authentication Username	kookeey
+authpwd	string	Authentication Password	usertest
+PHP Example: '/security?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'u=1&ts=1609430400', '1234567ABCDEFG', false)).'&u=1&ts=1609430400'
+Example Result: /security?accessid=1&signature=YWJjNDkyM2M2YTYyOGEyZTIwMzAyOWIyNzliYTkzNmI5Zjg2NTJkZg==&u=1&ts=1609430400
+{"success":true,"data":{"authname":"kookeey","authpwd":"usertest"},"msg":"Operation successful","code":0}
+
+ 
+
+Change Authentication Credentials
+
+Interface:/chgsecurity?n=verification_username&p=verification_password
+
+This interface allows modifying the user's authentication password
+
+Request Parameters
+
+Parameter Name	Type	Description	Example
+n	string	Verification Username	123456 (6-16 digits or letters)
+p	string	Verification Password	ABCDEFGH (8-24 digits or letters)
+Result Data
+
+Type: string
+
+Description: None
+
+PHP Example: '/chgsecurity?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'n=123456&p=ABCDEFGH&ts=1609430400', '1234567ABCDEFG', false)).'&n=123456&p=ABCDEFGH&ts=1609430400'
+Example Result: /chgsecurity?accessid=1&signature=YmJmMDhlMTg4Njc3YzA3ZTViNmE0MTNlNjRiZTI1MTVlZGYwNzcxZQ==&n=123456&p=ABCDEFGH&ts=1609430400
+{"success":true,"data":"","msg":"Operation successful","code":0}
+
+ 
+
+kkoip Whitelist Mode - Add Whitelist IP
+
+Interface:/clientapi/addwip?ip=ipv4_address&slock=security_lock_status
+
+This interface adds an IPv4 address to the whitelist
+
+Request Parameters
+
+Parameter Name	Type	Description	Example
+ip	string	IPv4 Address	45.153.129.73
+slock	int	Security lock status, 1 for enabled, 0 for disabled	1
+Result Data
+
+Type: string
+
+Description: None
+
+PHP Example: '/addwip?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'ip=45.153.129.73&slock=1&ts=1609430400', '1234567ABCDEFG', false)).'&ip=45.153.129.73&slock=1&ts=1609430400'
+Example Result: /addwip?accessid=1&signature=MjBiOThlNGQ0NDM1MTE2ODg0ZmI2YjljMmNmN2JlOGM2Nzc2MTgxOA==&ip=45.153.129.73&slock=1&ts=1609430400
+{"success":true,"data":"","msg":"Operation successful","code":0}
+
+ 
+
+kkoip Whitelist Mode - Get Whitelist IP Verification Link
+
+API: /clientapi/authwiplink? ip=ipv4 address
+
+This API returns a verification link that is valid for 15 minutes.
+
+Request Parameters
+
+Parameter Name	Type	Description	Example
+ip	string	IPv4	45.153.129.73
+Result Data
+
+Type: Object
+
+Attribute	Type	Description	Example
+data	string	Verification Link (valid for 15 minutes)	https://www.kookeey.com/clientapi/authreswhiteip?aut=MTUwODY2dsafagggdagDE3MjMxNzYxNTYuMTEyNw==
+PHP Example: '/authwiplink?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'ip=45.153.129.73&ts=1609430400', '1234567ABCDEFG', false)).'&ip=45.153.129.73&ts=1609430400'
+Example Result: /authwiplink?accessid=1&signature=MjBiOThlNGQ0NDM1MTE2ODg0ZmI2YjljMmNmN2JlOGM2Nzc2MTgxOA==&ip=45.153.129.73&ts=1609430400
+{   "success": true,   "data": "https://www.kookeey.com/clientapi/authreswhiteip?aut=MTUwODY2dsafagggdagDE3MjMxNzYxNTYuMTEyNw==",   "msg": "Operation successful",   "code": 0 }
+
+ 
+
+kkoip Whitelist Mode - Extract Proxy Lines
+
+API: /clientapi/wpickip? g=Dynamic Region ID&n=Number of Extractions
+
+This API returns extracted proxy lines. Users must have a verified whitelist IP to obtain data.
+
+Request Parameters：
+
+Parameter Name	Type	Description	Example
+g	int	Dynamic Region ID	433
+n	int	Number of Extractions (1-100, default 10)	2
+Result Data
+
+Type: Object
+
+Attribute	Type	Description	Example
+data	string[]	Line List	["112.118.111.111:7244",
+ “192.168.3.1:7342”]
+PHP Example: '/wpickip?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'g=433&n=2&ts=1609430400', '1234567ABCDEFG', false)).'&g=433&n=2&ts=1609430400'
+Example Result: /wpickip?accessid=1&signature=MjBiOThlNGQ0NDM1MTE2ODg0ZmI2YjljMmNmN2JlOGM2Nzc2MTgxOA==&g=433&n=2&ts=1609430400
+{ "success": true,"data": ["112.118.111.111:7244",“192.168.3.1:7342”],"msg": "Operation successful","code": 0 }
+
+ 
+
+Check Traffic Allocation Eligibility
+
+API：/checkcans?to=Target User ID
+
+This API checks if the current user can allocate traffic and returns verification data.
+If the input user ID is not a sub-account under the proxy account, the toun parameter is required to input the target username.
+
+Request Parameters
+
+Parameter Name	Type	Description	Example
+to	string	Target User ID	2
+Account ID
+toun	string	Target Username (required for verification if not under the proxy account)[Optional Parameter]	username
+Username not under the proxy account
+Result Data
+
+Type: string
+
+Description: Object
+
+Parameter Name	Type	Description	Example
+touid	string	Target User ID	2
+Account ID
+touname	string	Target Username (required for verification if not under the proxy account)[Optional Parameter]	kookeey
+Username not under the proxy account
+PHP Example: '/checkcans?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'to=2&ts=1609430400', '1234567ABCDEFG', false)).'&to=2&ts=1609430400'
+Example Result: /checkcans?accessid=1&signature=YmJmMDhlMTg4Njc3YzA3ZTViNmE0MTNlNjRiZTI1MTVlZGYwNzcxZQ==&to=2&ts=1609430400
+{"success": true,"data": {"touid": 2,"touname": "kookeey"},"msg": "Operation successful","code": 0}
+
+ 
+
+Generate Traffic Allocation Order
+
+API：/checkt?to=Target User ID&n=1
+
+This API generates a traffic allocation order and returns verification data.
+If the input user ID is not a sub-account under the proxy account, the toun parameter is required to input the target username.
+
+Request Parameters
+
+Parameter Name	Type	Description	Example
+to	string	Target User ID	2
+Account ID
+toun	string	Target Username (required for verification if not under the proxy account)[Optional Parameter]	kookeey
+Username not under the proxy account
+n
+
+int
+
+Allocated Traffic (unit: GB, minimum 1)
+
+10
+
+Result Data
+
+Type: string
+
+Description: Object (temporary distribution order)
+
+Parameter Name	Type	Description	Example
+orderid	string	Unprocessed Order ID	87528875283059704393
+touid	string	Target User ID	2
+toun	string	Target Username	kookeey
+balance	string	Current Traffic Balance (formatted with unit)	2.97 TB
+amount	string	Allocated Traffic (formatted with unit)	10 GB
+PHP Example: '/checkt?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'to=2&n=10&ts=1609430400', '1234567ABCDEFG', false)).'&to=2&n=10&ts=1609430400'
+Example Result: /checkt?accessid=1&signature=YmJmMDhlMTg4Njc3YzA3ZTViNmE0MTNlNjRiZTI1MTVlZGYwNzcxZQ==&to=2&n=10&ts=1609430400
+{"success": true,"data": {"orderid": "87528875283059704393","touid": 2,"touname": "kookeey","balance": "2.97 TB","amount": "10 GB"},"msg": "Operation successful","code": 0}
+
+ 
+
+Pay for Traffic Allocation Order
+
+Interface:/pay?o=temporary_order_id
+
+This interface confirms payment for unpaid orders
+Unpaid orders will generate a real order after payment confirmation, and traffic will be allocated to the specified user according to the order information
+If the entered user ID is not a sub-account under the proxy account, the toun parameter must be added to input the target username for secondary verification
+
+Request Parameters
+
+Parameter Name	Type	Description	Example
+o	string	Temporary Order ID	87528875283059704393
+Result Data
+
+Type: string
+
+Description: Object (regional prices)
+
+Parameter Name	Type	Description	Example
+data	string	Order ID	9882721
+PHP Example: '/checkt?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'o=87528875283059704393&ts=1609430400', '1234567ABCDEFG', false)).'&o=87528875283059704393&ts=1609430400'
+Example Result: /checkt?accessid=1&signature=YmJmMDhlMTg4Njc3YzA3ZTViNmE0MTNlNjRiZTI1MTVlZGYwNzcxZQ==&o=87528875283059704393&ts=1609430400
+{"success": true,"data": "9882721","msg": "Operation successful","code": 0}
+
+ 
+
+Account Traffic Overview
+
+Interface:/tinfo
+
+This interface queries the current account's traffic overview
+
+Request Parameters
+
+Description: None
+
+Result Data
+
+Type: string
+
+Description: Object (regional prices)
+
+Parameter Name	Type	Description	Example
+balance	int	Remaining Available Traffic, MB	23155
+today_use	int	Today's Usage, MB	44
+month_use	int	Last 30 Days Usage, MB	190
+PHP Example: '/tinfo?accessid=1&signature='.base64_encode(hash_hmac("sha1", '&ts=1609430400', '1234567ABCDEFG', false)).'&ts=1609430400'
+Example Result: /tinfo?accessid=1&signature=YmJmMDhlMTg4Njc3YzA3ZTViNmE0MTNlNjRiZTI1MTVlZGYwNzcxZQ==&ts=1609430400
+{"success": true,"data": {"balance": 23155,"today_use": 44,"month_use": 190 },"msg": "Operation successful", "code": 0}
+
+ 
+
+Traffic Usage Details
+
+Interface:/tdetail?sdate=start_date&edate=end_date&gb=d
+
+This interface queries the traffic usage details of the account and its sub-accounts
+
+Request Parameters
+
+Parameter Name	Type	Description	Example
+sdate	string	
+Start Date for Query
+
+2025-03-11
+edate	string	
+End Date for Query
+
+2025-03-11
+page	int	
+Page Number[Optional Parameter]
+
+1
+psize	int	
+Items per Page (10,20,30,50), default 10[Optional Parameter]
+
+10
+gb	string	
+Time Aggregation Type, d=day, h=hour
+
+“d”
+gbg	int	
+Whether to Display Detailed Region, 1 indicates display detailed region[Optional Parameter]
+
+1
+subid	String	Account ID, -1 indicates main account + sub-accounts, default shows only main account data if not passed or 0[Optional Parameter]	-1
+Result Data
+
+Type: string
+
+Description: Object (list information)
+
+Attribute	Type	Description	Example
+page	int	Current Page Number	1
+page_size	int	Items per Page	10
+total	int	Total Data Count	1
+total_page	int	Total Pages	1
+time	string	Data Date	2025-03-11
+uid	number	User ID	1234567
+username	string	Username	kookeey
+geo	string	Country	GLOBAL
+count	string	Traffic Consumed	4.68 GB
+PHP Example: '/tdetail?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'sdate=2023-07-10&edate=2023-07-10&gb=d&ts=1609430400', '1234567ABCDEFG', false)).'&sdate=2023-07-10&edate=2023-07-10&gb=d&ts=1609430400'
+Example Result: /tdetail?accessid=1&signature=YmJmMDhlMTg4Njc3YzA3ZTViNmE0MTNlNjRiZTI1MTVlZGYwNzcxZQ==&sdate=2023-07-10&edate=2023-07-10&gb=d&ts=1609430400
+{"success":true,"data":{"page":1,"page_size":10,"total":2,"total_page":1,"list":[{"time":"2025-03-11","uid":1234567,"geo":"GLOBAL","region":"","count":"4.68 GB","username":"kookeey"},{"time":"2025-03-11","uid":1234568,"geo":"GLOBAL","region":"","count":"8.27 GB","username":"kookeey2"}]},"msg":"Operation successful","code":0}
+
+ 
+
+Traffic Change Log
+
+Interface:/tchglog?sdate=start_date&edate=end_date
+
+This interface queries the traffic change details of the account
+
+Request Parameters
+
+Parameter Name	Type	Description	Example
+sdate	string	Start Date for Query	2024-07-01
+edate	string	End Date for Query	2024-07-12
+page	int	Page Number[Optional Parameter]	1
+psize	int	Items per Page (10,20,30,50), default 10[Optional Parameter]	10
+t	string	Type, 'use','buy','send', default all types if not passed[Optional Parameter]	 
+subid	int	Account ID, -1 indicates main account + sub-accounts, default shows only main account data if not passed or 0[Optional Parameter]	-1
+Result Data
+
+Type: string
+
+Description: Object (list information)
+
+Attribute	Type	Description	Example
+page	int	Current Page Number	1
+page_size	int	Items per Page	10
+total	int	Total Data Count	3
+total_page	int	Total Pages	1
+list	array Object Array 
+[Line Information Object]	Result Data	[{Line Information Object},{Line Information Object}...]
+PHP Example: '/tchglog?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'sdate=2023-07-10&edate=2023-07-10&ts=1609430400', '1234567ABCDEFG', false)).'&sdate=2024-07-01&edate=2024-07-12&ts=1609430400'
+Example Result: /tchglog?accessid=1&signature=YmJmMDhlMTg4Njc3YzA3ZTViNmE0MTNlNjRiZTI1MTVlZGYwNzcxZQ==&sdate=2024-07-01&edate=2024-07-12&ts=1609430400
+{ "success": true, "data": {"page": 1, "page_size": 10, "total": 10, "total_page": 1,"list":  
+[ {"date_time": "2024-07-12 14:56:19", "type": "send","amount": "-1 GB","after": "953.65 TB","remark": "ToUid#6465720" }, 
+{"date_time": "2024-07-05 23:59:59","type": "use","amount": "6.45 TB","after": "12.97 TB","remark": "Date#2024-07-05"}, 
+{"date_time": "2024-07-01 08:53:52","type": "buy", "amount": "20 TB", "after": "20 TB","remark": "" }]   
+},   "msg": "Operation successful",   "code": 0 }
+
+ 
+
+ 
+
+Dynamic IP Switching
+
+Hong Kong, Macau and Taiwan regions need to first verify their real names before they can use the account
+
+This section introduces how to actively switch the exit IP of dynamic extraction mode by constructing a URL link, which can be switched on the third-party software to achieve the purpose of switching the exit IP 
+
+Interface Path: /clientapi/chgsessionip?uid=User ID&token=Developer Token&geo=Country ISO Code
+
+Parameter Details
+
+Parameter Name	Type	Description	Example
+uid	int	User ID	5201314
+token	string	Developer Token MD5 Encrypted Format (32-bit [small])	abcdefg
+geo	string	Country ISO Code	US /US_Washington
+Hong Kong, Macau and Taiwan regions need to first verify their real names before they can use the account
+session	string	Session to be switched [Optional Parameter]	12344524567
+client_ip	string	Client IP of Whitelist Mode [Optional Parameter]	127.0.0.1 
+port	string	Line IP: Port of Whitelist Mode [Optional Parameter]	102.113.11.2:1234 
+EXAMPLE:
+
+Account and Password Mode Requires Session
+https://www.kkoip.com/clientapi/chgsessionip?uid=5201314&token=abcdefg&geo=US&session=12344524567 
+Whitelist Mode Requires Client IP and Connection Gateway Port
+
+https://www.kkoip.com/clientapi/chgsessionip?uid=5201314&token=abcdefg&geo=US&client_ip=127
+
+ 
+
+Sub-account List
+
+Endpoint：/clientapi/subaccounts
+
+This interface retrieves the list of sub-accounts under the current account.
+
+Request Parameters
+
+Parameter Name	Type	Description	Example
+is_kkoip	int	
+[Optional] Filter by KKOIP user status.
+0 or not passed: Return all users.
+1: Users who are KKOIP users.
+2: Users who are not KKOIP users.
+
+1
+page	int	
+Page Number.[Optional]
+
+1
+psize	int	
+Number of items per page.[Optional]
+
+10
+Response Data
+
+Type: object
+
+Property	Type	Description	Example
+page	int	Current page number	1
+page_size	int	Number of items per page	10
+total	int	Total number of items	1
+total_page	int	Total number of pages	1
+list	object []	Array of sub-account objects	[{...},{...}...]
+uid	int	User ID	1234567
+name	string	Username	test0108
+authname	string	Default account for security policy	1dfd7584
+authpwd	string	Default password for security policy	2dfq7584
+gateway	object []	Available gateway:port combinations	["gate-hk.kkoip.com:14235","gate-us.kkoip.com:14235"]
+token	string	Developer Token	1234567ABCDEFG
+status	int	Account status
+1: Active,
+2: Deleted,
+3: Invalid (token refreshed),
+-2: Disabled	1
+is_kkoip	number	KKOIP user status
+1: Is a KKOIP user
+2: Is not a KKOIP user	1
+traffic_left	int	Remaining traffic balance (in MB)	101623
+remark	string	Remarks/notes	111
+add_time	number	Account creation time (Unix timestamp)	1748952407
+PHP Example: '/clientapi/subaccounts?accessid=1&signature='.base64_encode(hash_hmac("sha1", 'is_kkoip=1&page=1&psize=10&ts=1609430400', '1234567ABCDEFG', false)).'&is_kkoip=1&page=1&psize=10&ts=1609430400'
+Example Result: /clientapi/subaccounts?accessid=1&signature=129c04d420124db39f4fb4276723b65acf3f6d7a=&is_kkoip=1&page=1&psize=10&ts=1609430400
+{"success":true,"data":{"page":1,"page_size":10,"total":1,"total_page":1,"list":[{"uid":5483598,"authname":"1dfd7584","authpwd":"2dfq7584","gateway":["gate-hk.kkoip.com:14235","gate-us.kkoip.com:14235"],"name":"test0108","token":"1234567ABCDEFG","status":1,"is_kkoip":1,"traffic_left":101623,"remark":"111","add_time":1767009922}]},"msg":"Operation successful","code":0}
+
+ 
+
+ 
+
+
+kookeey is a leading IP proxy provider dedicated to delivering premium network resources and professional support.
+
+Leveraging an extensive, ethically sourced global infrastructure, we empower our partners to unlock sustainable competitive advantages at scale.
+
+Proxies
+Static ISP Proxies
+Static Datacenter Proxies
+Residential Proxies
+Mobile Proxies
+Resources
+Blog
+Developer API
+Documentation
+FAQ
+Legal
+Privacy Policy
+Legal Notices
+Refund Policy
+Company
+Affiliate
+Contact Us
+About Us
+Authentication
+
+Contact Service
+
+WeChat Official Account
+
+WeChat
+
+Telegram
+
+Enterprise Service
+
+
+文档地址：https://www.kookeey.net/apidoc#order-dynamiccity
+
+
+注意：都要完整转义成中文的哈，比如说一些错误响应或者成功响应等等一些数据展示等等的呀
