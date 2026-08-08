@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Ban, CheckCircle2, Copy, KeyRound, LoaderCircle, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { copyText } from "@/lib/clipboard";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -163,10 +164,10 @@ export function UserKeysCard() {
   };
 
   const handleCopy = async (value: string) => {
-    try {
-      await navigator.clipboard.writeText(value);
+    const ok = await copyText(value);
+    if (ok) {
       toast.success("已复制到剪贴板");
-    } catch {
+    } else {
       toast.error("复制失败，请手动复制");
     }
   };

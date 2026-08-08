@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { fetchKookeeyIpUsage, probeKookeeyIps, type KookeeyIpUsageBoard } from "@/lib/api";
 import { httpRequest } from "@/lib/request";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 
@@ -102,6 +103,9 @@ function ProxyPoolContent() {
   const [strategyValue, setStrategyValue] = useState("round_robin");
   // P1-6：删除代理加二次确认（此前直接移除，与 accounts/image-manager/logs 确认模式不一致）
   const [pendingDeleteUrl, setPendingDeleteUrl] = useState<string | null>(null);
+  // v2.10.0：每号粘性 IP 画像
+  const [kookeeyBoard, setKookeeyBoard] = useState<KookeeyIpUsageBoard | null>(null);
+  const [probingKookeey, setProbingKookeey] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -116,11 +120,24 @@ function ProxyPoolContent() {
     }
   }, []);
 
+  const loadKookeeyBoard = useCallback(async () => {
+    try {
+      const board = await fetchKookeeyIpUsage();
+      setKookeeyBoard(board);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "加载 kookeey 画像失败");
+    }
+  }, []);
+
   useEffect(() => {
     void load();
-    const timer = setInterval(() => void load(), 10000);
+    void loadKookeeyBoard();
+    const timer = setInterval(() => {
+      void load();
+      void loadKookeeyBoard();
+    }, 10000);
     return () => clearInterval(timer);
-  }, [load]);
+  }, [load, loadKookeeyBoard]);
 
   const handleAdd = async () => {
     if (!newUrl.trim()) {
@@ -195,6 +212,20 @@ function ProxyPoolContent() {
       }
     } finally {
       setProbing(false);
+    }
+  };
+
+  // v2.10.0：手动探测全部账号出口 IP
+  const handleProbeKookeey = async () => {
+    setProbingKookeey(true);
+    try {
+      const result = await probeKookeeyIps();
+      toast.success(`探测完成：成功 ${result.ok} / 失败 ${result.failed} / 共 ${result.probed}`);
+      await loadKookeeyBoard();
+    } catch (e) {
+      toast.error("探测失败: " + String(e));
+    } finally {
+      setProbingKookeey(false);
     }
   };
 
@@ -401,6 +432,73 @@ function ProxyPoolContent() {
                         <Trash2 className="h-4 w-4 text-rose-500" />
                       </Button>
                     </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      {/* v2.10.0：每号粘性 IP 画像 */}
+      <Card className="rounded-xl border-stone-200 bg-white">
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-base">每号粘性 IP 画像</CardTitle>
+              <p className="mt-1 text-xs text-stone-400">
+                已使用 IP {kookeeyBoard?.used_ip_count ?? 0} · 累计提取 {kookeeyBoard?.total_extracted ?? 0}
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleProbeKookeey}
+              disabled={probingKookeey}
+            >
+              <RefreshCw className="mr-1 h-4 w-4" />
+              {probingKookeey ? "探测中..." : "探测全部出口 IP"}
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>账号邮箱</TableHead>
+                <TableHead>粘性 Session</TableHead>
+                <TableHead>出口 IP</TableHead>
+                <TableHead className="text-right">请求数</TableHead>
+                <TableHead className="text-right">失败数</TableHead>
+                <TableHead className="text-right">最近使用</TableHead>
+                <TableHead className="text-right">最近探测</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {!kookeeyBoard || kookeeyBoard.leaderboard.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="py-8 text-center text-stone-400">
+                    暂无画像数据，等待账号经 kookeey 代理发起请求后自动出现
+                  </TableCell>
+                </TableRow>
+              ) : (
+                kookeeyBoard.leaderboard.map((row) => (
+                  <TableRow key={row.email}>
+                    <TableCell className="max-w-[240px]">
+                      <div className="truncate font-mono text-xs">{row.email}</div>
+                    </TableCell>
+                    <TableCell className="font-mono text-xs text-stone-600">{row.session || "-"}</TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {row.last_ip ? (
+                        <span className="text-emerald-700">{row.last_ip}</span>
+                      ) : (
+                        <span className="text-stone-400">未探测</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right">{row.requests}</TableCell>
+                    <TableCell className="text-right text-rose-600">{row.fail}</TableCell>
+                    <TableCell className="text-right text-xs text-stone-400">{row.last_used_at || "-"}</TableCell>
+                    <TableCell className="text-right text-xs text-stone-400">{row.last_probe_at || "-"}</TableCell>
                   </TableRow>
                 ))
               )}

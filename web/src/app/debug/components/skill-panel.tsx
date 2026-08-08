@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Copy, Download } from "lucide-react";
 import { toast } from "sonner";
+import { copyText } from "@/lib/clipboard";
 
 import { Button } from "@/components/ui/button";
 import webConfig from "@/constants/common-env";
@@ -120,8 +121,8 @@ SKILL.md content:
 ${skillEn}
 \`\`\``, [skillEn]);
 
-  const copyText = async (text: string) => {
-    await navigator.clipboard.writeText(text);
+  const btnCopy = async (text: string) => {
+    await copyText(text);
     toast.success("已复制");
   };
 

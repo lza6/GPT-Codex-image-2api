@@ -16,6 +16,7 @@ import {
   Upload,
 } from "lucide-react";
 import { toast } from "sonner";
+import { copyText } from "@/lib/clipboard";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -384,20 +385,16 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
     }
   };
 
-  // 复制 authorize URL 到剪贴板（适配浏览器和 fallback）
+  // 复制 authorize URL 到剪贴板（http 下用 execCommand fallback）
   const handleCopyAuthorizeUrl = async () => {
     if (!oauthSession) {
       return;
     }
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(oauthSession.authorize_url);
-        toast.success("授权 URL 已复制到剪贴板");
-      } else {
-        toast.error("当前环境不支持自动复制，请手动选择并复制");
-      }
-    } catch {
-      toast.error("复制失败，请手动选择并复制");
+    const ok = await copyText(oauthSession.authorize_url);
+    if (ok) {
+      toast.success("授权 URL 已复制到剪贴板");
+    } else {
+      toast.error("当前环境不支持自动复制，请手动选择并复制");
     }
   };
 

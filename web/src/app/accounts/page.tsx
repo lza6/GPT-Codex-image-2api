@@ -23,6 +23,7 @@ import {
   UserRound,
 } from "lucide-react";
 import { toast } from "sonner";
+import { copyText } from "@/lib/clipboard";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -1276,7 +1277,7 @@ function AccountsPageContent() {
                     type="button"
                     className="inline-flex cursor-pointer items-center rounded-full border border-stone-200 bg-white px-2.5 py-1 text-xs font-medium text-stone-700 transition hover:border-stone-300 hover:bg-stone-50"
                     onClick={() => {
-                      void navigator.clipboard.writeText(model.id);
+                      void copyText(model.id);
                       toast.success("模型名已复制");
                     }}
                     title={`点击复制 ${model.id}`}
@@ -1601,7 +1602,7 @@ function AccountsPageContent() {
                               type="button"
                               className="rounded-lg p-1 text-stone-400 transition hover:bg-stone-100 hover:text-stone-700"
                               onClick={() => {
-                                void navigator.clipboard.writeText(account.access_token);
+                                void copyText(account.access_token);
                                 toast.success("token 已复制");
                               }}
                             >

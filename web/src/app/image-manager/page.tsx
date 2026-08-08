@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight, Copy, Download, ImageIcon, LoaderCircle, Maximize2, Plus, RefreshCw, Search, Tag, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
+import { copyText } from "@/lib/clipboard";
 
 import { DateRangeFilter } from "@/components/date-range-filter";
 import { ImageLightbox } from "@/components/image-lightbox";
@@ -587,7 +588,7 @@ function ImageManagerContent() {
                         size="icon"
                         className="size-8 rounded-lg text-stone-400 hover:bg-stone-100 hover:text-stone-700"
                         onClick={() => {
-                          void navigator.clipboard.writeText(item.url);
+                          void copyText(item.url);
                           toast.success("图片地址已复制");
                         }}
                       >
