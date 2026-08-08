@@ -96,18 +96,17 @@ def create_router(app_version: str) -> APIRouter:
         import os
         from pathlib import Path
 
+        from services.config import DATA_DIR
+
         checks: dict[str, object] = {"storage": False}
-        # 存储可写检查
-        test_path = Path(config.path) if hasattr(config, "path") else None
-        if test_path:
-            try:
-                test_path.parent.mkdir(parents=True, exist_ok=True)
-                probe = test_path.with_name(f".health_probe_{os.getpid()}.tmp")
-                probe.write_text("ok", encoding="utf-8")
-                probe.unlink(missing_ok=True)
-                checks["storage"] = True
-            except Exception as e:
-                checks["storage_error"] = str(e)[:200]
+        # 存储可写检查（DATA_DIR 是运行时数据目录，比 config.path 目录更可靠）
+        try:
+            probe = DATA_DIR / f".health_probe_{os.getpid()}.tmp"
+            probe.write_text("ok", encoding="utf-8")
+            probe.unlink(missing_ok=True)
+            checks["storage"] = True
+        except Exception as e:
+            checks["storage_error"] = str(e)[:200]
         if not all(checks.values()):
             from fastapi import HTTPException
             raise HTTPException(503, {"status": "unhealthy", "checks": checks})
