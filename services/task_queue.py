@@ -1,0 +1,268 @@
+from __future__ import annotations
+
+import enum
+import logging
+import threading
+import time
+import uuid
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
+from typing import Any
+
+logger = logging.getLogger(__name__)
+
+
+class TaskPriority(enum.IntEnum):
+    """任务优先级（数值越小优先级越高）"""
+    CRITICAL = 0   # 用户请求（图片生成）
+    HIGH = 1       # 账号刷新
+    NORMAL = 2     # 日志清理
+    LOW = 3        # 备份
+
+
+TASK_STATUS_PENDING = "pending"
+TASK_STATUS_RUNNING = "running"
+TASK_STATUS_SUCCESS = "success"
+TASK_STATUS_ERROR = "error"
+TASK_STATUS_CANCELLED = "cancelled"
+
+TERMINAL_STATUSES = {TASK_STATUS_SUCCESS, TASK_STATUS_ERROR, TASK_STATUS_CANCELLED}
+
+
+@dataclass
+class Task:
+    """任务单元"""
+    id: str = field(default_factory=lambda: uuid.uuid4().hex[:16])
+    priority: TaskPriority = TaskPriority.NORMAL
+    name: str = ""
+    status: str = TASK_STATUS_PENDING
+    created_at: float = field(default_factory=time.time)
+    started_at: float | None = None
+    completed_at: float | None = None
+    result: Any = None
+    error: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def elapsed(self) -> float | None:
+        if self.started_at is not None and self.completed_at is not None:
+            return self.completed_at - self.started_at
+        if self.started_at is not None:
+            return time.time() - self.started_at
+        return None
+
+
+class TaskQueue:
+    """基于优先级的轻量异步任务队列。
+
+    支持 asyncio 消费者（亦可退化为 threading 模式），
+    优先级调度（同优先级 FIFO），任务状态查询与取消。
+    无外部依赖；需要持久化时可用 Redis 实现替换。
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.RLock()
+        self._tasks: dict[str, Task] = {}
+        # 按优先级分桶，每个桶是 FIFO 列表（存储 task_id）
+        self._queues: dict[int, list[str]] = {
+            TaskPriority.CRITICAL: [],
+            TaskPriority.HIGH: [],
+            TaskPriority.NORMAL: [],
+            TaskPriority.LOW: [],
+        }
+        # 消费者基础设施
+        self._handlers: dict[str, Callable[[Task], Any]] = {}
+        self._stop_event = threading.Event()
+        self._consumer_thread: threading.Thread | None = None
+
+    # ---- 处理器注册 ----
+
+    def register_handler(self, name: str, handler: Callable[[Task], Any]) -> None:
+        """注册任务处理器，消费者出队后按 name 分发。"""
+        self._handlers[name] = handler
+
+    # ---- 消费者生命周期 ----
+
+    def start_consumer(self) -> None:
+        """启动后台消费者线程。"""
+        with self._lock:
+            if self._consumer_thread and self._consumer_thread.is_alive():
+                return
+            self._stop_event.clear()
+            self._consumer_thread = threading.Thread(
+                target=self._consumer_loop,
+                daemon=True,
+                name="task-queue-consumer",
+            )
+            self._consumer_thread.start()
+            logger.info("task queue consumer started")
+
+    def stop_consumer(self, timeout: float = 3.0) -> None:
+        """停止消费者线程。"""
+        self._stop_event.set()
+        with self._lock:
+            thread = self._consumer_thread
+        if thread and thread.is_alive():
+            thread.join(timeout=timeout)
+
+    def _consumer_loop(self) -> None:
+        """消费者主循环：出队 → 查找 handler → 执行 → 标记完成。"""
+        while not self._stop_event.is_set():
+            task = self.dequeue()
+            if task is None:
+                self._stop_event.wait(0.5)
+                continue
+            handler = self._handlers.get(task.name)
+            if handler is None:
+                self.fail(task.id, error=f"no handler registered for task type: {task.name}")
+                continue
+            try:
+                result = handler(task)
+                self.complete(task.id, result=result)
+            except Exception as exc:
+                logger.exception("task %s (%s) failed: %s", task.id, task.name, exc)
+                self.fail(task.id, error=str(exc))
+
+    # ---- 提交 ----
+
+    def enqueue(
+        self,
+        name: str = "",
+        *,
+        priority: TaskPriority = TaskPriority.NORMAL,
+        metadata: dict[str, Any] | None = None,
+        task_id: str | None = None,
+    ) -> str:
+        """提交任务，返回 task_id。"""
+        tid = task_id or uuid.uuid4().hex[:16]
+        task = Task(
+            id=tid,
+            priority=priority,
+            name=name,
+            status=TASK_STATUS_PENDING,
+            metadata=metadata or {},
+        )
+        with self._lock:
+            self._tasks[tid] = task
+            self._queues[int(priority)].append(tid)
+        return tid
+
+    # ---- 消费 ----
+
+    def dequeue(self) -> Task | None:
+        """按优先级获取下一个待执行任务（同优先级 FIFO）。"""
+        with self._lock:
+            for priority in sorted(self._queues):
+                q = self._queues[priority]
+                while q:
+                    tid = q.pop(0)
+                    task = self._tasks.get(tid)
+                    if task is None or task.status == TASK_STATUS_CANCELLED:
+                        continue
+                    if task.status == TASK_STATUS_PENDING:
+                        task.status = TASK_STATUS_RUNNING
+                        task.started_at = time.time()
+                        return task
+                    continue
+        return None
+
+    def dequeue_many(self, max_count: int = 5) -> list[Task]:
+        """批量出队，最多 max_count 个。"""
+        tasks: list[Task] = []
+        for _ in range(max_count):
+            task = self.dequeue()
+            if task is None:
+                break
+            tasks.append(task)
+        return tasks
+
+    # ---- 状态查询 ----
+
+    def status(self, task_id: str) -> Task | None:
+        """查询任务状态。"""
+        with self._lock:
+            return self._tasks.get(task_id)
+
+    def status_batch(self, task_ids: list[str]) -> dict[str, Task | None]:
+        """批量查询任务状态。"""
+        with self._lock:
+            return {tid: self._tasks.get(tid) for tid in task_ids}
+
+    # ---- 取消 ----
+
+    def cancel(self, task_id: str) -> bool:
+        """取消待执行任务。不可取消已在运行的任务。"""
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if task is None:
+                return False
+            if task.status == TASK_STATUS_PENDING:
+                task.status = TASK_STATUS_CANCELLED
+                task.completed_at = time.time()
+                return True
+            return False
+
+    # ---- 完成 ----
+
+    def complete(self, task_id: str, result: Any = None) -> None:
+        """标记任务成功完成。"""
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if task is None:
+                return
+            task.status = TASK_STATUS_SUCCESS
+            task.result = result
+            task.completed_at = time.time()
+
+    def fail(self, task_id: str, error: str = "") -> None:
+        """标记任务失败。"""
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if task is None:
+                return
+            task.status = TASK_STATUS_ERROR
+            task.error = error
+            task.completed_at = time.time()
+
+    # ---- 统计 ----
+
+    def stats(self) -> dict[str, Any]:
+        """队列统计信息。"""
+        with self._lock:
+            running = sum(1 for t in self._tasks.values() if t.status == TASK_STATUS_RUNNING)
+            pending = sum(1 for t in self._tasks.values() if t.status == TASK_STATUS_PENDING)
+            return {
+                "total": len(self._tasks),
+                "pending": pending,
+                "running": running,
+                "success": sum(1 for t in self._tasks.values() if t.status == TASK_STATUS_SUCCESS),
+                "error": sum(1 for t in self._tasks.values() if t.status == TASK_STATUS_ERROR),
+                "cancelled": sum(1 for t in self._tasks.values() if t.status == TASK_STATUS_CANCELLED),
+                "queue_depth": {
+                    "critical": len(self._queues[int(TaskPriority.CRITICAL)]),
+                    "high": len(self._queues[int(TaskPriority.HIGH)]),
+                    "normal": len(self._queues[int(TaskPriority.NORMAL)]),
+                    "low": len(self._queues[int(TaskPriority.LOW)]),
+                },
+            }
+
+    # ---- 清理 ----
+
+    def cleanup(self, max_age_seconds: float = 3600) -> int:
+        """清理超过 max_age_seconds 的终态任务。返回值=清理数。"""
+        cutoff = time.time() - max_age_seconds
+        removed = 0
+        with self._lock:
+            stale = [
+                tid for tid, task in self._tasks.items()
+                if task.status in TERMINAL_STATUSES
+                and (task.completed_at or 0) < cutoff
+            ]
+            for tid in stale:
+                self._tasks.pop(tid, None)
+                removed += 1
+        return removed
+
+
+# 全局单例
+task_queue = TaskQueue()

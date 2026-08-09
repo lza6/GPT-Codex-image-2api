@@ -1,11 +1,72 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Generic, Protocol, TypeVar
+
+T = TypeVar("T")
+
+
+@dataclass
+class Filter:
+    """通用过滤条件"""
+    field: str = ""
+    value: Any = None
+    operator: str = "eq"  # eq, neq, gt, gte, lt, lte, in, contains
+
+    def __init__(self, field: str = "", value: Any = None, operator: str = "eq") -> None:
+        self.field = field
+        self.value = value
+        self.operator = operator
+
+
+@dataclass
+class Page(Generic[T]):
+    """分页结果"""
+    items: list[T]
+    total: int
+    page: int
+    size: int
+
+    @property
+    def pages(self) -> int:
+        return max(1, -(-self.total // max(1, self.size)))
+
+
+class Repository(Protocol[T]):
+    """泛型仓储接口（Protocol 协议，支持鸭子类型）"""
+
+    async def find(self, filter: Filter) -> list[T]:
+        """根据过滤条件查找"""
+        ...
+
+    async def find_one(self, id: str) -> T | None:
+        """根据 ID 查找单个"""
+        ...
+
+    async def create(self, entity: T) -> T:
+        """创建实体"""
+        ...
+
+    async def update(self, id: str, data: dict[str, Any]) -> T:
+        """更新实体"""
+        ...
+
+    async def delete(self, id: str) -> bool:
+        """删除实体"""
+        ...
+
+    async def count(self, filter: Filter) -> int:
+        """计数"""
+        ...
+
+    async def paginate(self, filter: Filter, page: int, size: int) -> Page[T]:
+        """分页查询"""
+        ...
 
 
 class StorageBackend(ABC):
-    """抽象存储后端基类"""
+    """抽象存储后端基类（原有接口，保持向后兼容）"""
 
     @abstractmethod
     def load_accounts(self) -> list[dict[str, Any]]:
@@ -36,3 +97,109 @@ class StorageBackend(ABC):
     def get_backend_info(self) -> dict[str, Any]:
         """获取存储后端信息"""
         pass
+
+
+# ---- 抽象基类实现（方便继承） ----
+
+class AbstractRepository(ABC, Generic[T]):
+    """仓储抽象基类，继承 Repository 协议"""
+
+    @abstractmethod
+    async def find(self, filter: Filter) -> list[T]:
+        ...
+
+    @abstractmethod
+    async def find_one(self, id: str) -> T | None:
+        ...
+
+    @abstractmethod
+    async def create(self, entity: T) -> T:
+        ...
+
+    @abstractmethod
+    async def update(self, id: str, data: dict[str, Any]) -> T:
+        ...
+
+    @abstractmethod
+    async def delete(self, id: str) -> bool:
+        ...
+
+    @abstractmethod
+    async def count(self, filter: Filter) -> int:
+        ...
+
+    @abstractmethod
+    async def paginate(self, filter: Filter, page: int, size: int) -> Page[T]:
+        ...
+
+
+class MockRepository(Generic[T]):
+    """内存仓储（用于测试），实现 Repository 协议"""
+
+    def __init__(self) -> None:
+        self._store: dict[str, T] = {}
+
+    async def find(self, filter: Filter) -> list[T]:
+        if not filter.field:
+            return list(self._store.values())
+        result: list[T] = []
+        for item in self._store.values():
+            if isinstance(item, dict):
+                val = item.get(filter.field)
+            else:
+                val = getattr(item, filter.field, None)
+            if _match_filter(val, filter):
+                result.append(item)
+        return result
+
+    async def find_one(self, id: str) -> T | None:
+        return self._store.get(id)
+
+    async def create(self, entity: T) -> T:
+        if isinstance(entity, dict):
+            eid = entity.get("id") or entity.get("key")
+            if eid:
+                self._store[str(eid)] = entity
+        return entity
+
+    async def update(self, id: str, data: dict[str, Any]) -> T:
+        entity = self._store.get(id)
+        if entity is None:
+            raise ValueError(f"Entity {id} not found")
+        if isinstance(entity, dict):
+            entity.update(data)
+        return entity
+
+    async def delete(self, id: str) -> bool:
+        return self._store.pop(id, None) is not None
+
+    async def count(self, filter: Filter) -> int:
+        return len(await self.find(filter))
+
+    async def paginate(self, filter: Filter, page: int, size: int) -> Page[T]:
+        items = await self.find(filter)
+        total = len(items)
+        start = (page - 1) * size
+        end = start + size
+        return Page(items=items[start:end], total=total, page=page, size=size)
+
+
+def _match_filter(val: Any, filter: Filter) -> bool:
+    """匹配单个值与过滤条件"""
+    if filter.operator == "eq":
+        return val == filter.value
+    if filter.operator == "neq":
+        return val != filter.value
+    if filter.operator == "gt":
+        return isinstance(val, (int, float)) and val > filter.value
+    if filter.operator == "gte":
+        return isinstance(val, (int, float)) and val >= filter.value
+    if filter.operator == "lt":
+        return isinstance(val, (int, float)) and val < filter.value
+    if filter.operator == "lte":
+        return isinstance(val, (int, float)) and val <= filter.value
+    if filter.operator == "in":
+        return val in (filter.value if isinstance(filter.value, (list, tuple, set)) else [filter.value])
+    if filter.operator == "contains":
+        return isinstance(val, str) and filter.value in val
+    return True

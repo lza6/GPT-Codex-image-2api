@@ -13,6 +13,7 @@ from services.config import DATA_DIR, config
 from services.content_filter import request_text
 from services.log_service import LOG_TYPE_CALL, log_service
 from services.protocol import openai_v1_image_edit, openai_v1_image_generations
+from services.task_queue import TaskPriority, task_queue
 
 TASK_STATUS_QUEUED = "queued"
 TASK_STATUS_RUNNING = "running"
@@ -264,13 +265,27 @@ class ImageTaskService:
             should_start = True
 
         if should_start:
-            thread = threading.Thread(
-                target=self._run_task,
-                args=(key, mode, payload, dict(identity), _clean(payload.get("model"), "gpt-image-2")),
-                name=f"image-task-{task_id[:16]}",
-                daemon=True,
-            )
-            thread.start()
+            # 通过任务队列提交（优先级 CRITICAL），消费者已启动时走队列；
+            # 消费者未启动（如测试环境）回退直接起线程
+            if task_queue._consumer_thread and task_queue._consumer_thread.is_alive():
+                task_queue.enqueue(
+                    "image_generation" if mode == "generate" else "image_edit",
+                    priority=TaskPriority.CRITICAL,
+                    metadata={
+                        "key": key,
+                        "mode": mode,
+                        "payload": payload,
+                        "identity": dict(identity),
+                        "model": _clean(payload.get("model"), "gpt-image-2"),
+                    },
+                )
+            else:
+                threading.Thread(
+                    target=self._run_task,
+                    args=(key, mode, payload, dict(identity), _clean(payload.get("model"), "gpt-image-2")),
+                    name=f"image-task-{task_id[:16]}",
+                    daemon=True,
+                ).start()
         return _public_task(task)
 
     def _run_task(
@@ -526,13 +541,27 @@ class ImageTaskService:
             self._update_task(key, status=TASK_STATUS_RUNNING, error="", resume_inflight=True)
 
         # 启动新线程继续轮询
-        thread = threading.Thread(
-            target=self._run_resume_poll,
-            args=(key, conversation_id, extra_timeout_secs, dict(identity), mode, model),
-            name=f"image-resume-{_clean(task_id)[:16]}",
-            daemon=True,
-        )
-        thread.start()
+        # 通过任务队列提交（优先级 CRITICAL）或直接起线程
+        if task_queue._consumer_thread and task_queue._consumer_thread.is_alive():
+            task_queue.enqueue(
+                "image_resume_poll",
+                priority=TaskPriority.CRITICAL,
+                metadata={
+                    "key": key,
+                    "conversation_id": conversation_id,
+                    "extra_timeout_secs": extra_timeout_secs,
+                    "identity": dict(identity),
+                    "mode": mode,
+                    "model": model,
+                },
+            )
+        else:
+            threading.Thread(
+                target=self._run_resume_poll,
+                args=(key, conversation_id, extra_timeout_secs, dict(identity), mode, model),
+                name=f"image-resume-{_clean(task_id)[:16]}",
+                daemon=True,
+            ).start()
         return _public_task(task)
 
     def _run_resume_poll(

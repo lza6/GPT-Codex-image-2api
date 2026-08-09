@@ -38,12 +38,25 @@ class DatabaseStorageBackend(StorageBackend):
         *,
         sqlite_wal_mode: bool = True,
         sqlite_busy_timeout_ms: int = 5000,
+        pool_size: int = 10,
+        max_overflow: int = 5,
+        pool_timeout: float = 30.0,
+        pool_recycle: int = 3600,
+        echo_pool: bool = False,
     ):
         self.database_url = database_url
         self.engine = create_engine(
             database_url,
-            pool_pre_ping=True,  # 自动检测连接是否有效
-            pool_recycle=3600,   # 1小时回收连接
+            pool_pre_ping=True,
+            pool_size=pool_size,
+            max_overflow=max_overflow,
+            pool_timeout=pool_timeout,
+            pool_recycle=pool_recycle,
+            echo_pool=echo_pool,
+            connect_args=({
+                "timeout": 15,
+                "check_same_thread": False,
+            } if database_url.startswith("sqlite") else {}),
         )
         # SQLite 可靠性加固（D8 收口）：WAL + busy_timeout 防多 worker 并发写损坏/锁失败
         self._apply_sqlite_pragmas(self.engine, database_url, sqlite_wal_mode, sqlite_busy_timeout_ms)

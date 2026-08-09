@@ -1,6 +1,25 @@
 # Changelog
 
-## 2.10.0 - 2026-08-09 (失败分类中枢收尾 + 可观测性增强 + 指标扩展 + 健康端点 + providers 状态标注)
+## 2.12.0 - 2026-08-10 (任务队列系统 + 异步图片管道 + 统一 ORM 层 + SQLite 连接池优化)
+
+**任务队列系统（P1）：**
++ [新增] `services/task_queue.py` — 基于优先级的轻量任务队列（CRITICAL/HIGH/NORMAL/LOW），支持处理器注册 + 后台消费者线程 + 优先级 FIFO 调度 + 状态查询/取消/统计/清理
++ [新增] `services/task_queue_init.py` — 处理器注册（图片生成/编辑/续轮询/备份/日志清理），启动时由 `api/app.py` lifespan 调用
++ [迁移] 图片任务 `_submit` 和 `resume_poll` 走任务队列 CRITICAL 优先级提交（消费者未启动时回退直接起线程，保证测试兼容）
++ [测试] 24 单测全绿（含消费者线程生命周期测试）
+
+**异步图片管道（P0）：**
++ [新增] `services/image_pipeline.py` — `ImagePipeline` 异步图片处理管道：`asyncio.Semaphore(5)` 并发限流 + 内存缓存(TTL) + `asyncio.to_thread` 转线程池处理
++ [测试] 6 单测全绿（含并发限幅验证）
+
+**统一 ORM 层（P0）：**
++ [增强] `services/storage/base.py` — 新增 `Repository[T]` Protocol 泛型接口（find/find_one/create/update/delete/count/paginate）、`Filter` 过滤条件、`Page[T]` 分页封装、`MockRepository[T]` 内存测试实现
++ [保留] 原有 `StorageBackend` ABC 保持不动，向后兼容
+
+**SQLite 连接池优化（P0）：**
++ [增强] `services/storage/database_storage.py` — 显式配置 `pool_size=10`、`max_overflow=5`、`pool_timeout=30`、`pool_recycle=3600`、`echo_pool=False`；SQLite 专有 `connect_args`（timeout=15, check_same_thread=False）
+
+## 2.11.0 - 2026-08-09 (事件总线系统)
 
 **多提供商地基状态标注（Phase 1/4）：**
 + [状态标注] `services/providers/` 三文件 docstring 全部标注 Phase 1/4 进度（__init__/base/registry），明确已完成项与后续 3 个阶段计划；CHANGELOG 本段做全局可见性标注
