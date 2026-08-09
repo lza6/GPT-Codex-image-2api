@@ -298,6 +298,7 @@ class ImageTaskService:
     ) -> None:
         started = time.time()
         self._update_task(key, status=TASK_STATUS_RUNNING, error="")
+        from services.event_bus import IMAGE_TASK_COMPLETED, Event, event_bus  # noqa: F811
         # 创建进度回调，每个步骤完成后更新任务状态
         def progress_callback(step: str) -> None:
             if step == "image_stream_resolve_start":
@@ -325,6 +326,14 @@ class ImageTaskService:
             usage = result.get("usage")
             duration_ms = int((time.time() - started) * 1000)
             self._update_task(key, status=TASK_STATUS_SUCCESS, data=data, usage=usage, error="", duration_ms=duration_ms)
+            event_bus.publish(Event(IMAGE_TASK_COMPLETED, {
+                "task_id": key.split(":", 1)[-1],
+                "mode": mode,
+                "model": model,
+                "status": TASK_STATUS_SUCCESS,
+                "account_email": account_email,
+                "duration_ms": duration_ms,
+            }))
             self._log_call(
                 identity,
                 mode,

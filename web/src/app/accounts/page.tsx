@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ComponentProps } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   Ban,
   CheckCircle2,
@@ -18,9 +19,11 @@ import {
   Pencil,
   RefreshCw,
   Search,
+  Settings2,
   Tag,
   Trash2,
   UserRound,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { copyText } from "@/lib/clipboard";
@@ -39,6 +42,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -46,12 +50,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import {
   batchAccounts,
   deleteAccounts,
   evictStaleAccounts,
   exportAccounts,
+  exportAccountsCSV,
   fetchAccounts,
+  fetchAccountDetail,
+  fetchAccountTags,
   fetchModels,
   fetchProviders,
   fetchProxies,
@@ -65,8 +73,11 @@ import {
   testProxy,
   updateAccount,
   type Account,
+  type AccountColumnVisibility,
+  type AccountDetail,
   type AccountRefreshResponse,
   type AccountStatus,
+  type AccountTag,
   type KookeeyEgressResult,
   type Model,
   type ProviderInfo,
@@ -78,6 +89,7 @@ import { cn } from "@/lib/utils";
 import { useKeyboard } from "@/hooks/use-keyboard";
 
 import { AccountImportDialog } from "./components/account-import-dialog";
+import { AccountTableRow } from "./components/accounts-table-row";
 
 // 键盘快捷键：全局导航
 const NAV_SHORTCUTS = [
@@ -135,6 +147,71 @@ const metricCards = [
   { key: "quota", label: "剩余额度", color: "text-blue-500", icon: RefreshCw },
 ] as const;
 
+// 可显隐列定义
+const COLUMN_DEFINITIONS: { key: keyof AccountColumnVisibility; label: string }[] = [
+  { key: "email", label: "邮箱" },
+  { key: "type", label: "类型" },
+  { key: "status", label: "状态" },
+  { key: "provider", label: "提供商" },
+  { key: "tier", label: "档位" },
+  { key: "score", label: "调度分" },
+  { key: "quota", label: "额度" },
+  { key: "label", label: "标签" },
+  { key: "proxy", label: "代理" },
+  { key: "success", label: "成功数" },
+  { key: "fail", label: "失败数" },
+  { key: "image_inflight", label: "在途" },
+  { key: "last_used_at", label: "最后使用" },
+  { key: "created_at", label: "创建时间" },
+  { key: "lifetime_risk", label: "寿命风险" },
+  { key: "lifetime_eta_days", label: "剩余天数" },
+  { key: "last_refresh_error", label: "异常原因" },
+];
+
+const COLUMN_VISIBILITY_KEY = "accounts-column-visibility";
+
+// 列显隐默认值（全部可见）
+const DEFAULT_COLUMN_VISIBILITY: AccountColumnVisibility = {
+  email: true,
+  type: true,
+  status: true,
+  provider: true,
+  tier: true,
+  score: true,
+  quota: true,
+  label: true,
+  proxy: true,
+  success: true,
+  fail: true,
+  image_inflight: true,
+  last_used_at: true,
+  created_at: true,
+  lifetime_risk: true,
+  lifetime_eta_days: true,
+  last_refresh_error: true,
+};
+
+function loadColumnVisibility(): AccountColumnVisibility {
+  if (typeof window === "undefined") return { ...DEFAULT_COLUMN_VISIBILITY };
+  try {
+    const stored = localStorage.getItem(COLUMN_VISIBILITY_KEY);
+    if (stored) {
+      return { ...DEFAULT_COLUMN_VISIBILITY, ...JSON.parse(stored) };
+    }
+  } catch {
+    // ignore
+  }
+  return { ...DEFAULT_COLUMN_VISIBILITY };
+}
+
+function saveColumnVisibility(visibility: AccountColumnVisibility) {
+  try {
+    localStorage.setItem(COLUMN_VISIBILITY_KEY, JSON.stringify(visibility));
+  } catch {
+    // ignore
+  }
+}
+
 function formatCompact(value: number) {
   if (value >= 1000) {
     return `${(value / 1000).toFixed(1)}k`;
@@ -182,8 +259,6 @@ function maskToken(token?: string) {
 }
 
 async function downloadTokens(accounts: Account[]) {
-  // C-P0：走后端 /api/accounts/export（三件套 JSON），不再前端裸 token 拼接。
-  // 后端对无 refresh_token 的账号会整体 400 提示，避免"导出成功但不可迁移"的假导出。
   try {
     await exportAccounts(accounts.map((account) => account.access_token), "json");
   } catch (error) {
@@ -222,6 +297,9 @@ function AccountsPageContent() {
   // Phase B：provider 筛选器
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [providerFilter, setProviderFilter] = useState("all");
+  // 标签筛选
+  const [availableTags, setAvailableTags] = useState<AccountTag[]>([]);
+  const [tagFilter, setTagFilter] = useState("all");
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [editStatus, setEditStatus] = useState<AccountStatus>("正常");
   const [editProxy, setEditProxy] = useState("");
@@ -272,6 +350,27 @@ function AccountsPageContent() {
   });
   const progressRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [refreshSummary, setRefreshSummary] = useState<Record<string, number | string> | null>(null);
+
+  // 列显隐
+  const [columnVisibility, setColumnVisibility] = useState<AccountColumnVisibility>(loadColumnVisibility);
+
+  // 选中计数
+  const selectedCount = selectedIds.length;
+
+  // 导出格式下拉
+  const [exportPopoverOpen, setExportPopoverOpen] = useState(false);
+
+  // 详情侧面板
+  const [detailAccount, setDetailAccount] = useState<AccountDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailPanelOpen, setDetailPanelOpen] = useState(false);
+
+  // 虚拟滚动
+  const parentRef = useRef<HTMLDivElement>(null);
+  const [useVirtualScroll, setUseVirtualScroll] = useState(true);
+
+  // Shift+Click 范围选择
+  const lastClickedIndexRef = useRef<number | null>(null);
 
   const loadAccounts = async (silent = false) => {
     if (!silent) {
@@ -324,6 +423,16 @@ function AccountsPageContent() {
       }
     })();
 
+    // 加载标签列表
+    void (async () => {
+      try {
+        const data = await fetchAccountTags();
+        setAvailableTags(data.tags ?? []);
+      } catch {
+        // 标签加载失败不阻断
+      }
+    })();
+
     // 熔断状态已合并到账号列表响应，不再单独轮询
     // 清理进度条定时器
     return () => {
@@ -339,7 +448,8 @@ function AccountsPageContent() {
       const typeMatched = typeFilter === "all" || displayAccountType(account) === typeFilter;
       const statusMatched = statusFilter === "all" || account.status === statusFilter;
       const tierMatched = tierFilter === "all" || account.tier === tierFilter;
-      return searchMatched && typeMatched && statusMatched && tierMatched;
+      const tagMatched = tagFilter === "all" || account.label === tagFilter;
+      return searchMatched && typeMatched && statusMatched && tierMatched && tagMatched;
     });
     // 排序：默认按状态可用性优先（正常→限流→异常→禁用），组内按 score 降序；其他模式按用户选择
     const sorted = [...filtered];
@@ -361,7 +471,7 @@ function AccountsPageContent() {
       });
     }
     return sorted;
-  }, [accounts, query, statusFilter, typeFilter, tierFilter, sortBy]);
+  }, [accounts, query, statusFilter, typeFilter, tierFilter, tagFilter, sortBy]);
 
   const pageCount = Math.max(1, Math.ceil(filteredAccounts.length / Number(pageSize)));
   const safePage = Math.min(page, pageCount);
@@ -369,6 +479,15 @@ function AccountsPageContent() {
   const currentRows = filteredAccounts.slice(startIndex, startIndex + Number(pageSize));
   const allCurrentSelected =
     currentRows.length > 0 && currentRows.every((row) => selectedIds.includes(row.access_token));
+
+  // 虚拟滚动实例
+  const virtualizer = useVirtualizer({
+    count: useVirtualScroll ? filteredAccounts.length : 0,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 60,
+    overscan: 10,
+    enabled: useVirtualScroll && filteredAccounts.length > 0,
+  });
 
   const summary = useMemo(() => {
     const total = accounts.length;
@@ -411,6 +530,72 @@ function AccountsPageContent() {
 
     return items;
   }, [pageCount, safePage]);
+
+  // Shift+Click 范围选择
+  const handleToggleSelect = useCallback(
+    (token: string, _checked: boolean, event: React.MouseEvent) => {
+      if (event.shiftKey && lastClickedIndexRef.current !== null) {
+        // Shift 范围选择
+        const currentIndex = filteredAccounts.findIndex((a) => a.access_token === token);
+        if (currentIndex === -1) return;
+        const start = Math.min(lastClickedIndexRef.current, currentIndex);
+        const end = Math.max(lastClickedIndexRef.current, currentIndex);
+        const rangeTokens = filteredAccounts.slice(start, end + 1).map((a) => a.access_token);
+        setSelectedIds((prev) => {
+          const set = new Set(prev);
+          for (const t of rangeTokens) set.add(t);
+          return Array.from(set);
+        });
+      } else if (event.ctrlKey || event.metaKey) {
+        // Ctrl 多选
+        setSelectedIds((prev) =>
+          prev.includes(token) ? prev.filter((t) => t !== token) : [...prev, token],
+        );
+      } else {
+        // 常规点击
+        setSelectedIds((prev) =>
+          prev.includes(token) ? prev.filter((t) => t !== token) : [...prev, token],
+        );
+      }
+      // 更新最后点击索引
+      const idx = filteredAccounts.findIndex((a) => a.access_token === token);
+      if (idx !== -1) lastClickedIndexRef.current = idx;
+    },
+    [filteredAccounts],
+  );
+
+  // 列显隐切换
+  const toggleColumn = useCallback((key: keyof AccountColumnVisibility) => {
+    setColumnVisibility((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      saveColumnVisibility(next);
+      return next;
+    });
+  }, []);
+
+  // 打开详情侧面板
+  const openDetailPanel = useCallback(async (account: Account) => {
+    setDetailPanelOpen(true);
+    setDetailLoading(true);
+    setDetailAccount(null);
+    try {
+      const data = await fetchAccountDetail(account.access_token);
+      setDetailAccount(data.item);
+    } catch (error) {
+      toastError(error, "加载账号详情失败");
+      setDetailPanelOpen(false);
+    } finally {
+      setDetailLoading(false);
+    }
+  }, []);
+
+  // 行点击：打开详情面板
+  const handleRowClick = useCallback(
+    (account: Account) => {
+      void openDetailPanel(account);
+    },
+    [openDetailPanel],
+  );
 
   const handleEvictStale = () => {
     setConfirmAction({
@@ -491,6 +676,19 @@ function AccountsPageContent() {
       return;
     }
     void downloadTokens(accounts.filter((item) => selectedTokens.includes(item.access_token)));
+  };
+
+  const handleExportSelected = (format: "csv" | "json") => {
+    if (selectedTokens.length === 0) {
+      toast.error("请先勾选账号");
+      return;
+    }
+    setExportPopoverOpen(false);
+    if (format === "csv") {
+      void exportAccountsCSV({ format: "csv", ids: selectedTokens });
+    } else {
+      void downloadTokens(accounts.filter((item) => selectedTokens.includes(item.access_token)));
+    }
   };
 
   const handleDeleteTokens = (tokens: string[]) => {
@@ -636,9 +834,6 @@ function AccountsPageContent() {
 
       const relogined = data.relogined ?? 0;
 
-      // 刷新完成后的结果展示（第七轮修复假进度条：此前此处是 150ms 机械 +1 的
-      // 模拟动画 + 固定 2s 兜底，不反映任何后端状态。relogin 在服务端已同步完成，
-      // 数据即最终结果，直接展示完成态，无中间进度可报）
       if (relogined > 0) {
         setProgress({
           visible: true,
@@ -759,10 +954,8 @@ function AccountsPageContent() {
         return;
       }
       toast.info(`仍异常 ${remainingAbnormalTokens.length} 个，对其中有密码的 ${hasPassword.length} 个尝试密码重登...`);
-      // 第二阶段走下方原有 re-login 进度条流程
     } catch (recoverError) {
       console.warn("recover stage failed, fallback to re-login", recoverError);
-      // recover 失败则回退到原 re-login 流程
     }
     setIsRelogining(false);
 
@@ -798,7 +991,6 @@ function AccountsPageContent() {
             } else {
               // 实时更新进度
               const results = p.results ?? [];
-              // 找到最新一条有错误的结果
               const lastErrorResult = [...results].reverse().find((r) => r.error);
               const emailHint = lastErrorResult
                 ? `失败: ${lastErrorResult.token} ${lastErrorResult.error ?? ""}`
@@ -822,7 +1014,6 @@ function AccountsPageContent() {
                   runningDisabled += 1;
                   runningAbnormal -= 1;
                 }
-                // "异常"或"跳过"：保持异常状态不变
               }
               setRefreshSummary({
                 total: accounts.length,
@@ -871,8 +1062,7 @@ function AccountsPageContent() {
     setEditingAccount(account);
     setEditStatus(account.status);
     setEditProxy(account.proxy ?? "");
-    setKookeeyEgress(null); // 重置上次探测结果
-    // v2.9.0：打开编辑弹窗时拉取 IP 池列表供"从池选 IP"
+    setKookeeyEgress(null);
     void (async () => {
       try {
         const data = await fetchProxies();
@@ -912,7 +1102,6 @@ function AccountsPageContent() {
   const openTimeline = async (account: Account) => {
     const email = (account.email ?? account.access_token?.slice(-8) ?? "").trim();
     if (!email) {
-      // 无邮箱/token 可过滤时不拉全量日志（否则时间线抽屉变成全部调用，误导）
       toast.error("该账号无邮箱/token 可过滤");
       setTimelineAccount(null);
       return;
@@ -1176,7 +1365,7 @@ function AccountsPageContent() {
           <div className="max-h-[55vh] overflow-y-auto px-6 py-4">
             {timelineLoading ? (
               <div className="flex items-center justify-center gap-2 py-10 text-sm text-stone-400">
-                <LoaderCircle className="size-4 animate-spin" /> 加载中…
+                <LoaderCircle className="size-4 animate-spin" /> 加载中...
               </div>
             ) : timelineLogs.length === 0 ? (
               <p className="py-10 text-center text-sm text-stone-400">该账号暂无调用日志</p>
@@ -1417,6 +1606,37 @@ function AccountsPageContent() {
                 ))}
               </SelectContent>
             </Select>
+            {/* 标签筛选 */}
+            <Select
+              value={tagFilter}
+              onValueChange={(value) => {
+                setTagFilter(value);
+                setPage(1);
+              }}
+            >
+              <SelectTrigger className="h-10 w-full rounded-xl border-stone-200 bg-white/85 lg:w-[130px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">全部标签</SelectItem>
+                {availableTags.map((t) => (
+                  <SelectItem key={t.name} value={t.name}>
+                    <span className="flex items-center gap-1.5">
+                      <span
+                        className="inline-block size-2 rounded-full"
+                        style={{ backgroundColor: t.color || "#888" }}
+                      />
+                      {t.name}
+                    </span>
+                  </SelectItem>
+                ))}
+                {availableTags.length === 0 && (
+                  <SelectItem value="__no_tags__" disabled>
+                    暂无标签
+                  </SelectItem>
+                )}
+              </SelectContent>
+            </Select>
             <Select
               value={statusFilter}
               onValueChange={(value) => {
@@ -1554,15 +1774,37 @@ function AccountsPageContent() {
                   <Tag className="size-4" />
                   批量打标签
                 </Button>
-                <Button
-                  variant="ghost"
-                  className="h-8 rounded-lg px-3 text-stone-500 hover:bg-stone-100"
-                  onClick={() => void handleBatchExport()}
-                  disabled={selectedTokens.length === 0 || isBatchAction}
-                >
-                  <Download className="size-4" />
-                  导出选中
-                </Button>
+                {/* 导出选中下拉（CSV/JSON） */}
+                <Popover open={exportPopoverOpen} onOpenChange={setExportPopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      className="h-8 rounded-lg px-3 text-stone-500 hover:bg-stone-100"
+                      disabled={selectedTokens.length === 0 || isBatchAction}
+                    >
+                      <Download className="size-4" />
+                      导出选中
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-36 p-1.5" align="start">
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-stone-700 transition hover:bg-stone-100"
+                      onClick={() => handleExportSelected("csv")}
+                    >
+                      <Download className="size-4 text-stone-400" />
+                      导出 CSV
+                    </button>
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-stone-700 transition hover:bg-stone-100"
+                      onClick={() => handleExportSelected("json")}
+                    >
+                      <Download className="size-4 text-stone-400" />
+                      导出 JSON
+                    </button>
+                  </PopoverContent>
+                </Popover>
                 <Button
                   variant="ghost"
                   className="h-8 rounded-lg px-3 text-rose-500 hover:bg-rose-50 hover:text-rose-600"
@@ -1572,270 +1814,180 @@ function AccountsPageContent() {
                   {isDeleting ? <LoaderCircle className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
                   删除所选
                 </Button>
-                {selectedIds.length > 0 ? (
+                {selectedCount > 0 ? (
                   <span className="rounded-lg bg-stone-100 px-2.5 py-1 text-xs font-medium text-stone-600">
-                    已选择 {selectedIds.length} 项
+                    已选择 {selectedCount} 项
                   </span>
                 ) : null}
+                {/* 列显隐按钮 */}
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      className="h-8 rounded-lg px-3 text-stone-500 hover:bg-stone-100"
+                    >
+                      <Settings2 className="size-4" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-52 p-3" align="end">
+                    <div className="mb-2 text-xs font-semibold text-stone-500 uppercase tracking-wide">
+                      列显隐设置
+                    </div>
+                    <div className="max-h-64 space-y-1 overflow-y-auto">
+                      {COLUMN_DEFINITIONS.map((col) => (
+                        <label
+                          key={col.key}
+                          className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-stone-700 transition hover:bg-stone-100"
+                        >
+                          <Checkbox
+                            checked={columnVisibility[col.key] !== false}
+                            onCheckedChange={() => toggleColumn(col.key)}
+                          />
+                          {col.label}
+                        </label>
+                      ))}
+                    </div>
+                  </PopoverContent>
+                </Popover>
               </div>
             </div>
 
+            {/* 虚拟滚动表格区域 */}
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1000px] text-left">
-                <thead className="border-b border-stone-100 text-[11px] text-stone-400 uppercase tracking-[0.18em]">
-                  <tr>
-                    <th className="w-12 px-4 py-3">
-                      <Checkbox
-                        checked={allCurrentSelected}
-                        onCheckedChange={(checked) => toggleSelectAll(Boolean(checked))}
-                      />
-                    </th>
-                    <th className="w-56 px-4 py-3">token</th>
-                    <th className="w-28 px-4 py-3">类型</th>
-                    <th className="w-24 px-4 py-3">来源</th>
-                    <th className="w-24 px-4 py-3">状态</th>
-                    <th className="w-24 px-4 py-3">寿命</th>
-                    <th className="w-24 px-4 py-3">熔断</th>
-                    <th className="w-56 px-4 py-3">账号信息</th>
-                    <th className="w-32 px-4 py-3">创建时间</th>
-                    <th className="w-24 px-4 py-3">额度</th>
-                    <th className="w-40 px-4 py-3">恢复时间</th>
-                    <th className="w-18 px-4 py-3">在途</th>
-                    <th className="w-18 px-4 py-3">成功</th>
-                    <th className="w-18 px-4 py-3">失败</th>
-                    <th className="w-48 px-4 py-3">异常原因</th>
-                    <th className="w-24 px-4 py-3">操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {currentRows.map((account) => {
-                    const status = statusMeta[account.status];
-                    const StatusIcon = status.icon;
-
-                    return (
-                      <tr
-                        key={account.access_token}
-                        className="border-b border-stone-100/80 text-sm text-stone-600 transition-colors hover:bg-stone-50/70"
-                      >
-                        <td className="px-4 py-3">
-                          <Checkbox
-                            checked={selectedIds.includes(account.access_token)}
-                            onCheckedChange={(checked) => {
-                              setSelectedIds((prev) =>
-                                checked
-                                  ? Array.from(new Set([...prev, account.access_token]))
-                                  : prev.filter((item) => item !== account.access_token),
-                              );
-                            }}
-                          />
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium tracking-tight text-stone-700">
-                              {maskToken(account.access_token)}
-                            </span>
-                            <button
-                              type="button"
-                              className="rounded-lg p-1 text-stone-400 transition hover:bg-stone-100 hover:text-stone-700"
-                              onClick={() => {
-                                void copyText(account.access_token);
-                                toast.success("token 已复制");
-                              }}
-                            >
-                              <Copy className="size-4" />
-                            </button>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3">
-                          <Badge variant="secondary" className="rounded-md bg-stone-100 text-stone-700">
-                            {displayAccountType(account)}
-                          </Badge>
-                        </td>
-                        <td className="px-4 py-3">
-                          <Badge variant="outline" className="rounded-md border-stone-200 text-stone-600">
-                            {displayAccountSource(account)}
-                          </Badge>
-                        </td>
-                        <td className="px-4 py-3">
-                          <Badge
-                            variant={status.badge}
-                            className="inline-flex items-center gap-1 rounded-md px-2 py-1"
-                          >
-                            <StatusIcon className="size-3.5" />
-                            {account.status}
-                          </Badge>
-                        </td>
-                        <td className="px-4 py-3">
-                          {(() => {
-                            const level = (account.lifetime_risk ?? "low") as string;
-                            const colors: Record<string, string> = {
-                              low: "bg-emerald-100 text-emerald-700",
-                              medium: "bg-amber-100 text-amber-700",
-                              high: "bg-orange-100 text-orange-700",
-                              critical: "bg-rose-100 text-rose-700",
-                            };
-                            const labels: Record<string, string> = {
-                              low: "健康", medium: "关注", high: "偏高", critical: "濒危",
-                            };
-                            return (
-                              <Badge className={`rounded-md ${colors[level] ?? colors.low}`}>
-                                {labels[level] ?? "健康"}
-                                {account.lifetime_eta_days != null ? ` · ${account.lifetime_eta_days}d` : ""}
-                              </Badge>
-                            );
-                          })()}
-                        </td>
-                        <td className="px-4 py-3">
-                          {(() => {
-                            const breaker = circuitBreakers[account.access_token.slice(-8)];
-                            if (!breaker) {
-                              return <span className="text-xs text-stone-300">正常</span>;
-                            }
-                            const isOpen = breaker.state === "open";
-                            return (
-                              <Badge
-                                variant={isOpen ? "danger" : "warning"}
-                                className="rounded-md"
-                                title={isOpen ? `上游连续失败已熔断，${Math.round(breaker.recover_in_seconds)}s 后尝试恢复` : "熔断器半开试探中"}
-                              >
-                                {isOpen ? "熔断中" : "半开"}
-                              </Badge>
-                            );
-                          })()}
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="text-xs leading-5 text-stone-500">{account.email ?? "—"}</div>
-                          {account.label ? (
-                            <div className="mt-0.5">
-                              <Badge variant="outline" className="rounded-md px-1.5 py-0 text-[10px] text-violet-600">
-                                {account.label}
-                              </Badge>
-                            </div>
-                          ) : null}
-                        </td>
-                        <td className="px-4 py-3 text-xs leading-5 text-stone-500">
-                          {(() => {
-                            const raw = account.created_at;
-                            if (!raw) return "—";
-                            try {
-                              const d = new Date(raw + "Z");
-                              if (isNaN(d.getTime())) return String(raw).slice(0, 10);
-                              return d.toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
-                            } catch { return String(raw).slice(0, 10); }
-                          })()}
-                        </td>
-                        <td className="px-4 py-3">
-                          <Badge variant="info" className="rounded-md">
-                            {formatQuota(account)}
-                          </Badge>
-                        </td>
-                        <td className="px-4 py-3 text-xs leading-5 text-stone-500">
-                          {(() => {
-                            const restore = formatRestoreAt(account.restore_at);
-                            return (
-                              <div className="space-y-0.5">
-                                {restore.relative ? <div className="font-medium text-stone-700">{restore.relative}</div> : null}
-                                <div>{restore.absolute}</div>
-                              </div>
-                            );
-                          })()}
-                        </td>
-                        <td className="px-4 py-3">
-                          {(() => {
-                            const inflight = account.image_inflight ?? 0;
-                            return (
-                              <span
-                                className={
-                                  inflight > 0
-                                    ? "font-semibold text-amber-600"
-                                    : "text-stone-400"
-                                }
-                                title={
-                                  inflight > 0
-                                    ? "当前正在生成的图片数。号池空闲时此值持续 > 0，说明并发槽位泄漏、该账号已被静默排除出调度"
-                                    : "当前无在途生图任务"
-                                }
-                              >
-                                {inflight}
-                              </span>
-                            );
-                          })()}
-                        </td>
-                        <td className="px-4 py-3 text-stone-500">{account.success}</td>
-                        <td className="px-4 py-3 text-stone-500">{account.fail}</td>
-                        <td className="px-4 py-3">
-                          {account.status === "异常" ? (
-                            <div
-                              className="max-w-[200px] truncate text-xs text-rose-600"
-                              title={`${account.last_refresh_error ?? "未知错误"}\n次数: ${account.invalid_count ?? 0}\n时间: ${account.last_refresh_error_at ?? account.last_invalid_at ?? "—"}`}
-                            >
-                              {account.last_refresh_error || account.last_token_refresh_error || "未知错误"}
-                            </div>
-                          ) : (
-                            <span className="text-stone-300">—</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-1 text-stone-400">
-                            <button
-                              type="button"
-                              className="rounded-lg p-2 transition hover:bg-stone-100 hover:text-stone-700"
-                              onClick={() => openEditDialog(account)}
-                              disabled={isUpdating}
-                            >
-                              <Pencil className="size-4" />
-                            </button>
-                            <button
-                              type="button"
-                              title="查看单账号日志时间线"
-                              className="rounded-lg p-2 transition hover:bg-stone-100 hover:text-stone-700"
-                              onClick={() => void openTimeline(account)}
-                            >
-                              <History className="size-4" />
-                            </button>
-                            <button
-                              type="button"
-                              className="rounded-lg p-2 transition hover:bg-stone-100 hover:text-stone-700"
-                              onClick={() => void handleRefreshAccounts([account.access_token])}
-                              disabled={isRefreshing || refreshingTokens.has(account.access_token)}
-                            >
-                              <RefreshCw className={cn("size-4", (isRefreshing || refreshingTokens.has(account.access_token)) ? "animate-spin" : "")} />
-                            </button>
-                            <button
-                              type="button"
-                              className="rounded-lg p-2 transition hover:bg-rose-50 hover:text-rose-500"
-                              onClick={() => void handleDeleteTokens([account.access_token])}
-                              disabled={isDeleting}
-                            >
-                              <Trash2 className="size-4" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-
-              {!isLoading && currentRows.length === 0 ? (
-                <div className="flex flex-col items-center justify-center gap-3 px-6 py-14 text-center">
-                  <div className="rounded-xl bg-stone-100 p-3 text-stone-500">
-                    <Search className="size-5" />
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium text-stone-700">没有匹配的账户</p>
-                    <p className="text-sm text-stone-500">调整筛选条件或搜索关键字后重试。</p>
-                  </div>
+              {/* 表头 */}
+              <div className="flex min-w-[1000px] border-b border-stone-100 text-[11px] text-stone-400 uppercase tracking-[0.18em]">
+                <div className="flex w-12 shrink-0 items-center px-4 py-3">
+                  <Checkbox
+                    checked={allCurrentSelected}
+                    onCheckedChange={(checked) => toggleSelectAll(Boolean(checked))}
+                  />
                 </div>
-              ) : null}
+                <div className="flex w-56 shrink-0 items-center px-4 py-3">token</div>
+                {columnVisibility.type !== false && (
+                  <div className="flex w-28 shrink-0 items-center px-4 py-3">类型</div>
+                )}
+                <div className="flex w-24 shrink-0 items-center px-4 py-3">来源</div>
+                {columnVisibility.status !== false && (
+                  <div className="flex w-24 shrink-0 items-center px-4 py-3">状态</div>
+                )}
+                {columnVisibility.lifetime_risk !== false && (
+                  <div className="flex w-24 shrink-0 items-center px-4 py-3">寿命</div>
+                )}
+                <div className="flex w-24 shrink-0 items-center px-4 py-3">熔断</div>
+                <div className="flex w-56 shrink-0 items-center px-4 py-3">账号信息</div>
+                {columnVisibility.created_at !== false && (
+                  <div className="flex w-32 shrink-0 items-center px-4 py-3">创建时间</div>
+                )}
+                {columnVisibility.quota !== false && (
+                  <div className="flex w-24 shrink-0 items-center px-4 py-3">额度</div>
+                )}
+                <div className="flex w-40 shrink-0 items-center px-4 py-3">恢复时间</div>
+                {columnVisibility.image_inflight !== false && (
+                  <div className="flex w-18 shrink-0 items-center px-4 py-3">在途</div>
+                )}
+                {columnVisibility.success !== false && (
+                  <div className="flex w-18 shrink-0 items-center px-4 py-3">成功</div>
+                )}
+                {columnVisibility.fail !== false && (
+                  <div className="flex w-18 shrink-0 items-center px-4 py-3">失败</div>
+                )}
+                {columnVisibility.last_refresh_error !== false && (
+                  <div className="flex w-48 shrink-0 items-center px-4 py-3">异常原因</div>
+                )}
+                <div className="flex w-24 shrink-0 items-center px-4 py-3">操作</div>
+              </div>
+
+              {/* 虚拟滚动容器 */}
+              <div
+                ref={parentRef}
+                className="overflow-y-auto"
+                style={{ maxHeight: useVirtualScroll ? "70vh" : undefined }}
+              >
+                {useVirtualScroll && filteredAccounts.length > 0 ? (
+                  <div
+                    className="relative min-w-[1000px]"
+                    style={{ height: `${virtualizer.getTotalSize()}px` }}
+                  >
+                    {virtualizer.getVirtualItems().map((virtualItem) => {
+                      const account = filteredAccounts[virtualItem.index];
+                      if (!account) return null;
+                      return (
+                        <div
+                          key={account.access_token}
+                          className="absolute left-0 right-0"
+                          style={{
+                            height: `${virtualItem.size}px`,
+                            transform: `translateY(${virtualItem.start}px)`,
+                          }}
+                        >
+                          <AccountTableRow
+                            account={account}
+                            selected={selectedIds.includes(account.access_token)}
+                            circuitBreakers={circuitBreakers}
+                            refreshingTokens={refreshingTokens}
+                            isRefreshing={isRefreshing}
+                            isDeleting={isDeleting}
+                            isUpdating={isUpdating}
+                            onToggleSelect={handleToggleSelect}
+                            onEdit={openEditDialog}
+                            onTimeline={(acct) => void openTimeline(acct)}
+                            onRefresh={(token) => void handleRefreshAccounts([token])}
+                            onDelete={(token) => handleDeleteTokens([token])}
+                            onClick={handleRowClick}
+                            columnVisibility={columnVisibility}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  /* 分页渲染（fallback） */
+                  <>
+                    <div className="min-w-[1000px]">
+                      {currentRows.map((account) => (
+                        <AccountTableRow
+                          key={account.access_token}
+                          account={account}
+                          selected={selectedIds.includes(account.access_token)}
+                          circuitBreakers={circuitBreakers}
+                          refreshingTokens={refreshingTokens}
+                          isRefreshing={isRefreshing}
+                          isDeleting={isDeleting}
+                          isUpdating={isUpdating}
+                          onToggleSelect={handleToggleSelect}
+                          onEdit={openEditDialog}
+                          onTimeline={(acct) => void openTimeline(acct)}
+                          onRefresh={(token) => void handleRefreshAccounts([token])}
+                          onDelete={(token) => handleDeleteTokens([token])}
+                          onClick={handleRowClick}
+                          columnVisibility={columnVisibility}
+                        />
+                      ))}
+                    </div>
+
+                    {!isLoading && currentRows.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center gap-3 px-6 py-14 text-center">
+                        <div className="rounded-xl bg-stone-100 p-3 text-stone-500">
+                          <Search className="size-5" />
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium text-stone-700">没有匹配的账户</p>
+                          <p className="text-sm text-stone-500">调整筛选条件或搜索关键字后重试。</p>
+                        </div>
+                      </div>
+                    ) : null}
+                  </>
+                )}
+              </div>
             </div>
 
+            {/* 分页控件 */}
             <div className="border-t border-stone-100 px-4 py-4">
               <div className="flex items-center justify-center gap-3 overflow-x-auto whitespace-nowrap">
                 <div className="shrink-0 text-sm text-stone-500">
-                显示第 {filteredAccounts.length === 0 ? 0 : startIndex + 1} -{" "}
-                {Math.min(startIndex + Number(pageSize), filteredAccounts.length)} 条，共{" "}
-                {filteredAccounts.length} 条
+                  显示第 {filteredAccounts.length === 0 ? 0 : startIndex + 1} -{" "}
+                  {Math.min(startIndex + Number(pageSize), filteredAccounts.length)} 条，共{" "}
+                  {filteredAccounts.length} 条
                 </div>
 
                 <span className="shrink-0 text-sm leading-none text-stone-500">
@@ -1934,7 +2086,168 @@ function AccountsPageContent() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* 账号详情侧面板 */}
+      <Sheet open={detailPanelOpen} onOpenChange={setDetailPanelOpen}>
+        <SheetContent
+          className="w-full rounded-l-2xl border-l border-stone-200 bg-white p-0 sm:max-w-md"
+          showCloseButton={false}
+        >
+          <SheetHeader className="flex flex-row items-center justify-between border-b border-stone-100 px-6 py-4">
+            <SheetTitle className="text-base font-semibold">账号详情</SheetTitle>
+            <button
+              type="button"
+              className="rounded-lg p-1.5 text-stone-400 transition hover:bg-stone-100 hover:text-stone-700"
+              onClick={() => setDetailPanelOpen(false)}
+            >
+              <X className="size-4" />
+            </button>
+          </SheetHeader>
+
+          {detailLoading ? (
+            <div className="flex items-center justify-center py-20">
+              <LoaderCircle className="size-5 animate-spin text-stone-400" />
+            </div>
+          ) : detailAccount ? (
+            <div className="overflow-y-auto px-6 py-4">
+              <dl className="space-y-3 text-sm">
+                <DetailRow label="邮箱" value={detailAccount.email ?? "—"} />
+                <DetailRow
+                  label="Token"
+                  value={maskToken(detailAccount.access_token)}
+                  copyable={detailAccount.access_token}
+                />
+                {detailAccount.refresh_token && (
+                  <DetailRow
+                    label="Refresh Token"
+                    value={maskToken(detailAccount.refresh_token)}
+                    copyable={detailAccount.refresh_token}
+                  />
+                )}
+                {detailAccount.id_token && (
+                  <DetailRow
+                    label="ID Token"
+                    value={maskToken(detailAccount.id_token)}
+                    copyable={detailAccount.id_token}
+                  />
+                )}
+                {detailAccount.password && (
+                  <DetailRow label="密码" value={detailAccount.password} />
+                )}
+                <DetailRow label="类型" value={displayAccountType(detailAccount)} />
+                <DetailRow label="来源" value={displayAccountSource(detailAccount)} />
+                <DetailRow label="状态" value={detailAccount.status} />
+                <DetailRow label="档位" value={detailAccount.tier ?? "—"} />
+                <DetailRow label="调度分" value={String(detailAccount.score ?? "—")} />
+                <DetailRow label="提供商" value={detailAccount.provider ?? "—"} />
+                <DetailRow label="配额" value={formatQuota(detailAccount)} />
+                <DetailRow label="创建时间" value={detailAccount.created_at ?? "—"} />
+                <DetailRow label="代理" value={detailAccount.proxy ?? "—"} />
+                <DetailRow label="标签" value={detailAccount.label ?? "—"} />
+                <DetailRow
+                  label="熔断状态"
+                  value={
+                    circuitBreakers[detailAccount.access_token.slice(-8)]
+                      ? circuitBreakers[detailAccount.access_token.slice(-8)].state === "open"
+                        ? "熔断中"
+                        : "半开"
+                      : "正常"
+                  }
+                />
+                <DetailRow
+                  label="寿命预测"
+                  value={
+                    detailAccount.lifetime_risk
+                      ? `${({ low: "健康", medium: "关注", high: "偏高", critical: "濒危" } as Record<string, string>)[detailAccount.lifetime_risk] ?? "未知"}${detailAccount.lifetime_eta_days != null ? ` · ${detailAccount.lifetime_eta_days}d` : ""}`
+                      : "—"
+                  }
+                />
+                <DetailRow label="在途图片数" value={String(detailAccount.image_inflight ?? 0)} />
+                <DetailRow label="成功次数" value={String(detailAccount.success)} />
+                <DetailRow label="失败次数" value={String(detailAccount.fail)} />
+                {detailAccount.tags && detailAccount.tags.length > 0 && (
+                  <DetailRow
+                    label="标签（扩展）"
+                    value={detailAccount.tags.map((t) => t.name).join(", ")}
+                  />
+                )}
+              </dl>
+
+              {/* 底部操作按钮 */}
+              <div className="mt-6 flex flex-wrap items-center gap-2 border-t border-stone-100 pt-4">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-9 rounded-lg border-stone-200 text-stone-700"
+                  onClick={() => openEditDialog(detailAccount)}
+                >
+                  <Pencil className="size-3.5" />
+                  编辑
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-9 rounded-lg border-stone-200 text-stone-700"
+                  onClick={() => void handleRefreshAccounts([detailAccount.access_token])}
+                  disabled={isRefreshing}
+                >
+                  <RefreshCw className={cn("size-3.5", isRefreshing ? "animate-spin" : "")} />
+                  刷新
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-9 rounded-lg border-stone-200 text-rose-600 hover:bg-rose-50"
+                  onClick={() => {
+                    setDetailPanelOpen(false);
+                    handleDeleteTokens([detailAccount.access_token]);
+                  }}
+                  disabled={isDeleting}
+                >
+                  <Trash2 className="size-3.5" />
+                  删除
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-9 rounded-lg border-stone-200 text-stone-700"
+                  onClick={() => {
+                    setDetailPanelOpen(false);
+                    void openTimeline(detailAccount);
+                  }}
+                >
+                  <History className="size-3.5" />
+                  时间线
+                </Button>
+              </div>
+            </div>
+          ) : null}
+        </SheetContent>
+      </Sheet>
     </>
+  );
+}
+
+function DetailRow({ label, value, copyable }: { label: string; value: string; copyable?: string }) {
+  return (
+    <div className="flex items-start justify-between gap-2">
+      <dt className="shrink-0 text-stone-500">{label}</dt>
+      <dd className="flex items-center gap-1.5 text-right text-stone-900">
+        <span className="break-all">{value}</span>
+        {copyable && (
+          <button
+            type="button"
+            className="shrink-0 rounded p-0.5 text-stone-400 transition hover:bg-stone-100 hover:text-stone-700"
+            onClick={() => {
+              void copyText(copyable);
+              toast.success("已复制");
+            }}
+          >
+            <Copy className="size-3.5" />
+          </button>
+        )}
+      </dd>
+    </div>
   );
 }
 

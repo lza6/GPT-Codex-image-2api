@@ -432,6 +432,7 @@ class ConfigStore:
         "ssrf_allow_private_ips",
         "proactive_probe_enabled",
         "upstream_failover_enabled",
+        "session_pool_health_check_enabled",
     )
     _DICT_FIELDS: tuple[str, ...] = (
         "provider_weights",
@@ -864,6 +865,14 @@ class ConfigStore:
         return bool(value)
 
     @property
+    def session_pool_health_check_enabled(self) -> bool:
+        """连接池健康预检开关（默认开启）。"""
+        value = self.data.get("session_pool_health_check_enabled", True)
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+        return bool(value)
+
+    @property
     def provider_weights(self) -> dict[str, int]:
         """Provider 权重调度配置（如 {"chatgpt": 3, "grok": 1}）。"""
         raw = self.data.get("provider_weights")
@@ -1014,6 +1023,7 @@ class ConfigStore:
         data["upstream_failover_enabled"] = self.upstream_failover_enabled
         data["provider_weights"] = self.provider_weights
         data["provider_rate_limit_rpm"] = self.provider_rate_limit_rpm
+        data["model_upstream_map"] = self.model_upstream_map
         data["image_remove_conversation_after_result"] = self.image_remove_conversation_after_result
         data["image_remove_conversation_always"] = self.image_remove_conversation_always
         data["auto_remove_invalid_accounts"] = self.auto_remove_invalid_accounts

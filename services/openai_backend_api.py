@@ -652,6 +652,16 @@ class OpenAIBackendAPI:
             return mapping[model]
         return model
 
+    @staticmethod
+    def _resolve_upstream_model(model: str) -> str:
+        """将用户请求的模型名映射为上游模型名。"""
+        if not model or model in ("auto", ""):
+            return config.default_upstream_model_name
+        mapping = config.model_upstream_map
+        if model in mapping:
+            return mapping[model]
+        return model
+
     def _conversation_payload(
             self,
             messages: list[dict[str, Any]],
@@ -2003,7 +2013,7 @@ class OpenAIBackendAPI:
                 "action": "next",
                 "fork_from_shared_post": False,
                 "parent_message_id": "client-created-root",
-                "model": model,
+                "model": self._resolve_upstream_model(model),
                 "client_prepare_state": "success",
                 "timezone_offset_min": -480,
                 "timezone": "Asia/Shanghai",
