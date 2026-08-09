@@ -19,14 +19,21 @@ FROM --platform=$TARGETPLATFORM python:3.13-slim AS app
 
 ARG TARGETPLATFORM
 ARG TARGETARCH
+ARG VERSION_ARG=unknown
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     UV_LINK_MODE=copy
 
+LABEL org.opencontainers.image.title="chatgpt2api" \
+      org.opencontainers.image.description="ChatGPT 官网能力的逆向封装服务" \
+      org.opencontainers.image.version="${VERSION_ARG}" \
+      org.opencontainers.image.source="https://github.com/basketikun/chatgpt2api" \
+      org.opencontainers.image.licenses="MIT"
+
 WORKDIR /app
 
-# 安装系统依赖
+# 安装系统依赖 + uv（合并 RUN 减少层数）
 # - git: Git 存储后端需要
 # - libpq-dev: PostgreSQL 客户端库
 # - gcc: 编译 psycopg2-binary 需要
@@ -35,9 +42,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev \
     gcc \
     openssl \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN pip install --no-cache-dir uv
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir uv
 
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project

@@ -7,6 +7,9 @@
  *   <Skeleton className="h-10 w-full" />                 // 单行
  *   <SkeletonTable rows={5} cols={4} />                  // 表格骨架
  *   <SkeletonCards count={4} className="h-24" />          // 卡片骨架
+ *   <SkeletonText lines={3} />                            // 文本骨架
+ *   <SkeletonAvatar size="md" />                          // 头像骨架
+ *   <SkeletonDashboard />                                 // 看板骨架
  */
 import * as React from "react";
 
@@ -48,4 +51,75 @@ function SkeletonCards({ count = 4, className }: { count?: number; className?: s
   );
 }
 
-export { Skeleton, SkeletonTable, SkeletonCards };
+/** 文本骨架：lines 行文本占位，末行宽 60%。 */
+function SkeletonText({ lines = 3, className }: { lines?: number; className?: string }) {
+  return (
+    <div className={cn("space-y-2", className)} role="status" aria-label="加载中">
+      {Array.from({ length: lines }).map((_, i) => (
+        <Skeleton
+          key={i}
+          className={cn("h-4", i === lines - 1 ? "w-3/5" : "w-full")}
+        />
+      ))}
+    </div>
+  );
+}
+
+/** 头像骨架：circle/rounded 两种形态，sm/md/lg 三种尺寸。 */
+function SkeletonAvatar({
+  size = "md",
+  shape = "circle",
+  className,
+}: {
+  size?: "sm" | "md" | "lg";
+  shape?: "circle" | "rounded";
+  className?: string;
+}) {
+  const sizeMap = { sm: "h-8 w-8", md: "h-10 w-10", lg: "h-14 w-14" };
+  return (
+    <Skeleton
+      className={cn(
+        sizeMap[size],
+        shape === "circle" ? "rounded-full" : "rounded-lg",
+        className,
+      )}
+      role="status"
+      aria-label="加载中"
+    />
+  );
+}
+
+/** 看板骨架：StatCard×4 + 图表 + 表格，完整布局占位。 */
+function SkeletonDashboard({ className }: { className?: string }) {
+  return (
+    <div className={cn("space-y-6", className)} role="status" aria-label="看板加载中">
+      {/* 标题 */}
+      <Skeleton className="h-8 w-40" />
+      {/* 统计卡片 */}
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="rounded-xl border border-stone-200 bg-white p-4 dark:border-stone-700 dark:bg-stone-900">
+            <Skeleton className="mb-2 h-3 w-16" />
+            <Skeleton className="h-8 w-20" />
+          </div>
+        ))}
+      </div>
+      {/* 图表占位 */}
+      <Skeleton className="h-64 w-full rounded-xl" />
+      {/* 表格行 */}
+      <div className="space-y-2 rounded-xl border border-stone-200 bg-white p-4 dark:border-stone-700 dark:bg-stone-900">
+        <Skeleton className="mb-4 h-6 w-32" />
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div key={i} className="flex gap-4">
+            <Skeleton className="h-5 flex-1" />
+            <Skeleton className="h-5 w-16" />
+            <Skeleton className="h-5 w-16" />
+            <Skeleton className="h-5 w-20" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export { Skeleton, SkeletonTable, SkeletonCards, SkeletonText, SkeletonAvatar, SkeletonDashboard };

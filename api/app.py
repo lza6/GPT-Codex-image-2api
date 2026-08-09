@@ -5,7 +5,7 @@ import uuid
 from contextlib import asynccontextmanager
 from threading import Event
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
@@ -136,10 +136,7 @@ def create_app() -> FastAPI:
     app.include_router(providers.create_router())
 
     @app.api_route("/{full_path:path}", methods=["GET", "HEAD"], include_in_schema=False)
-    async def serve_web(full_path: str, request: Request):
-        # RSC 预取请求（_rsc 参数）在静态导出模式下不存在，快速返回 404 让客户端回退全页导航
-        if "_rsc" in request.query_params:
-            raise HTTPException(status_code=404, detail="Not Found")
+    async def serve_web(full_path: str):
         asset = resolve_web_asset(full_path)
         if asset is not None:
             headers: dict[str, str] = {}

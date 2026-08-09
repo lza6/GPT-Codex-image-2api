@@ -24,7 +24,7 @@ from services.image_service import (
 )
 from services.image_storage_service import ImageStorageError, image_storage_service
 from services.image_tags_service import delete_tag, get_all_tags, set_tags
-from services.log_service import log_service
+from services.log_service import apply_log_levels, get_log_levels, log_service
 from services.proxy_service import proxy_settings, test_clearance, test_proxy
 
 
@@ -55,6 +55,10 @@ class ImageTagsRequest(BaseModel):
 
 class LogDeleteRequest(BaseModel):
     ids: list[str] = []
+
+class LogLevelRequest(BaseModel):
+    levels: list[str] = ["info", "warning", "error"]
+
 class BackupDeleteRequest(BaseModel):
     key: str = ""
 
@@ -191,6 +195,16 @@ def create_router(app_version: str) -> APIRouter:
     async def delete_logs(body: LogDeleteRequest, authorization: str | None = Header(default=None)):
         require_admin(authorization)
         return log_service.delete(body.ids)
+
+    @router.get("/api/system/log-level")
+    async def get_log_level(authorization: str | None = Header(default=None)):
+        require_admin(authorization)
+        return get_log_levels()
+
+    @router.post("/api/system/log-level")
+    async def set_log_level(body: LogLevelRequest, authorization: str | None = Header(default=None)):
+        require_admin(authorization)
+        return apply_log_levels(body.levels)
 
     @router.get("/api/audit")
     async def get_audit(

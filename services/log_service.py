@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import itertools
 import json
+import logging
 import os
 import time
 from dataclasses import dataclass, field
@@ -326,6 +327,50 @@ class LogService:
 
 
 log_service = LogService(DATA_DIR / "logs.jsonl")
+
+
+# ---- 运行时日志级别动态调整 ----
+
+_LOG_LEVEL_MAP = {
+    "debug": logging.DEBUG,
+    "info": logging.INFO,
+    "warning": logging.WARNING,
+    "error": logging.ERROR,
+}
+
+
+def apply_log_levels(levels: list[str]) -> dict[str, object]:
+    """运行时动态调整日志级别，无需重启。
+
+    1. 持久化到 config.json 的 log_levels 字段（utils/log.py Logger 据此过滤）。
+    2. 同步调整 Python logging 模块的日志级别，让文件 handler 和直接
+       logging.getLogger(__name__) 的模块也立即生效。
+    3. 返回当前生效的级别列表。
+    """
+    allowed = {"debug", "info", "warning", "error"}
+    normalized = [level for item in levels if (level := str(item or "").strip().lower()) in allowed]
+    if not normalized:
+        normalized = ["info", "warning", "error"]
+
+    # 持久化到 config.json
+    from services.config import config
+    config.update({"log_levels": normalized})
+
+    # 同步调整 Python logging 模块级别（影响文件 handler + 直接 logging.getLogger 的模块）
+    min_level = min(_LOG_LEVEL_MAP[l] for l in normalized)
+    for logger_name in ("chatgpt2api", ""):
+        logger = logging.getLogger(logger_name)
+        logger.setLevel(min_level)
+        for handler in logger.handlers:
+            handler.setLevel(min_level)
+
+    return {"levels": normalized}
+
+
+def get_log_levels() -> dict[str, object]:
+    """返回当前日志级别设置。"""
+    from services.config import config
+    return {"levels": config.log_levels}
 
 
 def _collect_urls(value: object) -> list[str]:

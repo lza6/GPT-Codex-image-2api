@@ -1,8 +1,6 @@
-name: CI
+name: PR Check
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
 
@@ -14,7 +12,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  ci:
+  pr-check:
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -47,6 +45,9 @@ jobs:
       - name: Test (pytest)
         run: uv run pytest -m "not live and not redis"
 
+      - name: Contract guard check
+        run: uv run python scripts/contract_guard.py
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -59,3 +60,10 @@ jobs:
         run: |
           npm ci
           npm run build
+
+      - name: Upload web_dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: web_dist
+          path: web/web_dist
+          if-no-files-found: warn
