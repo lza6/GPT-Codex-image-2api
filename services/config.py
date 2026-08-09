@@ -435,6 +435,7 @@ class ConfigStore:
     _DICT_FIELDS: tuple[str, ...] = (
         "provider_weights",
         "provider_rate_limit_rpm",
+        "model_upstream_map",
     )
     _ENUM_FIELDS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("scheduler_mode", ("round_robin", "remaining_quota", "weighted_random")),
@@ -928,6 +929,13 @@ class ConfigStore:
         return str(self.data.get("default_upstream_model_name") or "gpt-5-5").strip()
 
     @property
+    def model_upstream_map(self) -> dict[str, str]:
+        raw = self.data.get("model_upstream_map")
+        if isinstance(raw, dict):
+            return {str(k).strip(): str(v).strip() for k, v in raw.items() if k and v}
+        return {}
+
+    @property
     def default_thinking_effort(self) -> str:
         value = str(self.data.get("default_thinking_effort") or "auto").strip().lower()
         return value if value in {"auto", "standard", "extended", "max"} else "auto"
@@ -1014,6 +1022,7 @@ class ConfigStore:
         data["ai_review"] = self.ai_review
         data["global_system_prompt"] = self.global_system_prompt
         data["default_upstream_model_name"] = self.default_upstream_model_name
+        data["model_upstream_map"] = self.model_upstream_map
         data["default_thinking_effort"] = self.default_thinking_effort
         data["backup"] = self.get_backup_settings()
         data["image_storage"] = self.get_image_storage_settings()

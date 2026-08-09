@@ -17,6 +17,7 @@ from services.backup_service import backup_service
 from services.config import config
 from services.image_service import start_image_cleanup_scheduler
 from services.metrics_service import set_request_id
+from utils.log import logger
 
 
 def create_app() -> FastAPI:
@@ -104,15 +105,15 @@ def create_app() -> FastAPI:
     install_exception_handlers(app)
 
     @app.middleware("http")
-    async def inject_request_headers(request, call_next):
-        """D-R2：注入 X-Request-ID + X-Response-Time-Ms 响应头。
+    async def access_log_middleware(request, call_next):
+        """记录所有 HTTP 请求到控制台，包括 /v1/models、鉴权失败等黑匣子。
 
-        此前 metrics_service 有 request_id 基础设施但从未写响应头，而
-        docs 与前端 request.ts 都依赖 X-Request-ID（5xx 排障定位）。
-        3.2：同时注入请求上下文（path/method/ip），供 require_admin 审计埋点读取。
+        LoggedCall 只覆盖 AI 端点（chat/completions/images/messages/responses），
+        GET /v1/models、鉴权失败、管理 API 等请求完全不可见。此中间件保证
+        每个请求都有日志，便于开发者调试对接。
         """
-        request_id = uuid.uuid4().hex[:16]
-        set_request_id(request_id)
+        req_id = uuid.uuid4().hex[:16]
+        set_request_id(req_id)
         try:
             from services.request_context import set_request_context
 
@@ -122,7 +123,7 @@ def create_app() -> FastAPI:
                 method=request.method,
                 ip=str(getattr(client, "host", "") or ""),
             )
-        except Exception:  # noqa: BLE001 - 审计上下文失败不影响主流程
+        except Exception:  # noqa: BLE001
             pass
         start = time.perf_counter()
         response = None
@@ -131,8 +132,19 @@ def create_app() -> FastAPI:
             return response
         finally:
             elapsed_ms = round((time.perf_counter() - start) * 1000, 1)
+            status = response.status_code if response is not None else 0
+            ip = str(getattr(request.client, "host", "") if request.client else "")
+            logger.info({
+                "event": "access",
+                "method": request.method,
+                "path": request.url.path,
+                "status": status,
+                "duration_ms": elapsed_ms,
+                "request_id": req_id,
+                "ip": ip,
+            })
             if response is not None:
-                response.headers["X-Request-ID"] = request_id
+                response.headers["X-Request-ID"] = req_id
                 response.headers["X-Response-Time-Ms"] = str(elapsed_ms)
 
     # S-R15：注册限流中间件（此前 RateLimitMiddleware 定义了但从未接线，
@@ -164,15 +176,34 @@ def create_app() -> FastAPI:
 
     @app.api_route("/{full_path:path}", methods=["GET", "HEAD"], include_in_schema=False)
     async def serve_web(full_path: str):
+        # 修复：浏览器缓存的旧 RSC 数据可能引用已不存在的旧 chunk URL，
+        # 导致 _next//_next/static/chunks/xxx.js 双斜杠 404 路径阻塞页面。
+        # 剥离多余 _next/ 前缀，回源到正确路径。
+        # 注意：_next/ 与其他路径之间是单斜杠 /，但 URL 中双斜杠 // 被 FastAPI
+        # 路由保留，所以 full_path 可以包含 _next//_next/
+        if full_path.startswith("_next//_next/"):
+            full_path = "_next/" + full_path[len("_next//_next/"):]
+            asset = resolve_web_asset(full_path)
+            if asset is not None:
+                return FileResponse(asset, headers={
+                    "Cache-Control": "no-cache, no-store, must-revalidate",
+                })
         asset = resolve_web_asset(full_path)
         if asset is not None:
             headers: dict[str, str] = {}
             # _next/static 文件是内容哈希文件名，可永久缓存
             if full_path.startswith("_next/static/"):
                 headers["Cache-Control"] = "public, max-age=31536000, immutable"
+            # RSC 负载（__next.*.txt）禁止浏览器缓存，否则旧 RSC 数据
+            # 会引用已不存在的旧 chunk URL，导致 404 阻塞页面切换
+            elif "__next." in full_path.split("/")[-1] and full_path.endswith(".txt"):
+                headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
             return FileResponse(asset, headers=headers)
+        # 缺失的 _next/static 文件直接 404，不返回 index.html
+        # 否则浏览器会收到 HTML 却当作 JS 执行，产生语法错误
         if full_path.strip("/").startswith("_next/"):
             raise HTTPException(status_code=404, detail="Not Found")
+        # SPA fallback：非 _next/* 路径返回 index.html
         fallback = resolve_web_asset("")
         if fallback is None:
             raise HTTPException(status_code=404, detail="Not Found")

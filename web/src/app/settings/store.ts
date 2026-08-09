@@ -181,6 +181,7 @@ function normalizeConfig(config: SettingsConfig): SettingsConfig {
     base_url: typeof config.base_url === "string" ? config.base_url : "",
     global_system_prompt: String(config.global_system_prompt || ""),
     default_upstream_model_name: String(config.default_upstream_model_name || "gpt-5-5"),
+    model_upstream_map: (config?.model_upstream_map) || {},
     default_thinking_effort: defaultThinkingEffort,
     sensitive_words: Array.isArray(config.sensitive_words) ? config.sensitive_words : [],
     ai_review: {

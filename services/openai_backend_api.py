@@ -642,6 +642,16 @@ class OpenAIBackendAPI:
             return "extended"
         return ""
 
+    @staticmethod
+    def _resolve_upstream_model(model: str) -> str:
+        """将用户请求的模型名映射为上游模型名。"""
+        if not model or model in ("auto", ""):
+            return config.default_upstream_model_name
+        mapping = config.model_upstream_map
+        if model in mapping:
+            return mapping[model]
+        return model
+
     def _conversation_payload(
             self,
             messages: list[dict[str, Any]],
@@ -653,8 +663,7 @@ class OpenAIBackendAPI:
         payload = {
             "action": "next",
             "messages": self._api_messages_to_conversation_messages(messages),
-            "model": model,
-            "parent_message_id": new_uuid(),
+            "model": self._resolve_upstream_model(model),
             "conversation_mode": {"kind": "primary_assistant"},
             "conversation_origin": None,
             "force_paragen": False,
@@ -690,6 +699,10 @@ class OpenAIBackendAPI:
         _, base_model = split_image_model(model)
         if not base_model:
             return "auto", ""
+        # 如果 model 在 model_upstream_map 中，直接使用映射值
+        mapping = config.model_upstream_map
+        if model in mapping:
+            return mapping[model], self._normalize_thinking_effort(config.default_thinking_effort)
         if base_model == "gpt-image-2":
             # free 账号用 "auto"（让上游选择模型），Plus/Pro 用配置的上游模型
             account = account_service.get_account(self.access_token) or {}

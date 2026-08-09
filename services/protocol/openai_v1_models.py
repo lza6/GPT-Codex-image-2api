@@ -4,6 +4,7 @@ from typing import Any
 
 from services.account_service import account_service
 from services.model_service import model_catalog_service
+from services.config import config
 from utils.helper import CODEX_IMAGE_MODEL
 
 
@@ -50,4 +51,21 @@ def list_models() -> dict[str, Any]:
                 "root": model,
                 "parent": None,
             })
+            seen.add(model)
+
+    # Add mapped models from model_upstream_map
+    upstream_map = config.model_upstream_map
+    for mapped_model in sorted(upstream_map):
+        if mapped_model not in seen:
+            data.append({
+                "id": mapped_model,
+                "object": "model",
+                "created": 0,
+                "owned_by": "chatgpt2api",
+                "permission": [],
+                "root": mapped_model,
+                "parent": None,
+            })
+            seen.add(mapped_model)
+
     return result

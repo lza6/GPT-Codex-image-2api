@@ -11,15 +11,22 @@ from services.alert_service import send_alert
 from services.event_bus import (
     ACCOUNT_INVALID,
     ACCOUNT_QUOTA_EXHAUSTED,
+    ACCOUNT_QUOTA_LOW,
     ACCOUNT_RECOVERED,
     BACKUP_FAILURE,
     CIRCUIT_CLOSED,
     CIRCUIT_HALF_OPEN,
     CIRCUIT_OPEN,
+    IMAGE_TASK_COMPLETED,
+    SESSION_DEGRADED,
     Event,
     event_bus,
 )
-from services.prometheus_metrics import record_circuit_breaker_transition
+from services.log_service import LOG_TYPE_ACCOUNT, log_service
+from services.prometheus_metrics import (
+    record_circuit_breaker_transition,
+    record_image_task_completed,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +38,9 @@ _ALERT_EVENT_MAP: dict[str, str] = {
     ACCOUNT_INVALID: "account_invalid",
     ACCOUNT_RECOVERED: "account_recovered",
     ACCOUNT_QUOTA_EXHAUSTED: "quota_exhausted",
+    ACCOUNT_QUOTA_LOW: "quota_low",
     BACKUP_FAILURE: "backup_failure",
+    SESSION_DEGRADED: "session_degraded",
 }
 
 
@@ -48,6 +57,19 @@ def _metric_wrapper(event: Event) -> None:
         from_state=data.get("from_state", "unknown"),
         to_state=data.get("to_state", "unknown"),
     )
+
+
+def _image_task_completed_wrapper(event: Event) -> None:
+    """图片任务完成：记录日志 + 递减在途指标。"""
+    data = event.data
+    task_id = data.get("task_id", "unknown")
+    result = data.get("result", "unknown")
+    log_service.add(
+        LOG_TYPE_ACCOUNT,
+        f"image_task_completed:{task_id}",
+        {"task_id": task_id, "result": result, **data},
+    )
+    record_image_task_completed()
 
 
 _registered = False

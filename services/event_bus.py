@@ -30,6 +30,13 @@ logger = logging.getLogger(__name__)
 ACCOUNT_INVALID = "account.invalid"
 ACCOUNT_RECOVERED = "account.recovered"
 ACCOUNT_QUOTA_EXHAUSTED = "account.quota_exhausted"
+ACCOUNT_QUOTA_LOW = "account.quota_low"
+# Provider 事件
+PROVIDER_HEALTH_CHANGED = "provider.health_changed"
+# 图片任务事件
+IMAGE_TASK_COMPLETED = "image.task_completed"
+# 会话事件
+SESSION_DEGRADED = "session.degraded"
 # 熔断器事件
 CIRCUIT_OPEN = "circuit.open"
 CIRCUIT_HALF_OPEN = "circuit.half_open"
@@ -41,10 +48,13 @@ CONFIG_CHANGED = "config.changed"
 
 # 所有事件列表（用于初始化/校验）
 ALL_EVENTS = frozenset({
-    ACCOUNT_INVALID, ACCOUNT_RECOVERED, ACCOUNT_QUOTA_EXHAUSTED,
+    ACCOUNT_INVALID, ACCOUNT_RECOVERED, ACCOUNT_QUOTA_EXHAUSTED, ACCOUNT_QUOTA_LOW,
     CIRCUIT_OPEN, CIRCUIT_HALF_OPEN, CIRCUIT_CLOSED,
     BACKUP_FAILURE,
     CONFIG_CHANGED,
+    PROVIDER_HEALTH_CHANGED,
+    IMAGE_TASK_COMPLETED,
+    SESSION_DEGRADED,
 })
 
 # ---------------------------------------------------------------------------

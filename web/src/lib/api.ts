@@ -188,6 +188,7 @@ export type SettingsConfig = {
   base_url?: string;
   global_system_prompt?: string;
   default_upstream_model_name?: string;
+  model_upstream_map?: Record<string, string>;
   default_thinking_effort?: "auto" | "standard" | "extended" | "max";
   sensitive_words?: string[];
   ai_review?: {

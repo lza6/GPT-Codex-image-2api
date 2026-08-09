@@ -179,6 +179,11 @@ def record_audit_action(action: str, result: str) -> None:
     chatgpt2api_audit_actions_total.labels(action=_normalize_audit_action(action), result=result).inc()
 
 
+def record_image_task_completed() -> None:
+    """记录图片任务完成，递减在途计数。"""
+    chatgpt2api_image_tasks_inflight.dec()
+
+
 def generate_metrics() -> tuple[bytes, str]:
     """生成 Prometheus 指标文本。"""
     registry = _create_registry()
