@@ -24,6 +24,20 @@ def create_app() -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
+        # 初始化事件总线（在后台线程启动之前注册所有订阅）
+        try:
+            from services.event_bus_init import register_subscribers
+            register_subscribers()
+        except Exception:  # noqa: BLE001 - 事件总线初始化失败不阻断启动
+            pass
+
+        # 初始化任务队列处理器（在后台线程启动之前注册所有处理器）
+        try:
+            from services.task_queue_init import register_task_handlers
+            register_task_handlers()
+        except Exception:  # noqa: BLE001 - 任务队列初始化失败不阻断启动
+            pass
+
         stop_event = Event()
         thread = start_limited_account_watcher(stop_event)
         cleanup_thread = start_image_cleanup_scheduler(stop_event)
@@ -68,6 +82,12 @@ def create_app() -> FastAPI:
                 probe_thread.join(timeout=5)
             agg_thread.join(timeout=5)
             backup_service.stop()
+            # 停止任务队列消费者
+            try:
+                from services.task_queue import task_queue
+                task_queue.stop_consumer()
+            except Exception:  # noqa: BLE001
+                pass
             # D15：优雅停机——归还并关闭所有池化 TLS 连接，防资源泄漏
             from services.session_pool import session_pool
 

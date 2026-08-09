@@ -12,6 +12,7 @@ import services.alert_service as alert_module
 from services.account_service import AccountService
 from services.alert_service import AlertService
 from services.circuit_breaker import CircuitBreakerRegistry
+from services.event_bus_init import register_subscribers
 from services.storage.json_storage import JSONStorageBackend
 
 
@@ -31,6 +32,9 @@ class TestRecoveryAlerts:
             sent.append(kwargs.get("json", {}))
 
         monkeypatch.setattr(alert_module.requests, "post", _fake_post)
+
+        # 注册事件总线订阅
+        register_subscribers()
 
         unique_token = f"alert-closed-{id(sent)}"
         registry = CircuitBreakerRegistry(failure_threshold=2, recovery_timeout=0.01, half_open_max_calls=2)
@@ -61,6 +65,9 @@ class TestRecoveryAlerts:
 
         monkeypatch.setattr(alert_module.requests, "post", _fake_post)
 
+        # 注册事件总线订阅
+        register_subscribers()
+
         storage = JSONStorageBackend(tmp_path / "accounts.json")
         svc = AccountService(storage)
         token = f"recover-token-{id(sent)}"
@@ -89,6 +96,9 @@ class TestRecoveryAlerts:
             sent.append(kwargs.get("json", {}))
 
         monkeypatch.setattr(alert_module.requests, "post", _fake_post)
+
+        # 注册事件总线订阅
+        register_subscribers()
 
         storage = JSONStorageBackend(tmp_path / "accounts.json")
         svc = AccountService(storage)

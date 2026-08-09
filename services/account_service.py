@@ -46,6 +46,7 @@ class AccountService:
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/145.0.0.0 Safari/537.36"
     )
+    _ACCOUNT_LIST_CACHE_TTL: float = 5.0
 
     def __init__(self, storage_backend: StorageBackend, progress_ttl_seconds: float = 3600.0):
         self.storage = storage_backend
@@ -74,6 +75,8 @@ class AccountService:
         self._image_inflight: dict[str, int] = {}
         self._token_aliases: dict[str, str] = {}
         self._cumulative_total = self._load_cumulative_total()
+        self._account_list_cache: dict[str, object] = {}
+        self._account_list_cache_at: float = 0.0
 
     def set_circuit_breaker_registry(self, registry) -> None:
         """注入熔断器注册表（生产为全局单例，测试注入独立实例验证清理）。"""
@@ -149,6 +152,7 @@ class AccountService:
 
     def _save_accounts(self) -> None:
         self.storage.save_accounts(list(self._accounts.values()))
+        self._invalidate_account_list_cache()
 
     @staticmethod
     def _is_image_account_available(account: dict) -> bool:
@@ -1273,13 +1277,17 @@ class AccountService:
             # 返回成功但账号不可用（限流/无配额），记为失败
             breaker.record_failure()
             self.release_image_slot(access_token)
-        # D18：配额耗尽触发告警
+        # 通过事件总线发布配额耗尽事件
         try:
-            from services.alert_service import send_alert
+            from services.event_bus import Event, ACCOUNT_QUOTA_EXHAUSTED, event_bus
 
-            send_alert("quota_exhausted", {"tried_tokens": len(attempted_tokens), "plan_type": plan_type or "", "source_type": source_type or ""})
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("配额耗尽告警发送失败: %s", exc)
+            event_bus.publish(Event(ACCOUNT_QUOTA_EXHAUSTED, {
+                "tried_tokens": len(attempted_tokens),
+                "plan_type": plan_type or "",
+                "source_type": source_type or "",
+            }))
+        except Exception:  # noqa: BLE001
+            pass
         raise RuntimeError(
             f"no available {plan_type or source_type or ''} image quota (tried {len(attempted_tokens)} tokens)".replace("  ", " ").strip()
             if plan_type or source_type else f"no available image quota (tried {len(attempted_tokens)} tokens)"
@@ -1348,11 +1356,14 @@ class AccountService:
             pass
         if not config.auto_remove_invalid_accounts:
             self.update_account(access_token, {"status": "异常", "quota": 0}, quiet=quiet)
-            # D18：账号失效触发告警
+            # 通过事件总线发布账号失效事件
             try:
-                from services.alert_service import send_alert
+                from services.event_bus import Event, ACCOUNT_INVALID, event_bus
 
-                send_alert("account_invalid", {"token_suffix": anonymize_token(access_token), "reason": event})
+                event_bus.publish(Event(ACCOUNT_INVALID, {
+                    "token_suffix": anonymize_token(access_token),
+                    "reason": event,
+                }))
             except Exception:  # noqa: BLE001
                 pass
             return False
@@ -1387,6 +1398,21 @@ class AccountService:
                     return dict(account)
         return None
 
+    def _invalidate_account_list_cache(self) -> None:
+        self._account_list_cache = {}
+        self._account_list_cache_at = 0.0
+
+    def get_accounts_cached(self) -> list[dict]:
+        now = time.time()
+        if now - self._account_list_cache_at < self._ACCOUNT_LIST_CACHE_TTL:
+            cached = self._account_list_cache.get("account_list")
+            if cached is not None:
+                return cached  # type: ignore[return-value]
+        result = self.list_accounts()
+        self._account_list_cache = {"account_list": result}
+        self._account_list_cache_at = now
+        return result
+
     def list_accounts(self) -> list[dict]:
         """返回所有账号的副本，并为每个账号附加当前图片在途数 image_inflight。
 
@@ -1405,6 +1431,30 @@ class AccountService:
                 account["score"] = self._account_dispatch_score(account, tier)
                 result.append(account)
             return result
+
+    def list_groups(self) -> list[dict[str, Any]]:
+        """返回所有账号标签的唯一值及其计数。"""
+        from collections import Counter
+        labels: Counter[str] = Counter()
+        for account in self.list_accounts():
+            label = str(account.get("label") or "").strip()
+            if label:
+                labels[label] += 1
+        return [{"label": label, "count": count} for label, count in sorted(labels.items())]
+
+    def rename_label(self, old_label: str, new_label: str) -> int:
+        """重命名标签（合并两个标签）。返回更新的账号数。"""
+        old = str(old_label or "").strip()
+        new = str(new_label or "").strip()
+        if not old or not new:
+            raise ValueError("old_label and new_label are required")
+        updated = 0
+        for account in self.list_accounts():
+            if str(account.get("label") or "").strip() == old:
+                token = account.get("access_token", "")
+                if token and self.update_account(token, {"label": new}, quiet=True):
+                    updated += 1
+        return updated
 
     def list_limited_tokens(self) -> list[str]:
         with self._lock:
@@ -1747,17 +1797,14 @@ class AccountService:
                 self._accounts[access_token] = account
         if was_invalid:
             try:
-                from services.alert_service import send_alert
+                from services.event_bus import Event, ACCOUNT_RECOVERED, event_bus
 
-                send_alert(
-                    "account_recovered",
-                    {
-                        "token_suffix": str(access_token)[-8:],
-                        "account": str((current or {}).get("email") or str(access_token)[-8:]),
-                    },
-                )
-            except Exception:  # noqa: BLE001 - 告警绝不阻塞账号刷新主流程
-                logger.warning("账号恢复告警发送失败", exc_info=True)
+                event_bus.publish(Event(ACCOUNT_RECOVERED, {
+                    "token_suffix": str(access_token)[-8:],
+                    "account": str((current or {}).get("email") or str(access_token)[-8:]),
+                }))
+            except Exception:  # noqa: BLE001 - 事件绝不阻塞账号刷新主流程
+                pass
 
     def _should_defer_invalid_token(self, account: dict | None, now: datetime) -> bool:
         if not isinstance(account, dict):

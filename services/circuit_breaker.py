@@ -49,10 +49,14 @@ class CircuitBreaker:
                 if time.monotonic() - self._opened_at >= self.recovery_timeout:
                     self._state = CircuitState.HALF_OPEN
                     self._success_count_half_open = 0
-                    # v2.10.0：熔断状态转移指标
+                    # 通过事件总线发布熔断状态转移
                     try:
-                        from services.prometheus_metrics import record_circuit_breaker_transition
-                        record_circuit_breaker_transition("open", "half_open")
+                        from services.event_bus import Event, CIRCUIT_HALF_OPEN, event_bus
+                        event_bus.publish(Event(CIRCUIT_HALF_OPEN, {
+                            "from_state": "open",
+                            "to_state": "half_open",
+                            "token_suffix": str(self._key)[-8:] if self._key else "",
+                        }))
                     except Exception:
                         pass
             return self._state
@@ -69,20 +73,16 @@ class CircuitBreaker:
                     # 半开连续成功，恢复闭合
                     self._state = CircuitState.CLOSED
                     self._failure_count = 0
-                    # v2.10.0：熔断状态转移指标
+                    # 通过事件总线发布熔断恢复
                     try:
-                        from services.prometheus_metrics import record_circuit_breaker_transition
-                        record_circuit_breaker_transition("half_open", "closed")
+                        from services.event_bus import Event, CIRCUIT_CLOSED, event_bus
+                        event_bus.publish(Event(CIRCUIT_CLOSED, {
+                            "from_state": "half_open",
+                            "to_state": "closed",
+                            "token_suffix": str(self._key)[-8:] if self._key else "",
+                        }))
                     except Exception:
                         pass
-                    # 5.3：熔断恢复 → 推送恢复事件（复用告警通道 + 去重机制）
-                    if self._key:
-                        try:
-                            from services.alert_service import send_alert
-
-                            send_alert("circuit_breaker_closed", {"token_suffix": str(self._key)[-8:]})
-                        except Exception:  # noqa: BLE001 - 告警绝不阻塞熔断主流程
-                            pass
             elif self._state == CircuitState.OPEN:
                 # C7/P1-2 竞态修复：请求放行时已判 OPEN 拒绝，若此后另一条路径把状态
                 # 推进到 OPEN（并发 record_failure 触发熔断），迟到的 record_success 不得
@@ -108,24 +108,17 @@ class CircuitBreaker:
         self._state = CircuitState.OPEN
         self._opened_at = time.monotonic()
         self._failure_count = 0
-        # v2.10.0：熔断状态转移指标
+        # 通过事件总线发布熔断事件
         try:
-            from services.prometheus_metrics import record_circuit_breaker_transition
-            record_circuit_breaker_transition(
-                "half_open" if prev_state == CircuitState.HALF_OPEN else "closed",
-                "open",
-            )
-        except Exception:
-            pass
-        # D18：熔断 OPEN 触发告警（token 末 8 位，不泄露完整 token）
-        # 直接构造（非经注册表，key=""）时跳过告警——无账号上下文，告警无意义
-        if not self._key:
-            return
-        try:
-            from services.alert_service import send_alert
+            from services.event_bus import Event, CIRCUIT_OPEN, event_bus
 
-            send_alert("circuit_breaker_open", {"token_suffix": str(self._key)[-8:], "failure_threshold": self.failure_threshold})
-        except Exception:  # noqa: BLE001 - 告警绝不阻塞熔断主流程
+            event_bus.publish(Event(CIRCUIT_OPEN, {
+                "from_state": "half_open" if prev_state == CircuitState.HALF_OPEN else "closed",
+                "to_state": "open",
+                "token_suffix": str(self._key)[-8:] if self._key else "",
+                "failure_threshold": self.failure_threshold,
+            }))
+        except Exception:
             pass
 
     def to_dict(self) -> dict[str, Any]:
