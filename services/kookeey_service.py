@@ -91,6 +91,10 @@ class KookeeyConfig:
     ssl_verify: bool = False  # SSL 证书校验：kookeey 住宅代理作为中间人截获 HTTPS 流量
     #                                   （MITM），导致标准证书链验证失败，默认关闭校验。
     #                                   若用户自建代理隧道（无 MITM），可开启以防护中间人攻击。
+    proxy_enabled: bool = False  # 是否启用 kookeey 动态住宅代理作为请求出口。
+    #                             仅用于密码重新登录/OTP 取件等账号管理操作。
+    #                             默认关闭：API 生图/对话请求走服务器直连或 proxy_runtime 配置，
+    #                             不走 kookeey 动态 IP（kookeey 流量按量计费，仅推荐用于批量注册场景）。
 
 
 @dataclass
@@ -282,6 +286,7 @@ class KookeeyService:
             except (TypeError, ValueError):
                 self._config.default_count = 10
             self._config.ssl_verify = bool(cfg.get("ssl_verify", False))
+            self._config.proxy_enabled = bool(cfg.get("proxy_enabled", False))
 
     def get_config(self) -> dict:
         with self._lock:
@@ -293,6 +298,7 @@ class KookeeyService:
                 "default_country": self._config.default_country,
                 "default_count": self._config.default_count,
                 "ssl_verify": self._config.ssl_verify,
+                "proxy_enabled": self._config.proxy_enabled,
             }
 
     def get_public_config(self) -> dict:

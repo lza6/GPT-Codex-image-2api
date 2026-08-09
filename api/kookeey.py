@@ -17,6 +17,7 @@ class KookeeyConfigRequest(BaseModel):
     default_country: str = "US"
     default_count: int = 10
     ssl_verify: bool = False
+    proxy_enabled: bool = False
 
 
 class KookeeyExtractRequest(BaseModel):

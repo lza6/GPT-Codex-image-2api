@@ -27,6 +27,7 @@ _FULL_CFG = {
     "security_username": "SUSER",
     "security_password": "SPASS",
     "country": "US",
+    "proxy_enabled": True,
 }
 
 
@@ -94,6 +95,30 @@ class TestKookeeyProxyFor:
         url = ps.kookeey_proxy_for("a@x.com")
         assert "p%40ss%3Aw%2Frd" in url  # 被 percent-encode，代理 URL 不会被 @ : 截断
         assert "p@ss:w/rd" not in url
+
+    def test_proxy_enabled_default_false_returns_empty(self, monkeypatch) -> None:
+        """proxy_enabled 默认 False，kookeey_proxy_for 返回空串（不用于请求出口）。"""
+        cfg = dict(_FULL_CFG)
+        cfg["enabled"] = True
+        cfg["proxy_enabled"] = False
+        _set_kookeey(monkeypatch, cfg)
+        assert ps.kookeey_proxy_for("a@x.com") == ""
+
+    def test_proxy_enabled_true_returns_url(self, monkeypatch) -> None:
+        """proxy_enabled=True 时正常返回代理 URL。"""
+        cfg = dict(_FULL_CFG)
+        cfg["enabled"] = True
+        cfg["proxy_enabled"] = True
+        _set_kookeey(monkeypatch, cfg)
+        assert ps.kookeey_proxy_for("a@x.com") != ""
+
+    def test_proxy_enabled_missing_defaults_to_false(self, monkeypatch) -> None:
+        """config 中无 proxy_enabled 字段时等价于 False。"""
+        cfg = dict(_FULL_CFG)
+        cfg["enabled"] = True
+        cfg.pop("proxy_enabled", None)
+        _set_kookeey(monkeypatch, cfg)
+        assert ps.kookeey_proxy_for("a@x.com") == ""
 
 
 # ---------------------------------------------------------------- providers 注册表（地基）

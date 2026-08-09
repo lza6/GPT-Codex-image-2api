@@ -819,19 +819,21 @@ def stream_text_deltas(backend: OpenAIBackendAPI, request: ConversationRequest) 
             error_message = str(exc)
             _record_upstream("error")
             if token and not emitted and is_token_invalid_error(error_message):
-                refreshed_token = account_service.refresh_access_token(token, force=True, event="text_stream")
-                if refreshed_token and refreshed_token != token and refreshed_token not in attempted_tokens:
-                    token = refreshed_token
-                else:
-                    account_service.remove_invalid_token(token, "text_stream")
-                    try:
-                        token = account_service.get_text_access_token(
-                            excluded_tokens=set(attempted_tokens),
-                            model=request.model,
-                        )
-                    except Exception:
-                        # 候选排除空（ModelUnavailableError），统一为无可用账号契约
-                        raise RuntimeError("no available text account") from None
+                # 401: 自动触发 token 刷新，重试
+                refreshed_token = account_service.refresh_access_token(token, force=True, event="text_stream_401")
+                if refreshed_token and refreshed_token != token:
+                    if refreshed_token not in attempted_tokens:
+                        token = refreshed_token
+                        continue
+                # refresh 后 token 未变或已试过：标记异常，换号
+                account_service.remove_invalid_token(token, "text_stream_401")
+                try:
+                    token = account_service.get_text_access_token(
+                        excluded_tokens=set(attempted_tokens),
+                        model=request.model,
+                    )
+                except Exception:
+                    raise RuntimeError("no available text account") from None
                 if token:
                     continue
             # 仅真上游抖动（5xx/超时/TLS/连接错误）记熔断失败；业务拒绝(4xx)不记，
@@ -841,9 +843,13 @@ def stream_text_deltas(backend: OpenAIBackendAPI, request: ConversationRequest) 
                 _fail_code = classify_image_exception(error_message)
                 if should_record_circuit_failure(_fail_code):
                     circuit_breaker_registry.get(token).record_failure()
-                # v2.10.0：verify_account 挂钩——账号态错误（auth_invalid/限流/配额耗尽）触发核验
+                # v2.10.0：verify_account 挂钩——账号态错误触发核验。上游抖动（TRANSIENT）受 upstream_failover_enabled 控制
                 if verify_account(_fail_code):
-                    account_service.remove_invalid_token(token, "text_stream_verify")
+                    # ACCOUNT 类错误（auth_invalid/限流/配额）始终换号；TRANSIENT 类（5xx/超时）受开关控制
+                    if should_record_circuit_failure(_fail_code) and not config.upstream_failover_enabled:
+                        pass  # 上游抖动但 failover 关闭：不换号
+                    else:
+                        account_service.remove_invalid_token(token, "text_stream_verify")
             raise
         finally:
             if active_backend is not None:
@@ -1768,9 +1774,13 @@ def _generate_single_image(
                 _fail_code = classify_image_exception(exc)
                 if should_record_circuit_failure(_fail_code):
                     circuit_breaker_registry.get(token).record_failure()
-                # v2.10.0：verify_account 挂钩——账号态错误触发核验
+                # v2.10.0：verify_account 挂钩——账号态错误触发核验。上游抖动（TRANSIENT）受 upstream_failover_enabled 控制
                 if verify_account(_fail_code):
-                    account_service.remove_invalid_token(token, "image_stream_verify")
+                    # ACCOUNT 类错误（auth_invalid/限流/配额）始终换号；TRANSIENT 类（5xx/超时）受开关控制
+                    if should_record_circuit_failure(_fail_code) and not config.upstream_failover_enabled:
+                        pass  # 上游抖动但 failover 关闭：不换号
+                    else:
+                        account_service.remove_invalid_token(token, "image_stream_verify")
             else:
                 _fail_code = classify_image_exception(exc)
             _record_upstream("error")

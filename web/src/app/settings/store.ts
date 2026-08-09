@@ -2,6 +2,7 @@
 
 import { create } from "zustand";
 import { toast } from "sonner";
+import { toastError, toastSuccess } from "@/lib/toast-helper";
 
 import {
   createCPAPool,
@@ -410,7 +411,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         config: normalized,
       });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "加载系统配置失败");
+      toastError(error, "加载系统配置失败");
     } finally {
       set({ isLoadingConfig: false });
     }
@@ -502,7 +503,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       toast.success("配置已保存");
       return true;
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "保存系统配置失败");
+      toastError(error, "保存系统配置失败");
       return false;
     } finally {
       set({ isSavingConfig: false });
@@ -812,7 +813,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         toast.error(`WebDAV 连接失败：${data.result.error ?? `HTTP ${data.result.status}`}`);
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "测试 WebDAV 失败");
+      toastError(error, "测试 WebDAV 失败");
     } finally {
       set({ isTestingImageStorage: false });
     }
@@ -828,7 +829,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       const data = await syncImageStorage();
       toast.success(`同步完成：上传 ${data.result.uploaded}，跳过 ${data.result.skipped}，失败 ${data.result.failed}`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "同步图片失败");
+      toastError(error, "同步图片失败");
     } finally {
       set({ isSyncingImageStorage: false });
     }
@@ -883,7 +884,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       });
     } catch (error) {
       if (!silent) {
-        toast.error(error instanceof Error ? error.message : "加载备份列表失败");
+        toastError(error, "加载备份列表失败");
       }
     } finally {
       if (!silent) {
@@ -903,7 +904,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       toast.success(`备份已完成：${data.result.key}`);
       await get().loadBackups(true);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "执行备份失败");
+      toastError(error, "执行备份失败");
     } finally {
       set({ isRunningBackup: false });
     }
@@ -916,7 +917,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       toast.success("备份已删除");
       await get().loadBackups(true);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "删除备份失败");
+      toastError(error, "删除备份失败");
     } finally {
       set({ deletingBackupKey: null });
     }
@@ -932,7 +933,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       const data = await testBackupConnection();
       toast.success(`R2 连接正常（HTTP ${data.result.status}）`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "测试备份连接失败");
+      toastError(error, "测试备份连接失败");
     } finally {
       set({ isTestingBackup: false });
     }
@@ -947,7 +948,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       set({ pools: data.pools });
     } catch (error) {
       if (!silent) {
-        toast.error(error instanceof Error ? error.message : "加载 CPA 连接失败");
+        toastError(error, "加载 CPA 连接失败");
       }
     } finally {
       if (!silent) {
@@ -1029,7 +1030,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         toast.success("连接已添加");
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "保存失败");
+      toastError(error, "保存失败");
     } finally {
       set({ isSavingPool: false });
     }
@@ -1042,7 +1043,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       set({ pools: data.pools });
       toast.success("连接已删除");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "删除失败");
+      toastError(error, "删除失败");
     } finally {
       set({ deletingId: null });
     }
@@ -1063,7 +1064,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       });
       toast.success(`读取成功，共 ${files.length} 个远程账号`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "读取远程账号失败");
+      toastError(error, "读取远程账号失败");
     } finally {
       set({ loadingFilesId: null });
     }
@@ -1123,7 +1124,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       });
       toast.success("导入任务已启动");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "启动导入失败");
+      toastError(error, "启动导入失败");
     } finally {
       set({ isStartingImport: false });
     }

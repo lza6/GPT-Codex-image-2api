@@ -50,6 +50,7 @@ class AuthService:
         name = self._clean(raw.get("name")) or self._default_name(role)
         created_at = self._clean(raw.get("created_at")) or _now_iso()
         last_used_at = self._clean(raw.get("last_used_at")) or None
+        usage_count = int(raw.get("usage_count") or 0)
         return {
             "id": item_id,
             "name": name,
@@ -58,6 +59,7 @@ class AuthService:
             "enabled": bool(raw.get("enabled", True)),
             "created_at": created_at,
             "last_used_at": last_used_at,
+            "usage_count": usage_count,
         }
 
     def _load(self) -> list[dict[str, object]]:
@@ -87,6 +89,7 @@ class AuthService:
             "enabled": bool(item.get("enabled", True)),
             "created_at": item.get("created_at"),
             "last_used_at": item.get("last_used_at"),
+            "usage_count": int(item.get("usage_count") or 0),
         }
 
     def list_keys(self, role: AuthRole | None = None) -> list[dict[str, object]]:

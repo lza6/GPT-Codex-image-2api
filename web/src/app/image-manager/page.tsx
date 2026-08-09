@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight, Copy, Download, ImageIcon, LoaderCircle, Maximize2, Plus, RefreshCw, Search, Tag, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
+import { toastError, toastSuccess } from "@/lib/toast-helper";
 import { copyText } from "@/lib/clipboard";
 
 import { DateRangeFilter } from "@/components/date-range-filter";
@@ -128,7 +129,7 @@ function ImageManagerContent() {
       setSelectedPaths((current) => current.filter((path) => data.items.some((item) => imageKey(item) === path)));
       setPage(1);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "加载图片失败");
+      toastError(error, "加载图片失败");
     } finally {
       setIsLoading(false);
     }
@@ -154,7 +155,7 @@ function ImageManagerContent() {
       setSelectedPaths((prev) => prev.filter((p) => p !== imageKey(deleteTarget)));
       toast.success("图片已删除");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "删除失败");
+      toastError(error, "删除失败");
     } finally {
       setIsDeleting(false);
       closeDialog();
@@ -168,7 +169,7 @@ function ImageManagerContent() {
       const tagsData = await fetchImageTags();
       setAllTags(tagsData.tags);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "设置标签失败");
+      toastError(error, "设置标签失败");
     }
   };
 
@@ -208,7 +209,7 @@ function ImageManagerContent() {
       })));
       toast.success(`标签"${tag}"已删除，影响 ${result.removed_from} 张图片`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "删除标签失败");
+      toastError(error, "删除标签失败");
     }
   };
 
@@ -248,7 +249,7 @@ function ImageManagerContent() {
       setSelectedPaths([]);
       await loadImages();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "删除图片失败");
+      toastError(error, "删除图片失败");
     } finally {
       setIsDeleting(false);
     }
@@ -262,7 +263,7 @@ function ImageManagerContent() {
       await downloadImages(paths);
       toast.success(`已下载 ${paths.length} 张图片`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "下载失败");
+      toastError(error, "下载失败");
     } finally {
       setIsDownloading(false);
     }

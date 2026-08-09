@@ -120,11 +120,17 @@ class AuditService:
         result: str = "",
         operator: str = "",
         action: str = "",
+        start_date: str = "",
+        end_date: str = "",
+        page: int = 0,
+        page_size: int = 0,
     ) -> list[dict[str, Any]]:
         """读取审计，按天文件分片，最新在前。
 
         - `days=N`：只读最近 N 天天文件（limit 凑够 early-exit，不触碰更早文件）。
         - `result`/`operator`/`action`：精确过滤（operator 已脱敏，按末 8 位匹配）。
+        - `start_date`/`end_date`：日期范围过滤（格式 YYYY-MM-DD，覆盖 days 指定）。
+        - `page`/`page_size`：服务端分页（page 从 1 起，page_size>0 时启用；0/0=向后兼容）。
 
         惰性清理：读取端低频触发（管理操作远少于业务日志，读取频率低，
         append 热路径不覆写——审查 R3：多 worker 下 append 与 replace 并发会丢数据）。
@@ -132,9 +138,18 @@ class AuditService:
         self.maybe_cleanup()
         today = datetime.now().date()
         min_day: str | None = None
-        if days is not None and days > 0:
+        if start_date:
+            min_day = start_date.strip()[:10]
+        elif days is not None and days > 0:
             min_day = (today - timedelta(days=days - 1)).strftime("%Y-%m-%d")
-        files = [p for p in self._daily_files() if not min_day or self._day_from_name(p.name) >= min_day]
+        max_day: str | None = None
+        if end_date:
+            max_day = end_date.strip()[:10]
+        files = [
+            p for p in self._daily_files()
+            if (not min_day or self._day_from_name(p.name) >= min_day)
+            and (not max_day or self._day_from_name(p.name) <= max_day)
+        ]
         items: list[dict[str, Any]] = []
         for path in reversed(files):
             if not path.exists():
@@ -152,7 +167,14 @@ class AuditService:
                     continue
                 items.append(item)
                 if len(items) >= limit:
-                    return items
+                    break
+            if len(items) >= limit:
+                break
+        # 服务端分页
+        total = len(items)
+        if page_size > 0 and page > 0:
+            start = (page - 1) * page_size
+            items = items[start: start + page_size]
         return items
 
     def _parse_line(self, raw_line: str) -> dict[str, Any] | None:

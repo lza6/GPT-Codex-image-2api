@@ -3,6 +3,7 @@
 import { Activity, AlertCircle, Database, Globe, LoaderCircle, RefreshCw, Save, Spline, TrendingUp } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { toastError, toastSuccess } from "@/lib/toast-helper";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -40,6 +41,8 @@ export function KookeeyCard() {
   const [developerToken, setDeveloperToken] = useState("");
   const [accessId, setAccessId] = useState("");
   const [extractUrl, setExtractUrl] = useState("");
+  // 代理出口开关（默认关闭：kookeey 流量仅用于批量注册，不用于 API 生图/对话请求）
+  const [proxyEnabled, setProxyEnabled] = useState(false);
 
   const loadAll = useCallback(async () => {
     try {
@@ -54,6 +57,7 @@ export function KookeeyCard() {
         setDeveloperToken(cfg.value.developer_token ?? "");
         setAccessId(cfg.value.access_id ?? "");
         setExtractUrl(cfg.value.extract_url ?? "");
+        setProxyEnabled(cfg.value.proxy_enabled ?? false);
       } else {
         errors.push(cfg.reason?.message ?? "config");
       }
@@ -85,12 +89,13 @@ export function KookeeyCard() {
         extract_url: extractUrl.trim(),
         default_country: config?.default_country ?? "US",
         default_count: config?.default_count ?? 10,
+        proxy_enabled: proxyEnabled,
       });
       setConfig(data.config);
       toast.success("kookeey 配置已保存");
       void loadAll();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "保存失败");
+      toastError(error, "保存失败");
     } finally {
       setIsSaving(false);
     }
@@ -103,7 +108,7 @@ export function KookeeyCard() {
       toast.success(`探测完成：${r.ok}/${r.probed} 个号出口 IP 已刷新（${r.duration_s}s）`);
       void loadAll();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "探测失败");
+      toastError(error, "探测失败");
     } finally {
       setIsProbing(false);
     }
@@ -118,7 +123,7 @@ export function KookeeyCard() {
       toast.success(`提取完成：提取 ${r.extracted} 条，入池 ${r.imported} 条，去重 ${r.deduped} 条`);
       void loadAll();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "提取失败");
+      toastError(error, "提取失败");
     } finally {
       setIsExtracting(false);
     }
@@ -232,6 +237,36 @@ export function KookeeyCard() {
               当前 access_id：{config?.access_id || "未配置"}
               {config?.developer_token ? " · token 已配置" : " · token 未配置"}
             </span>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* 代理出口开关 */}
+      <Card className="rounded-2xl border-white/80 bg-white/90 shadow-sm">
+        <CardContent className="p-5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Globe className="size-4 text-stone-500" />
+              <h3 className="text-sm font-semibold text-stone-800">kookeey 请求出口代理</h3>
+            </div>
+            <label className="relative inline-flex cursor-pointer items-center">
+              <input
+                type="checkbox"
+                className="peer sr-only"
+                checked={proxyEnabled}
+                onChange={(e) => setProxyEnabled(e.target.checked)}
+              />
+              <div className="h-6 w-11 rounded-full bg-stone-300 after:absolute after:left-[2px] after:top-[2px] after:size-5 after:rounded-full after:bg-white after:transition-all after:content-[''] peer-checked:bg-stone-800 peer-checked:after:translate-x-full" />
+            </label>
+          </div>
+          <div className="mt-2 space-y-2 text-xs text-stone-500">
+            <p>
+              <span className="font-medium text-stone-700">默认关闭</span> —— kookeey 动态住宅代理按流量计费，仅推荐用于批量注册等账号管理操作。
+            </p>
+            <p>
+              开启后，密码重新登录、OTP 取件等账号管理操作会走 kookeey 动态住宅 IP 出口。
+              <span className="font-medium text-amber-600"> 关闭时，API 生图/对话请求走服务器直连或 proxy_runtime 配置，不走 kookeey 代理，避免流量成本。</span>
+            </p>
           </div>
         </CardContent>
       </Card>

@@ -3,6 +3,7 @@
 import { AlertTriangle, Cookie, LoaderCircle, PlugZap, Save, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { toastError, toastSuccess } from "@/lib/toast-helper";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -67,7 +68,7 @@ export function ProxyRuntimeCard() {
         toast.error(`清障代理不可用：${data.result.error ?? "未知错误"}`);
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "测试清障代理失败");
+      toastError(error, "测试清障代理失败");
     } finally {
       setIsTestingProxy(false);
     }
@@ -89,7 +90,7 @@ export function ProxyRuntimeCard() {
         toast.error(`Clearance 获取失败：${data.result.error ?? data.result.status}`);
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "测试 Clearance 失败");
+      toastError(error, "测试 Clearance 失败");
     } finally {
       setIsTestingClearance(false);
     }

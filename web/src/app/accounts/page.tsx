@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { copyText } from "@/lib/clipboard";
+import { toastError, toastSuccess, extractErrorMessage } from "@/lib/toast-helper";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -187,7 +188,7 @@ async function downloadTokens(accounts: Account[]) {
   try {
     await exportAccounts(accounts.map((account) => account.access_token), "json");
   } catch (error) {
-    toast.error(error instanceof Error ? error.message : "导出账号失败");
+    toastError(error, "导出账号失败");
   }
 }
 
@@ -282,8 +283,7 @@ function AccountsPageContent() {
       setAccounts(data.items);
       setSelectedIds((prev) => prev.filter((id) => data.items.some((item) => item.access_token === id)));
     } catch (error) {
-      const message = error instanceof Error ? error.message : "加载账户失败";
-      toast.error(message);
+      toastError(error, "加载账户失败");
     } finally {
       if (!silent) {
         setIsLoading(false);
@@ -297,8 +297,7 @@ function AccountsPageContent() {
       const data = await fetchModels();
       setAvailableModels(Array.isArray(data.data) ? data.data : []);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "加载模型列表失败";
-      toast.error(message);
+      toastError(error, "加载模型列表失败");
     } finally {
       setIsLoadingModels(false);
     }
@@ -437,7 +436,7 @@ function AccountsPageContent() {
           }
           await loadAccounts(true);
         } catch (error) {
-          toast.error(error instanceof Error ? error.message : "驱逐失效账号失败");
+          toastError(error, "驱逐失效账号失败");
         } finally {
           setIsEvicting(false);
         }
@@ -461,7 +460,7 @@ function AccountsPageContent() {
           toast.success(`已处理 ${data.processed} 个，驱逐 ${data.evicted ?? 0} 个失效 token`);
           await loadAccounts(true);
         } catch (error) {
-          toast.error(error instanceof Error ? error.message : "批量驱逐失败");
+          toastError(error, "批量驱逐失败");
         } finally {
           setIsBatchAction(false);
         }
@@ -488,7 +487,7 @@ function AccountsPageContent() {
       setLabelValue("");
       await loadAccounts(true);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "批量打标签失败");
+      toastError(error, "批量打标签失败");
     } finally {
       setIsBatchAction(false);
     }
@@ -521,8 +520,7 @@ function AccountsPageContent() {
           setSelectedIds((prev) => prev.filter((id) => data.items.some((item) => item.access_token === id)));
           toast.success(`删除 ${data.removed ?? 0} 个账户`);
         } catch (error) {
-          const message = error instanceof Error ? error.message : "删除账户失败";
-          toast.error(message);
+          toastError(error, "删除账户失败");
         } finally {
           busyRef.current = false;
           setIsDeleting(false);
@@ -549,8 +547,7 @@ function AccountsPageContent() {
           }
         });
       } catch (error) {
-        const message = error instanceof Error ? error.message : "刷新账户失败";
-        toast.error(message);
+        toastError(error, "刷新账户失败");
       } finally {
         setRefreshingTokens((prev) => {
           const next = new Set(prev);
@@ -682,8 +679,7 @@ function AccountsPageContent() {
     } catch (error) {
       setProgress({ visible: false, current: 0, total: 0, message: "", email: "" });
       setRefreshSummary(null);
-      const message = error instanceof Error ? error.message : "刷新账户失败";
-      toast.error(message);
+      toastError(error, "刷新账户失败");
     } finally {
       busyRef.current = false;
       setIsRefreshing(false);
@@ -874,8 +870,7 @@ function AccountsPageContent() {
     } catch (error) {
       setProgress({ visible: false, current: 0, total: 0, message: "", email: "" });
       setRefreshSummary(null);
-      const message = error instanceof Error ? error.message : "重新登录失败";
-      toast.error(message);
+      toastError(error, "重新登录失败");
     } finally {
       setIsRelogining(false);
     }
@@ -916,7 +911,7 @@ function AccountsPageContent() {
         toast.error(`探测失败：${result.error ?? "未知错误"}`);
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "探测出口 IP 失败");
+      toastError(error, "探测出口 IP 失败");
     } finally {
       setIsProbingEgress(false);
     }
@@ -938,7 +933,7 @@ function AccountsPageContent() {
       const data = await fetchSystemLogs({ type: "调用", account_email: email });
       setTimelineLogs(data.items);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "加载账号日志失败");
+      toastError(error, "加载账号日志失败");
     } finally {
       setTimelineLoading(false);
     }
@@ -957,7 +952,7 @@ function AccountsPageContent() {
         ? toast.success(`代理可用（${data.result.latency_ms} ms，HTTP ${data.result.status}）`)
         : toast.error(`代理不可用：${data.result.error ?? "未知错误"}`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "测试代理失败");
+      toastError(error, "测试代理失败");
     } finally {
       setIsTestingProxy(false);
     }
@@ -979,8 +974,7 @@ function AccountsPageContent() {
       setEditingAccount(null);
       toast.success("账号信息已更新");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "更新账号失败";
-      toast.error(message);
+      toastError(error, "更新账号失败");
     } finally {
       setIsUpdating(false);
     }

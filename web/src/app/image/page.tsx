@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, History, LoaderCircle, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { toastError, toastSuccess, extractErrorMessage } from "@/lib/toast-helper";
 
 import { ImageComposer } from "@/app/image/components/image-composer";
 import { ImageResults, type ImageLightboxItem } from "@/app/image/components/image-results";
@@ -659,8 +660,7 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
           : null) ?? pickFallbackConversationId(normalizedItems);
       setSelectedConversationId(nextSelectedConversationId);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "读取会话记录失败";
-      toast.error(message);
+      toastError(error, "读取会话记录失败");
     } finally {
       if (!loadCancelledRef.current) {
         setIsLoadingHistory(false);
@@ -962,8 +962,7 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
     try {
       await deleteImageConversation(id);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "删除会话失败";
-      toast.error(message);
+      toastError(error, "删除会话失败");
       const items = await listImageConversations();
       conversationsRef.current = items;
       setConversations(items);
@@ -1026,8 +1025,7 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
       resetComposer();
       toast.success("已清空历史记录");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "清空历史记录失败";
-      toast.error(message);
+      toastError(error, "清空历史记录失败");
     }
   };
 
@@ -1040,8 +1038,7 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
     try {
       await renameImageConversation(id, title);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "重命名失败";
-      toast.error(message);
+      toastError(error, "重命名失败");
     }
   };
 
@@ -1100,8 +1097,7 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
         fileInputRef.current.value = "";
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : "读取参考图失败";
-      toast.error(message);
+      toastError(error, "读取参考图失败");
     }
   }, []);
 
@@ -1149,8 +1145,7 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
         textareaRef.current?.focus();
         toast.success("已加入当前参考图，继续输入描述即可编辑");
       } catch (error) {
-        const message = error instanceof Error ? error.message : "读取结果图失败";
-        toast.error(message);
+        toastError(error, "读取结果图失败");
       }
     },
     [],
@@ -1336,7 +1331,7 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
 
         await loadQuota();
       } catch (error) {
-        const message = error instanceof Error ? error.message : "生成图片失败";
+        const message = extractErrorMessage(error, "生成图片失败");
         await updateConversation(conversationId, (current) => {
           const conversation = current ?? snapshot;
           return {

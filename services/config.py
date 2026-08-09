@@ -376,7 +376,9 @@ class ConfigStore:
     def __init__(self, path: Path):
         self.path = path
         DATA_DIR.mkdir(parents=True, exist_ok=True)
+        self._config_mtime: float = 0.0
         self.data = self._load()
+        self._config_mtime = self._get_file_mtime()
         self._storage_backend: StorageBackend | None = None
         if _is_invalid_auth_key(self.auth_key):
             raise ValueError(
@@ -387,6 +389,24 @@ class ConfigStore:
                 "2. 或者在 config.json 中填写：\n"
                 '   "auth-key": "your_real_auth_key"'
             )
+
+    def _get_file_mtime(self) -> float:
+        try:
+            return self.path.stat().st_mtime
+        except OSError:
+            return 0.0
+
+    def _try_reload(self) -> None:
+        try:
+            mtime = self._get_file_mtime()
+            if mtime > self._config_mtime:
+                new_data = _read_json_object(self.path, name="config.json")
+                self._validate_schema(new_data)
+                self.data = new_data
+                self._config_mtime = mtime
+                logger.info("config.json 已自动热加载（mtime 变更）")
+        except Exception as exc:
+            logger.warning("config.json 热加载失败，保留旧配置: %s", exc)
 
     def _load(self) -> dict[str, object]:
         data = _read_json_object(self.path, name="config.json")
@@ -410,6 +430,7 @@ class ConfigStore:
         "sqlite_wal_mode",
         "ssrf_allow_private_ips",
         "proactive_probe_enabled",
+        "upstream_failover_enabled",
     )
     _ENUM_FIELDS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("scheduler_mode", ("round_robin", "remaining_quota", "weighted_random")),
@@ -473,6 +494,7 @@ class ConfigStore:
                 " 建议改用 named volume 挂载 config.json：`docker volume create cfg` 后挂载到 /app/config/。"
             )
             self.path.write_text(payload, encoding="utf-8")
+        self._config_mtime = self._get_file_mtime()
 
     @property
     def auth_key(self) -> str:
@@ -822,6 +844,14 @@ class ConfigStore:
         ).strip().rstrip("/")
 
     @property
+    def upstream_failover_enabled(self) -> bool:
+        """上游 5xx/连接错误时自动切换账号（默认开启）。"""
+        value = self.data.get("upstream_failover_enabled", True)
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+        return bool(value)
+
+    @property
     def abnormal_auto_recover_max_workers(self) -> int:
         """v2.9.0：异常账号自动恢复并发数上限。"""
         try:
@@ -904,6 +934,7 @@ class ConfigStore:
         return value or "0.0.0"
 
     def get(self) -> dict[str, object]:
+        self._try_reload()
         data = dict(self.data)
         data["refresh_account_interval_minute"] = self.refresh_account_interval_minute
         data["image_retention_days"] = self.image_retention_days
@@ -929,6 +960,7 @@ class ConfigStore:
         data["proactive_probe_enabled"] = self.proactive_probe_enabled
         data["proactive_probe_interval_minute"] = self.proactive_probe_interval_minute
         data["redis_url"] = self.redis_url
+        data["upstream_failover_enabled"] = self.upstream_failover_enabled
         data["image_remove_conversation_after_result"] = self.image_remove_conversation_after_result
         data["image_remove_conversation_always"] = self.image_remove_conversation_always
         data["auto_remove_invalid_accounts"] = self.auto_remove_invalid_accounts
@@ -981,6 +1013,7 @@ class ConfigStore:
         return runtime
 
     def update(self, data: dict[str, object]) -> dict[str, object]:
+        self._try_reload()
         next_data = dict(self.data)
         next_data.update(dict(data or {}))
         if "backup" in next_data:

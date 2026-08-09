@@ -212,20 +212,32 @@ def create_router(app_version: str) -> APIRouter:
         limit: int = 200,
         result: str = "",
         operator: str = "",
+        action: str = "",
+        start_date: str = "",
+        end_date: str = "",
+        page: int = 0,
+        page_size: int = 0,
         authorization: str | None = Header(default=None),
     ):
-        """3.2：审计日志读取（管理操作留痕，独立于业务日志）。"""
+        """3.2：审计日志读取（管理操作留痕，独立于业务日志）。
+
+        新增：start_date/end_date 日期范围过滤，action 操作类型过滤，page/page_size 分页。
+        """
         require_admin(authorization)
         from services.audit_service import audit_service
 
-        return {
-            "items": audit_service.list(
-                days=days,
-                limit=max(1, min(int(limit), 1000)),
-                result=result.strip(),
-                operator=operator.strip(),
-            )
-        }
+        items = audit_service.list(
+            days=days,
+            limit=max(1, min(int(limit), 1000)),
+            result=result.strip(),
+            operator=operator.strip(),
+            action=action.strip(),
+            start_date=start_date.strip(),
+            end_date=end_date.strip(),
+            page=max(0, int(page)),
+            page_size=max(0, int(page_size)),
+        )
+        return {"items": items, "total": len(items)}
 
     @router.post("/api/proxy/test")
     async def test_proxy_endpoint(body: ProxyTestRequest, authorization: str | None = Header(default=None)):

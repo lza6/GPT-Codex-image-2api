@@ -19,6 +19,7 @@ import {
   Unplug,
 } from "lucide-react";
 import { toast } from "sonner";
+import { toastError, toastSuccess } from "@/lib/toast-helper";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -121,7 +122,7 @@ export function Sub2APIConnections() {
       const data = await fetchSub2APIServers();
       setServers(data.servers);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "加载 Sub2API 连接失败");
+      toastError(error, "加载 Sub2API 连接失败");
     } finally {
       setIsLoading(false);
     }
@@ -157,7 +158,7 @@ export function Sub2APIConnections() {
             window.clearInterval(pollTimerRef.current);
             pollTimerRef.current = null;
           }
-          toast.error(error instanceof Error ? error.message : "查询导入进度失败");
+          toastError(error, "查询导入进度失败");
         });
     }, 1500);
 
@@ -212,7 +213,7 @@ export function Sub2APIConnections() {
         toast.success(`读取到 ${data.groups.length} 个分组`);
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "拉取分组失败");
+      toastError(error, "拉取分组失败");
     } finally {
       setIsLoadingGroups(false);
     }
@@ -275,7 +276,7 @@ export function Sub2APIConnections() {
       }
       setDialogOpen(false);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "保存失败");
+      toastError(error, "保存失败");
     } finally {
       setIsSaving(false);
     }
@@ -288,7 +289,7 @@ export function Sub2APIConnections() {
       setServers(data.servers);
       toast.success("连接已删除");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "删除失败");
+      toastError(error, "删除失败");
     } finally {
       setDeletingId(null);
     }
@@ -307,7 +308,7 @@ export function Sub2APIConnections() {
       setBrowserOpen(true);
       toast.success(`读取成功，共 ${accounts.length} 个 OpenAI 账号`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "读取 Sub2API 账号失败");
+      toastError(error, "读取 Sub2API 账号失败");
     } finally {
       setLoadingAccountsId(null);
     }
@@ -376,7 +377,7 @@ export function Sub2APIConnections() {
       setBrowserOpen(false);
       toast.success("导入任务已启动");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "启动导入失败");
+      toastError(error, "启动导入失败");
     } finally {
       setIsStartingImport(false);
     }

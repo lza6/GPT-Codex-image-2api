@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Ban, CheckCircle2, Copy, KeyRound, LoaderCircle, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { toastError, toastSuccess } from "@/lib/toast-helper";
 import { copyText } from "@/lib/clipboard";
 
 import { Badge } from "@/components/ui/badge";
@@ -56,7 +57,7 @@ export function UserKeysCard() {
       const data = await fetchUserKeys();
       setItems(data.items);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "加载用户密钥失败");
+      toastError(error, "加载用户密钥失败");
     } finally {
       setIsLoading(false);
     }
@@ -80,7 +81,7 @@ export function UserKeysCard() {
       setIsDialogOpen(false);
       toast.success("用户密钥已创建");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "创建用户密钥失败");
+      toastError(error, "创建用户密钥失败");
     } finally {
       setIsCreating(false);
     }
@@ -105,7 +106,7 @@ export function UserKeysCard() {
       setItems(data.items);
       toast.success(item.enabled ? "用户密钥已禁用" : "用户密钥已启用");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "更新用户密钥失败");
+      toastError(error, "更新用户密钥失败");
     } finally {
       setItemPending(item.id, false);
     }
@@ -123,7 +124,7 @@ export function UserKeysCard() {
       setDeletingItem(null);
       toast.success("用户密钥已删除");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "删除用户密钥失败");
+      toastError(error, "删除用户密钥失败");
     } finally {
       setItemPending(item.id, false);
     }
@@ -157,7 +158,7 @@ export function UserKeysCard() {
       setEditKey("");
       toast.success(trimmedKey ? "用户密钥已更新" : "用户名称已更新");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "更新用户密钥失败");
+      toastError(error, "更新用户密钥失败");
     } finally {
       setItemPending(item.id, false);
     }
@@ -234,10 +235,24 @@ export function UserKeysCard() {
                       <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-stone-500">
                         <span>创建时间 {formatDateTime(item.created_at)}</span>
                         <span>最近使用 {formatDateTime(item.last_used_at)}</span>
+                        {item.usage_count !== undefined ? (
+                          <span>调用次数 {item.usage_count}</span>
+                        ) : null}
                       </div>
                     </div>
 
                     <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-9 rounded-xl border-stone-200 bg-white px-3 text-stone-700"
+                        onClick={() => void handleCopy(item.id)}
+                        disabled={isPending}
+                        title="复制密钥 ID"
+                      >
+                        <Copy className="size-4" />
+                        复制密钥
+                      </Button>
                       <Button
                         type="button"
                         variant="outline"

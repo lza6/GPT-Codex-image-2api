@@ -3,6 +3,7 @@
 import { Cloud, LoaderCircle, PlugZap, RefreshCw, Save } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { toastError, toastSuccess } from "@/lib/toast-helper";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -81,7 +82,7 @@ export function ConfigCard() {
         toast.error(`代理不可用：${data.result.error ?? "未知错误"}`);
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "测试代理失败");
+      toastError(error, "测试代理失败");
     } finally {
       setIsTestingProxy(false);
     }
@@ -414,7 +415,7 @@ export function ConfigCard() {
           <div className="space-y-2">
             <div className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-4 py-3">
               <Checkbox
-                checked={config?.image_passthrough_enabled ?? false}
+                checked={Boolean(config?.image_passthrough_enabled)}
                 onCheckedChange={(checked) => setImagePassthroughEnabled(Boolean(checked))}
               />
               <span className="text-sm text-stone-700">图片透传上游直链（省流量）</span>

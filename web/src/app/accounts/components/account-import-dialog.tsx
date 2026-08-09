@@ -16,6 +16,7 @@ import {
   Upload,
 } from "lucide-react";
 import { toast } from "sonner";
+import { toastError, extractErrorMessage } from "@/lib/toast-helper";
 import { copyText } from "@/lib/clipboard";
 
 import { Button } from "@/components/ui/button";
@@ -325,8 +326,7 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
         );
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : "导入账户失败";
-      toast.error(message);
+      toastError(error, "导入账户失败");
     } finally {
       setIsSubmitting(false);
     }
@@ -368,8 +368,7 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
       });
       toast.success(`已从 ${file.name} 读取 ${credentials.length} 个账号凭据`);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "读取 TXT 文件失败";
-      toast.error(message);
+      toastError(error, "读取 TXT 文件失败");
     }
   };
 
@@ -385,8 +384,7 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
       }
       toast.success("已打开 OpenAI 授权页面，请在登录后复制 callback URL 回来");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "OAuth 起始失败";
-      toast.error(message);
+      toastError(error, "OAuth 起始失败");
     } finally {
       setOauthStarting(false);
     }
@@ -422,8 +420,7 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
         );
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : "OAuth 换 token 失败";
-      toast.error(message);
+      toastError(error, "OAuth 换 token 失败");
     } finally {
       setIsSubmitting(false);
     }
@@ -465,8 +462,7 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
       });
       toast.success(`已从 ${file.name} 读取 ${tokens.length} 个 Token`);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "读取 TXT 文件失败";
-      toast.error(message);
+      toastError(error, "读取 TXT 文件失败");
     }
   };
 
@@ -487,8 +483,7 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
 
       await submitTokens([token], "Session JSON 导入完成");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Session JSON 解析失败";
-      toast.error(message);
+      toastError(error, "Session JSON 解析失败");
     }
   };
 
@@ -509,8 +504,7 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
 
       await submitTokens([account.access_token ?? ""], "Codex 认证 JSON 导入完成", [account]);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Codex 认证 JSON 解析失败";
-      toast.error(message);
+      toastError(error, "Codex 认证 JSON 解析失败");
     }
   };
 
@@ -554,8 +548,7 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
       });
       setConfirmOpen(true);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "读取账号 JSON 文件失败";
-      toast.error(message);
+      toastError(error, "读取账号 JSON 文件失败");
     }
   };
 

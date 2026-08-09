@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, ImageIcon, LoaderCircle, RefreshCw, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { toastError, toastSuccess } from "@/lib/toast-helper";
 
 import { DateRangeFilter } from "@/components/date-range-filter";
 import { ImageLightbox } from "@/components/image-lightbox";
@@ -58,38 +59,106 @@ function auditResultLabel(result: string) {
   return { text: result || "-", tone: "secondary" as const };
 }
 
-function AuditSection({ items, loading, onRefresh }: { items: AuditLog[]; loading: boolean; onRefresh: () => void }) {
+function AuditSection() {
   const [page, setPage] = useState(1);
   const [resultFilter, setResultFilter] = useState("all");
+  const [actionFilter, setActionFilter] = useState("");
+  const [operatorFilter, setOperatorFilter] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [auditItems, setAuditItems] = useState<AuditLog[]>([]);
+  const [total, setTotal] = useState(0);
+  const [auditPageLoading, setAuditPageLoading] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
   const pageSize = 10;
-  // S5：结果筛选（本地过滤，items 已按需加载；复用既有筛选交互模式）
-  const filteredItems = resultFilter === "all" ? items : items.filter((item) => item.result === resultFilter);
-  const pageCount = Math.max(1, Math.ceil(filteredItems.length / pageSize));
+
+  const doLoad = async (p: number) => {
+    setAuditPageLoading(true);
+    try {
+      const data = await fetchAuditLogs({
+        days: 7,
+        result: resultFilter !== "all" ? resultFilter : undefined,
+        action: actionFilter || undefined,
+        operator: operatorFilter || undefined,
+        start_date: startDate || undefined,
+        end_date: endDate || undefined,
+        page: p,
+        page_size: pageSize,
+        limit: 200,
+      });
+      setAuditItems(data.items);
+      setTotal(data.total ?? 0);
+      setHasLoaded(true);
+    } catch (error) {
+      toastError(error, "加载审计日志失败");
+    } finally {
+      setAuditPageLoading(false);
+    }
+  };
+
+  // Initial load on mount
+  useEffect(() => {
+    if (!hasLoaded) {
+      void doLoad(1);
+    }
+  }, [hasLoaded]);
+
+  const handleFilterChange = () => {
+    setPage(1);
+    void doLoad(1);
+  };
+
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
   const safePage = Math.min(page, pageCount);
-  const currentRows = filteredItems.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const currentRows = auditItems;
+
   return (
     <Card className="overflow-hidden rounded-2xl border-white/80 bg-white/90 shadow-sm">
       <CardContent className="p-0">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-100 px-5 py-4">
           <div className="flex items-center gap-3 text-sm text-stone-600">
-            <span>共 {filteredItems.length} 条</span>
+            <span>共 {total} 条</span>
             <span className="text-xs text-stone-400">管理操作留痕（含失败），防篡改独立存储</span>
           </div>
           <div className="flex items-center gap-2">
-            <Select value={resultFilter} onValueChange={(v) => { setResultFilter(v); setPage(1); }}>
-              <SelectTrigger className="h-8 w-[120px] rounded-lg border-stone-200 bg-white"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">全部结果</SelectItem>
-                <SelectItem value="success">成功</SelectItem>
-                <SelectItem value="denied">拒绝</SelectItem>
-                <SelectItem value="unauthorized">未授权</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button variant="ghost" className="h-8 rounded-lg px-3 text-stone-500" onClick={onRefresh} disabled={loading}>
-              <RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} />
+            <Button variant="ghost" className="h-8 rounded-lg px-3 text-stone-500" onClick={() => handleFilterChange()} disabled={auditPageLoading}>
+              <RefreshCw className={`size-4 ${auditPageLoading ? "animate-spin" : ""}`} />
               刷新
             </Button>
           </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-3 border-b border-stone-100 px-5 py-3">
+          <Select value={resultFilter} onValueChange={(v) => { setResultFilter(v); }}>
+            <SelectTrigger className="h-8 w-[120px] rounded-lg border-stone-200 bg-white"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">全部结果</SelectItem>
+              <SelectItem value="success">成功</SelectItem>
+              <SelectItem value="denied">拒绝</SelectItem>
+              <SelectItem value="unauthorized">未授权</SelectItem>
+            </SelectContent>
+          </Select>
+          <Input
+            value={actionFilter}
+            onChange={(e) => { setActionFilter(e.target.value); }}
+            placeholder="操作类型（如 /api/accounts）"
+            className="h-8 w-[200px] rounded-lg border-stone-200 bg-white text-xs"
+          />
+          <Input
+            value={operatorFilter}
+            onChange={(e) => { setOperatorFilter(e.target.value); }}
+            placeholder="操作者（末8位）"
+            className="h-8 w-[160px] rounded-lg border-stone-200 bg-white text-xs"
+          />
+          <DateRangeFilter startDate={startDate} endDate={endDate} onChange={(s, e) => { setStartDate(s); setEndDate(e); }} />
+          <Button
+            variant="outline"
+            className="h-8 rounded-lg border-stone-200 bg-white px-3 text-stone-700 text-xs"
+            onClick={() => handleFilterChange()}
+            disabled={auditPageLoading}
+          >
+            {auditPageLoading ? <LoaderCircle className="size-3 animate-spin" /> : <Search className="size-3" />}
+            查询
+          </Button>
         </div>
         <div className="overflow-x-auto">
           <Table className="min-w-[900px]">
@@ -124,18 +193,19 @@ function AuditSection({ items, loading, onRefresh }: { items: AuditLog[]; loadin
             </TableBody>
           </Table>
         </div>
-        {filteredItems.length > pageSize ? (
+        {total > pageSize ? (
           <div className="flex items-center justify-end gap-2 border-t border-stone-100 px-4 py-3 text-sm text-stone-500">
-            <span>第 {safePage} / {pageCount} 页，共 {filteredItems.length} 条</span>
-            <Button variant="outline" size="icon" className="size-9 rounded-lg border-stone-200 bg-white" disabled={safePage <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>
+            <span>第 {safePage} / {pageCount} 页，共 {total} 条</span>
+            <Button variant="outline" size="icon" className="size-9 rounded-lg border-stone-200 bg-white" disabled={safePage <= 1} onClick={() => { const np = safePage - 1; setPage(np); void doLoad(np); }}>
               <ChevronLeft className="size-4" />
             </Button>
-            <Button variant="outline" size="icon" className="size-9 rounded-lg border-stone-200 bg-white" disabled={safePage >= pageCount} onClick={() => setPage((value) => Math.min(pageCount, value + 1))}>
+            <Button variant="outline" size="icon" className="size-9 rounded-lg border-stone-200 bg-white" disabled={safePage >= pageCount} onClick={() => { const np = safePage + 1; setPage(np); void doLoad(np); }}>
               <ChevronRight className="size-4" />
             </Button>
           </div>
         ) : null}
-        {!loading && filteredItems.length === 0 ? <div className="px-6 py-14 text-center text-sm text-stone-500">暂无审计记录</div> : null}
+        {!auditPageLoading && currentRows.length === 0 ? <div className="px-6 py-14 text-center text-sm text-stone-500">暂无审计记录</div> : null}
+        {auditPageLoading ? <div className="flex items-center justify-center py-10"><LoaderCircle className="size-5 animate-spin text-stone-400" /></div> : null}
       </CardContent>
     </Card>
   );
@@ -159,10 +229,7 @@ function LogsContent() {
   const [searchQuery, setSearchQuery] = useState("");
   const [levelFilter, setLevelFilter] = useState<string>("all");
   const [autoScroll, setAutoScroll] = useState(false);
-  // 3.2 审计视图：管理操作留痕（独立于业务日志）
   const [view, setView] = useState<"logs" | "audit">("logs");
-  const [auditItems, setAuditItems] = useState<AuditLog[]>([]);
-  const [auditLoading, setAuditLoading] = useState(false);
   const detailUrls = getUrls(detailLog);
   const detailImages = detailUrls.map((url, index) => ({
     id: `${index}`,
@@ -213,7 +280,7 @@ function LogsContent() {
       setSelectedIds((current) => current.filter((id) => data.items.some((item) => item.id === id)));
       setPage(1);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "加载日志失败");
+      toastError(error, "加载日志失败");
     } finally {
       setIsLoading(false);
     }
@@ -255,7 +322,7 @@ function LogsContent() {
       }
       await loadLogs();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "删除日志失败");
+      toastError(error, "删除日志失败");
     } finally {
       setIsDeleting(false);
     }
@@ -264,24 +331,6 @@ function LogsContent() {
   useEffect(() => {
     void loadLogs();
   }, [type, startDate, endDate, accountEmail]);
-
-  const loadAudit = async () => {
-    setAuditLoading(true);
-    try {
-      const data = await fetchAuditLogs({ days: 7, limit: 200 });
-      setAuditItems(data.items);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "加载审计日志失败");
-    } finally {
-      setAuditLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (view === "audit") {
-      void loadAudit();
-    }
-  }, [view]);
 
   // 自动滚动：新日志加载后滚动到顶部
   useEffect(() => {
@@ -537,7 +586,7 @@ function LogsContent() {
         </DialogContent>
       </Dialog>
       </>) : (
-      <AuditSection items={auditItems} loading={auditLoading} onRefresh={() => void loadAudit()} />
+      <AuditSection />
       )}
     </section>
   );

@@ -122,6 +122,13 @@ class AccountBatchRequest(BaseModel):
     label: str = ""
 
 
+class AccountGroupRenameRequest(BaseModel):
+    """分组标签重命名请求。"""
+    action: str = "list"
+    old_label: str = ""
+    new_label: str = ""
+
+
 class AccountUpdateRequest(BaseModel):
     access_token: str = ""
     type: str | None = None
@@ -481,6 +488,24 @@ def create_router() -> APIRouter:
         if action == "export":
             return await run_in_threadpool(_batch_export, ids)
         raise HTTPException(status_code=400, detail={"error": f"未知 action: {action}"})
+
+    @router.post("/api/accounts/groups")
+    async def get_account_groups(body: AccountGroupRenameRequest, authorization: str | None = Header(default=None)):
+        """账号分组/标签管理：列出所有标签，重命名标签（合并）。
+        action: "list" 返回 {groups: [{label, count}]}
+        action: "rename" 需 old_label + new_label 合并标签
+        """
+        require_admin(authorization)
+        action = str(body.action or "").strip()
+        if action == "rename":
+            old_label = str(body.old_label or "").strip()
+            new_label = str(body.new_label or "").strip()
+            if not old_label or not new_label:
+                raise HTTPException(status_code=400, detail={"error": "old_label and new_label are required"})
+            updated = await run_in_threadpool(account_service.rename_label, old_label, new_label)
+            return {"groups": await run_in_threadpool(account_service.list_groups), "updated": updated}
+        # 默认 list
+        return {"groups": await run_in_threadpool(account_service.list_groups)}
 
     @router.post("/api/accounts/update")
     async def update_account(body: AccountUpdateRequest, authorization: str | None = Header(default=None)):

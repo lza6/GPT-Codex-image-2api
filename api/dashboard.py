@@ -309,10 +309,17 @@ def create_router() -> APIRouter:
         return await run_in_threadpool(_collect_ops_overview)
 
     @router.get("/api/dashboard/usage")
-    async def usage_stats(authorization: str | None = Header(default=None)):
-        """用量统计：近 24h 调用量 + 按类型分布 + 最近记录。"""
+    async def usage_stats(authorization: str | None = Header(default=None), hours: int = 24):
+        """用量统计：指定小时窗口内调用量 + 按类型分布 + 最近记录。
+
+        支持 hours 参数控制窗口：1/6/24/168(7d)/720(30d)，默认 24。
+        """
         require_admin(authorization)
-        return await run_in_threadpool(_collect_log_stats)
+        from services.usage_agg import usage_agg
+
+        window = max(1, min(int(hours), 720))
+        data = await run_in_threadpool(usage_agg.stats_for_window, window)
+        return data
 
     @router.get("/api/dashboard/usage-totals")
     async def usage_totals(authorization: str | None = Header(default=None)):

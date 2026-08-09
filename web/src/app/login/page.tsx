@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { LoaderCircle, LockKeyhole } from "lucide-react";
 import { toast } from "sonner";
+import { toastError, toastSuccess } from "@/lib/toast-helper";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -37,8 +38,7 @@ export default function LoginPage() {
       });
       router.replace(getDefaultRouteForRole(data.role));
     } catch (error) {
-      const message = error instanceof Error ? error.message : "登录失败";
-      toast.error(message);
+      toastError(error, "登录失败");
     } finally {
       setIsSubmitting(false);
     }

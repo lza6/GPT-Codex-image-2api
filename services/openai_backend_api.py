@@ -390,7 +390,19 @@ class OpenAIBackendAPI:
 
     def _raise_on_error(self, response: Any, path: str) -> None:
         if response.status_code == 401:
+            # 401：立即触发 token 刷新，加速恢复
+            if self.access_token:
+                try:
+                    account_service.refresh_access_token(self.access_token, force=True, event=f"401_retry:{path}")
+                except Exception:
+                    pass
             raise InvalidAccessTokenError(f"token invalidated ({path})")
+        if response.status_code >= 500 and self.access_token and config.upstream_failover_enabled:
+            # 5xx：立即标记为"异常"，不等 refresh 周期
+            try:
+                account_service.remove_invalid_token(self.access_token, f"upstream_5xx:{path}")
+            except Exception:
+                pass
         raise RuntimeError(f"{path} failed: HTTP {response.status_code}")
 
     def _get_me(self) -> dict[str, Any]:

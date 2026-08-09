@@ -47,6 +47,10 @@ def kookeey_proxy_for(email: str = "") -> str:
       ``UserID-SecurityUser:SecurityPass-CountryISO-RandomSession@gate:port``
     带 RandomSession 为粘性会话（同 session 固定 IP），不带则每次请求换 IP。
     密码登录是多步请求、需单号 IP 稳定 → 用 email 派生固定 session。
+
+    proxy_enabled 控制：kookeey 流量按量计费，仅推荐用于批量注册场景（如 gpt-register 项目）。
+    对 chatgpt2api 的 API 生图/对话请求，应关闭此开关（走服务器直连或 proxy_runtime 配置），
+    避免流量成本过高。默认关闭。
     """
     cfg = config.get_kookeey_settings()
     if not cfg:
@@ -55,6 +59,11 @@ def kookeey_proxy_for(email: str = "") -> str:
     if isinstance(enabled, str):
         enabled = enabled.strip().lower() in {"1", "true", "yes", "on"}
     if not enabled:
+        return ""
+    proxy_enabled = cfg.get("proxy_enabled", False)
+    if isinstance(proxy_enabled, str):
+        proxy_enabled = proxy_enabled.strip().lower() in {"1", "true", "yes", "on"}
+    if not proxy_enabled:
         return ""
     user_id = str(cfg.get("user_id") or "").strip()
     sec_user = str(cfg.get("security_username") or "").strip()

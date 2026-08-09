@@ -169,6 +169,9 @@ class ImageStorageService:
     def __init__(self, index_file: Path = IMAGE_INDEX_FILE):
         self.index_file = index_file
         self._index_lock = IMAGE_INDEX_LOCK
+        self._index_cache: dict[str, dict[str, object]] | None = None
+        self._index_cache_at: float = 0.0
+        self._INDEX_CACHE_TTL: float = 30.0
 
     def settings(self) -> dict[str, object]:
         return config.get_image_storage_settings()
@@ -177,18 +180,31 @@ class ImageStorageService:
         return _clean(self.settings().get("mode")) or "local"
 
     def _load_index(self) -> dict[str, dict[str, object]]:
+        now = time.time()
+        if self._index_cache is not None and now - self._index_cache_at < self._INDEX_CACHE_TTL:
+            return self._index_cache
         raw = _read_json_object(self.index_file)
         items = raw.get("items")
         if not isinstance(items, dict):
+            self._index_cache = {}
+            self._index_cache_at = now
             return {}
-        return {str(key): value for key, value in items.items() if isinstance(value, dict)}
+        result = {str(key): value for key, value in items.items() if isinstance(value, dict)}
+        self._index_cache = result
+        self._index_cache_at = now
+        return result
 
     def _load_clean_index(self) -> dict[str, dict[str, object]]:
         items = self._load_index()
         return {rel: item for rel, item in items.items() if _is_image_rel(rel)}
 
+    def _invalidate_index_cache(self) -> None:
+        self._index_cache = None
+        self._index_cache_at = 0.0
+
     def _save_index(self, items: dict[str, dict[str, object]]) -> None:
         _write_json_object(self.index_file, {"items": items})
+        self._invalidate_index_cache()
 
     def _public_url(self, rel: str, base_url: str | None = None) -> str:
         settings = self.settings()

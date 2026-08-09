@@ -1,20 +1,23 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Activity, AlertTriangle, Cpu, Database, HardDrive, RefreshCw, Server, Timer, TrendingDown, Users } from "lucide-react";
+import { Activity, AlertTriangle, Cpu, Database, HardDrive, ImageIcon, RefreshCw, Server, Timer, TrendingDown, Users } from "lucide-react";
 import { toast } from "sonner";
+import { toastError, toastSuccess } from "@/lib/toast-helper";
 import { Badge } from "@/components/ui/badge";
 import { AsyncButton } from "@/components/ui/async-button";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
+  fetchImageStorage,
   fetchLatencySummary,
   fetchMetricsSummary,
   fetchOpsOverview,
   fetchSchedulerDashboard,
   fetchUsageForecast,
   fetchUsageStats,
+  type ImageStorageStats,
   type LatencySummary,
   type MetricsSummary,
   type OpsOverview,
@@ -49,6 +52,15 @@ const TIER_FILTER_OPTIONS: { key: TierFilter; label: string }[] = [
   { key: "all", label: "全部" },
   { key: "warm_risk", label: "风险+温存" },
   { key: "risk", label: "仅风险" },
+];
+
+// 用量趋势时间粒度
+const TIME_RANGE_OPTIONS: { key: number; label: string }[] = [
+  { key: 1, label: "1h" },
+  { key: 6, label: "6h" },
+  { key: 24, label: "24h" },
+  { key: 168, label: "7d" },
+  { key: 720, label: "30d" },
 ];
 
 function formatUptime(seconds: number) {
@@ -86,18 +98,19 @@ function DashboardContent() {
   const [metrics, setMetrics] = useState<MetricsSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [tierFilter, setTierFilter] = useState<TierFilter>("all");
+  const [usageHours, setUsageHours] = useState(24);
+  const [imageStorage, setImageStorage] = useState<ImageStorageStats | null>(null);
 
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const load = useCallback(async () => {
-    setIsRefreshing(true);
     try {
-      const [sched, opsData, usageData, latencyData, metricsData, forecastData] = await Promise.all([
+      const [sched, opsData, usageData, latencyData, metricsData, forecastData, imgStorage] = await Promise.all([
         fetchSchedulerDashboard(),
         fetchOpsOverview(),
-        fetchUsageStats(),
+        fetchUsageStats(usageHours),
         fetchLatencySummary(),
         fetchMetricsSummary(),
         fetchUsageForecast(),
+        fetchImageStorage(),
       ]);
       setScheduler(sched);
       setOps(opsData);
@@ -105,14 +118,13 @@ function DashboardContent() {
       setLatency(latencyData);
       setMetrics(metricsData);
       setForecast(forecastData);
+      setImageStorage(imgStorage);
     } catch (error) {
-      // 网络层失败（拦截器未覆盖）也给出反馈，避免永久骨架屏 + 静默轮询 rejection
-      toast.error(error instanceof Error ? error.message : "加载看板失败");
+      toastError(error, "加载看板失败");
     } finally {
       setLoading(false);
-      setIsRefreshing(false);
     }
-  }, []);
+  }, [usageHours]);
 
   useEffect(() => {
     void load();
@@ -418,6 +430,16 @@ function DashboardContent() {
         <StatCard icon={Activity} label="配额用完" value={String(exhaustedAccounts.length)} sub="今日额度已耗尽" />
       </div>
 
+      {/* 图片生成统计 */}
+      {imageStorage ? (
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+          <StatCard icon={ImageIcon} label="图片总数" value={String(imageStorage.image_count)} sub={`占用 ${imageStorage.image_size_mb >= 1024 ? `${(imageStorage.image_size_mb / 1024).toFixed(1)} GB` : `${imageStorage.image_size_mb} MB`}`} />
+          <StatCard icon={HardDrive} label="图片存储" value={imageStorage.disk_total_mb >= 1024 ? `${(imageStorage.disk_total_mb / 1024).toFixed(1)} GB` : `${imageStorage.disk_total_mb} MB`} sub={`剩余 ${imageStorage.disk_free_mb} MB`} />
+          <StatCard icon={ImageIcon} label="平均大小" value={imageStorage.image_count > 0 ? `${Math.ceil(imageStorage.image_size_bytes / 1024 / imageStorage.image_count)} KB` : "-"} sub="每张图片" />
+          <StatCard icon={HardDrive} label="存储利用率" value={imageStorage.disk_total_mb > 0 ? `${((imageStorage.image_size_mb / imageStorage.disk_total_mb) * 100).toFixed(1)}%` : "-"} sub={`已用 ${imageStorage.disk_used_mb} MB`} />
+        </div>
+      ) : null}
+
       {/* 请求速率 / 错误率 / P95 */}
       <div className="grid grid-cols-3 gap-4">
         <StatCard icon={Activity} label="请求速率" value={`${metrics?.request_rate ?? 0} req/s`} sub={`总请求 ${metrics?.total_requests ?? 0}`} />
@@ -557,7 +579,25 @@ function DashboardContent() {
       {/* 用量分布 */}
       <Card className="rounded-xl border-stone-200 bg-white">
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">近24h 调用分布</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base">调用分布</CardTitle>
+            <div className="flex items-center gap-1 rounded-lg border border-stone-200 p-1">
+              {TIME_RANGE_OPTIONS.map((opt) => (
+                <button
+                  key={opt.key}
+                  type="button"
+                  className={`rounded-md px-2.5 py-1 text-xs transition ${
+                    usageHours === opt.key
+                      ? "bg-stone-900 text-white"
+                      : "text-stone-500 hover:bg-stone-100 hover:text-stone-900"
+                  }`}
+                  onClick={() => setUsageHours(opt.key)}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           {usage ? (
@@ -581,7 +621,7 @@ function DashboardContent() {
               </div>
             </>
           ) : (
-            <p className="py-4 text-center text-sm text-stone-400">近24h暂无调用记录</p>
+            <p className="py-4 text-center text-sm text-stone-400">暂无调用记录</p>
           )}
         </CardContent>
       </Card>

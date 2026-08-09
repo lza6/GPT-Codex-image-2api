@@ -174,6 +174,37 @@ class UsageAgg:
             del self._hourly[key]
 
     # ---- 查询 ----
+    def stats_for_window(self, hours: int, now: float | None = None) -> dict[str, Any]:
+        """指定小时窗口用量：成功/失败/总量/按 summary 分布/最近记录。
+
+        与 stats_24h 同口径，但窗口由 hours 参数控制，支持 1h/6h/24h/7d*24h/30d*24h。
+        """
+        now = time.time() if now is None else now
+        window_sec = hours * 3600
+        cutoff = now - window_sec
+        cutoff_key = datetime.datetime.fromtimestamp(cutoff).strftime(_HOUR_KEY_FMT)
+        success = 0
+        failed = 0
+        calls: dict[str, int] = {}
+        with self._lock:
+            for key, buckets in self._hourly.items():
+                if key < cutoff_key:
+                    continue
+                for summary, counter in buckets.items():
+                    calls[summary] = calls.get(summary, 0) + counter["success"] + counter["fail"]
+                    success += counter["success"]
+                    failed += counter["fail"]
+            recent = [item for item in self._recent if _parse_ts(item.get("time") or "") >= cutoff][-20:]
+            recent = list(reversed(recent))
+        return {
+            "success_24h": success,
+            "failed_24h": failed,
+            "total_24h": success + failed,
+            "by_summary": calls,
+            "recent": recent,
+            "hours": hours,
+        }
+
     def stats_24h(self, now: float | None = None) -> dict[str, Any]:
         """近 24h 用量（整小时窗口近似）：成功/失败/总量/按 summary 分布/最近记录。"""
         now = time.time() if now is None else now

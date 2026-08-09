@@ -3,6 +3,7 @@
 import { CloudUpload, Download, Eye, LoaderCircle, Play, RefreshCcw, Shield, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { toastError, toastSuccess } from "@/lib/toast-helper";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -120,7 +121,7 @@ export function BackupSettingsCard() {
       setDetail(data.item);
     } catch (error) {
       setDetail(null);
-      toast.error(error instanceof Error ? error.message : "读取备份详情失败");
+      toastError(error, "读取备份详情失败");
     } finally {
       setDetailLoading(false);
     }
@@ -160,7 +161,7 @@ export function BackupSettingsCard() {
       window.URL.revokeObjectURL(url);
       toast.success("备份下载已开始");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "下载备份失败");
+      toastError(error, "下载备份失败");
     }
   };
 
@@ -397,7 +398,7 @@ export function BackupSettingsCard() {
                   await removeBackup(key);
                   toast.success("备份已删除");
                 } catch (error) {
-                  toast.error(error instanceof Error ? error.message : "删除备份失败");
+                  toastError(error, "删除备份失败");
                 }
               }}
             >
