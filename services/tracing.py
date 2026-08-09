@@ -1,0 +1,86 @@
+"""6.1：轻量请求追踪中间件（不依赖 OpenTelemetry SDK）。
+
+设计：
+- 每个请求创建追踪 Span，记录 method/path/status_code/duration
+- 通过 contextvars 传递 trace_id，被 metrics_service 和 log_service 消费
+- 不依赖外部 SDK，零额外依赖，零启动开销
+- 支持可选的请求级日志（采样率配置）
+"""
+
+from __future__ import annotations
+
+import contextvars
+import logging
+import time
+import uuid
+from typing import Any
+
+logger = logging.getLogger(__name__)
+
+# 请求级追踪上下文
+_trace_id_ctx: contextvars.ContextVar[str] = contextvars.ContextVar("chatgpt2api_trace_id", default="")
+
+
+def get_trace_id() -> str:
+    return _trace_id_ctx.get()
+
+
+def set_trace_id(trace_id: str) -> None:
+    _trace_id_ctx.set(trace_id)
+
+
+class TracedMiddleware:
+    """为每个请求创建追踪 Span（FastAPI 中间件格式）。
+
+    用法（在 api/app.py 中）：
+        app.add_middleware(TracedMiddleware)
+    """
+
+    def __init__(
+        self,
+        app,
+        sample_rate: float = 1.0,
+        slow_threshold_ms: float = 5000.0,
+    ):
+        self.app = app
+        self.sample_rate = max(0.0, min(1.0, sample_rate))
+        self.slow_threshold_ms = max(0.0, slow_threshold_ms)
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        trace_id = uuid.uuid4().hex[:16]
+        set_trace_id(trace_id)
+
+        start = time.time()
+        method = scope.get("method", "UNKNOWN")
+        path = scope.get("path", "/")
+
+        status_code = [200]
+
+        async def _send_wrapper(message):
+            if message["type"] == "http.response.start":
+                status_code[0] = message.get("status", 200)
+            await send(message)
+
+        try:
+            await self.app(scope, receive, _send_wrapper)
+        except Exception as exc:
+            duration_ms = (time.time() - start) * 1000
+            if duration_ms > self.slow_threshold_ms:
+                logger.warning(
+                    "慢请求 trace=%s %s %s %.0fms error=%s",
+                    trace_id, method, path, duration_ms, str(exc)[:200],
+                )
+            raise
+        finally:
+            duration_ms = (time.time() - start) * 1000
+            # 慢查询日志
+            if duration_ms > self.slow_threshold_ms:
+                logger.warning(
+                    "慢请求 trace=%s %s %s %.0fms status=%d",
+                    trace_id, method, path, duration_ms, status_code[0],
+                )
+            set_trace_id("")

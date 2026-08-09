@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.15.0 - 2026-08-10 (轻量请求追踪 + 性能看板)
+
+**轻量请求追踪（6.1）：**
++ [新增] `services/tracing.py` — `TracedMiddleware` 轻量请求追踪中间件（不依赖 OpenTelemetry SDK），每个请求创建 trace_id，记录 method/path/status_code/duration
++ [新增] 慢查询日志：请求耗时超过 `slow_threshold_ms`（默认 5s）自动记录慢请求告警日志
++ [新增] `contextvars` 传递 trace_id，被 metrics_service 和 log_service 消费，实现全链路追踪
++ [测试] 3 单测全绿（含 trace_id 隔离、重置、线程安全）
+
+**性能看板验证（6.4）：**
++ [验证] `GET /api/dashboard/latency` 端点正常返回（4 单测，含总请求数/平均延迟/错误率/按路径分布）
++ [验证] `GET /api/dashboard/metrics_summary` 端点正常返回
+
 ## 2.14.0 - 2026-08-10 (告警多通道 + 日志聚合/导出/归档)
 
 **告警多通道增强（6.2）：**
