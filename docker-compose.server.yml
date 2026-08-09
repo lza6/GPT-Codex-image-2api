@@ -1,0 +1,16 @@
+services:
+  app:
+    build: .
+    image: chatgpt2api:local
+    container_name: chatgpt2api
+    restart: unless-stopped
+    ports:
+      - "23456:80"
+    stop_grace_period: 20s
+    init: true
+    volumes:
+      - ./data:/app/data
+      - ./config.json:/app/config.json
+    environment:
+      - STORAGE_BACKEND=json
+      - CHATGPT2API_PORT=80
