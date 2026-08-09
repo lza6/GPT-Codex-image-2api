@@ -52,7 +52,6 @@ import {
   evictStaleAccounts,
   exportAccounts,
   fetchAccounts,
-  fetchCircuitBreakers,
   fetchModels,
   fetchProviders,
   fetchProxies,
@@ -282,6 +281,10 @@ function AccountsPageContent() {
       const data = await fetchAccounts(providerFilter !== "all" ? providerFilter : undefined);
       setAccounts(data.items);
       setSelectedIds((prev) => prev.filter((id) => data.items.some((item) => item.access_token === id)));
+      // 熔断状态合并到账号列表响应
+      if (data.breakers) {
+        setCircuitBreakers(data.breakers);
+      }
     } catch (error) {
       toastError(error, "加载账户失败");
     } finally {
@@ -321,22 +324,10 @@ function AccountsPageContent() {
       }
     })();
 
-    // 熔断状态：15s 轮询（熔断是秒级变化，频率低于主列表 30s 兜底）
-    const loadBreakers = async () => {
-      try {
-        const data = await fetchCircuitBreakers();
-        setCircuitBreakers(data.breakers || {});
-      } catch {
-        // 熔断状态拉取失败静默忽略，不打断主列表
-      }
-    };
-    void loadBreakers();
-    const breakerTimer = setInterval(() => void loadBreakers(), 15000);
-
+    // 熔断状态已合并到账号列表响应，不再单独轮询
     // 清理进度条定时器
     return () => {
       if (progressRef.current) clearInterval(progressRef.current);
-      clearInterval(breakerTimer);
     };
   }, []);
 

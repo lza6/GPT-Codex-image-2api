@@ -97,6 +97,8 @@ type AccountListResponse = {
   items: Account[];
   /** 6.3：服务端分页时返回账号总数（默认全量返回也带 total，兼容旧字段）。 */
   total?: number;
+  /** 熔断状态合并到账号列表响应，减少前端并发请求。 */
+  breakers?: Record<string, { state: string; recover_in_seconds: number }>;
 };
 
 type ModelListResponse = {

@@ -23,6 +23,7 @@ from api.support import (
 )
 from services.account_service import account_service
 from services.auth_service import auth_service
+from services.circuit_breaker import circuit_breaker_registry
 from services.cpa_service import cpa_config, cpa_import_service, list_remote_files
 from services.oauth_login_service import OAuthLoginError, oauth_login_service
 from services.sub2api_service import (
@@ -329,7 +330,16 @@ def create_router() -> APIRouter:
             page = max(1, int(page))
             start = (page - 1) * page_size
             items = items[start : start + page_size]
-        return {"items": items, "total": total}
+        # 附带熔断器状态（合并响应，减少前端并发请求数）
+        try:
+            breaker_status = circuit_breaker_registry.all_status()
+            breakers = {}
+            for token, status in breaker_status.items():
+                if status.get("state") != "closed":
+                    breakers[token[-8:]] = {"state": status.get("state"), "recover_in_seconds": status.get("recover_in_seconds", 0)}
+        except Exception:
+            breakers = {}
+        return {"items": items, "total": total, "breakers": breakers}
 
     @router.post("/api/accounts")
     async def create_accounts(body: AccountCreateRequest, authorization: str | None = Header(default=None)):

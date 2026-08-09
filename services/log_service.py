@@ -325,6 +325,80 @@ class LogService:
                 _atomic_write_text(path, content)
         return {"removed": removed}
 
+    # ---- 聚合统计 ----
+
+    def aggregate(self, filter: dict[str, Any], group_by: str = "type", period: str = "day") -> list[dict[str, Any]]:
+        """按维度聚合统计日志。
+
+        Args:
+            filter: 筛选条件（同 list 的 type/start_date/end_date 等）
+            group_by: 分组维度：type / status / hour
+            period: 时间粒度：day / hour
+        Returns:
+            [{"group": str, "count": int, "period": str}, ...]
+        """
+        self._ensure_migrated()
+        items = self.list(**{k: v for k, v in filter.items() if v}, limit=100000)
+        buckets: dict[str, int] = {}
+        for item in items:
+            detail = item.get("detail") or {}
+            if group_by == "type":
+                key = str(item.get("type") or "unknown")
+            elif group_by == "status":
+                key = str(detail.get("status") or "unknown")
+            elif group_by == "hour":
+                ts = item.get("time") or item.get("ts") or ""
+                key = str(ts)[:13] if period == "hour" else str(ts)[:10]
+            else:
+                key = "unknown"
+            buckets[key] = buckets.get(key, 0) + 1
+        return sorted([{"group": k, "count": v} for k, v in buckets.items()], key=lambda x: -x["count"])
+
+    # ---- CSV 导出 ----
+
+    def export_csv(self, filter: dict[str, Any]) -> str:
+        """导出日志为 CSV 格式字符串。"""
+        self._ensure_migrated()
+        items = self.list(**{k: v for k, v in filter.items() if v}, limit=50000)
+        lines = ["id,time,type,summary,status,error"]
+        for item in items:
+            item_id = str(item.get("id", "")).replace(",", " ")
+            ts = str(item.get("time") or item.get("ts") or "")
+            typ = str(item.get("type", "")).replace(",", " ")
+            summary = str(item.get("summary", "")).replace(",", " ").replace('"', "'")
+            detail = item.get("detail") or {}
+            status = str(detail.get("status", "")).replace(",", " ")
+            error = str(detail.get("error", "")).replace(",", " ").replace('"', "'")
+            lines.append(f"{item_id},{ts},{typ},{summary},{status},{error}")
+        return "\n".join(lines)
+
+    # ---- 归档 ----
+
+    def archive(self, before_days: int = 90) -> dict[str, Any]:
+        """归档过期日志到压缩文件。
+
+        将超过 before_days 的天文件打包为 data/logs-archive-YYYYMMDD.zip
+        然后删除原文件。
+        """
+        import zipfile
+
+        self._ensure_migrated()
+        cutoff = (datetime.now() - timedelta(days=before_days)).strftime("%Y-%m-%d")
+        archive_path = self._log_dir / f"logs-archive-{datetime.now().strftime('%Y%m%d')}.zip"
+        archived = 0
+        archived_files = []
+
+        with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for path in self._daily_files():
+                day = self._day_from_name(path.name)
+                if day and day < cutoff:
+                    zf.write(path, arcname=path.name)
+                    archived_files.append(path.name)
+                    archived += 1
+                    path.unlink()
+
+        return {"archived": archived, "files": archived_files, "archive_path": str(archive_path)}
+
 
 log_service = LogService(DATA_DIR / "logs.jsonl")
 

@@ -5,6 +5,8 @@
 - 失败重试 1 次（固定 1s 退避），最多 2 次尝试
 - 防告警风暴：同事件指纹在去重窗口内只发一次（内存去重，惰性淘汰）
 - 配置为空（未启用）时所有 send 为 no-op
+- 多通道支持：通用 webhook 兼容 + 企业微信(WeCom) + 钉钉(DingTalk)，
+  任一通道失败不阻塞其他通道
 """
 
 from __future__ import annotations
@@ -12,6 +14,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from typing import Any
 
 from curl_cffi import requests
 
@@ -35,6 +38,7 @@ class AlertService:
         timeout_seconds: int = 10,
         events: list[str] | None = None,
         dedupe_window_seconds: float = 300.0,
+        channels: dict[str, dict[str, Any]] | None = None,
     ) -> None:
         self.webhook_url = str(webhook_url or "").strip()
         self.timeout_seconds = max(1, int(timeout_seconds))
@@ -44,10 +48,12 @@ class AlertService:
         # _build_from_config 重建实例 → 去重表被清空，熔断高频触发时同账号告警刷屏
         self._sent_at = _GLOBAL_SENT_AT
         self._lock = _GLOBAL_LOCK
+        # 多通道配置：{通道名: {webhook_url, type, ...}}
+        self.channels: dict[str, dict[str, Any]] = dict(channels or {})
 
     @property
     def enabled(self) -> bool:
-        return bool(self.webhook_url)
+        return bool(self.webhook_url) or bool(self.channels)
 
     def _fingerprint(self, event: str, payload: dict) -> str:
         # 同事件 + 语义字段一致视为重复（如熔断同一账号、备份同一错误、账号同一失效原因）。
@@ -71,7 +77,7 @@ class AlertService:
             return False
 
     def send(self, event: str, payload: dict) -> bool:
-        """发送告警。返回是否实际发出（去重/禁用/失败均返回 False，绝不抛异常）。"""
+        """发送告警。返回是否至少有一个通道实际发出（去重/禁用/全失败均返回 False，绝不抛异常）。"""
         if not self.enabled or event not in self.events:
             return False
         fingerprint = self._fingerprint(event, payload)
@@ -79,26 +85,135 @@ class AlertService:
             logger.debug("告警去重跳过: %s", fingerprint)
             return False
         body = {"event": event, "ts": int(time.time()), **payload}
+
+        any_sent = False
+
+        # 通用 webhook 通道（保持向后兼容）
+        if self.webhook_url:
+            if self._send_webhook(body):
+                any_sent = True
+
+        # 多通道分发：任一通道失败不阻塞其他通道
+        for channel_name, channel_cfg in self.channels.items():
+            if self._send_channel(channel_name, channel_cfg, body):
+                any_sent = True
+
+        if not any_sent:
+            logger.error("告警发送最终失败: %s", event)
+        return any_sent
+
+    # ------------------------------------------------------------------
+    # 通道发送
+    # ------------------------------------------------------------------
+
+    def _send_webhook(self, body: dict) -> bool:
+        """通用 webhook 发送（含重试）。"""
         for attempt in range(2):  # 首次 + 重试 1 次
             try:
                 requests.post(self.webhook_url, json=body, timeout=self.timeout_seconds)
-                logger.info("告警已发送: %s", event)
+                logger.info("告警已发送(webhook): %s", body.get("event", ""))
                 return True
             except Exception as exc:  # noqa: BLE001 - 发送失败绝不阻塞主流程
-                logger.warning("告警发送失败（第 %d 次）: %s", attempt + 1, exc)
+                logger.warning("告警发送失败(webhook)（第 %d 次）: %s", attempt + 1, exc)
                 if attempt == 0:
                     time.sleep(1.0)
-        logger.error("告警发送最终失败: %s", event)
         return False
+
+    def _send_channel(self, channel_name: str, channel_cfg: dict[str, Any], body: dict) -> bool:
+        """按通道类型分发告警。"""
+        webhook_url = str(channel_cfg.get("webhook_url", "")).strip()
+        if not webhook_url:
+            logger.warning("告警通道 %s 缺少 webhook_url，跳过", channel_name)
+            return False
+        channel_type = str(channel_cfg.get("type", channel_name)).strip().lower()
+        if channel_type == "wecom":
+            return self._send_wecom(webhook_url, body)
+        elif channel_type == "dingtalk":
+            return self._send_dingtalk(webhook_url, body)
+        else:
+            # 未知通道类型，尝试通用 webhook 格式
+            logger.debug("告警通道 %s 类型 %s 未知，按通用 webhook 发送", channel_name, channel_type)
+            return self._send_webhook_generic(webhook_url, body)
+
+    def _send_webhook_generic(self, webhook_url: str, body: dict) -> bool:
+        """通用 webhook 发送（指定 URL，含重试）。"""
+        for attempt in range(2):
+            try:
+                requests.post(webhook_url, json=body, timeout=self.timeout_seconds)
+                logger.info("告警已发送(channel): %s", body.get("event", ""))
+                return True
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("告警通道发送失败（第 %d 次）: %s", attempt + 1, exc)
+                if attempt == 0:
+                    time.sleep(1.0)
+        return False
+
+    def _send_wecom(self, webhook_url: str, body: dict) -> bool:
+        """企业微信机器人消息。"""
+        markdown_content = self._format_markdown(body)
+        for attempt in range(2):
+            try:
+                requests.post(
+                    webhook_url,
+                    json={"msgtype": "markdown", "markdown": {"content": markdown_content}},
+                    timeout=self.timeout_seconds,
+                )
+                logger.info("告警已发送(wecom): %s", body.get("event", ""))
+                return True
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("告警发送失败(wecom)（第 %d 次）: %s", attempt + 1, exc)
+                if attempt == 0:
+                    time.sleep(1.0)
+        return False
+
+    def _send_dingtalk(self, webhook_url: str, body: dict) -> bool:
+        """钉钉机器人消息。"""
+        markdown_text = self._format_markdown(body)
+        for attempt in range(2):
+            try:
+                requests.post(
+                    webhook_url,
+                    json={
+                        "msgtype": "markdown",
+                        "markdown": {
+                            "title": body.get("event", "告警"),
+                            "text": markdown_text,
+                        },
+                    },
+                    timeout=self.timeout_seconds,
+                )
+                logger.info("告警已发送(dingtalk): %s", body.get("event", ""))
+                return True
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("告警发送失败(dingtalk)（第 %d 次）: %s", attempt + 1, exc)
+                if attempt == 0:
+                    time.sleep(1.0)
+        return False
+
+    @staticmethod
+    def _format_markdown(body: dict) -> str:
+        """格式化告警载荷为 Markdown 文本。"""
+        lines = [f"## {body.get('event', '告警')}"]
+        for key, value in body.items():
+            if key != "event":
+                lines.append(f"**{key}**: {value}")
+        return "\n\n".join(lines)
 
 
 def _build_from_config() -> AlertService:
     from services.config import config
 
+    # 从 config.data 读取多通道配置（alert_channels 为 dict）
+    channels: dict[str, dict[str, Any]] = {}
+    raw_channels = config.data.get("alert_channels", {})
+    if isinstance(raw_channels, dict):
+        channels = {str(k): dict(v) for k, v in raw_channels.items() if isinstance(v, dict)}
+
     return AlertService(
         webhook_url=config.alert_webhook_url,
         timeout_seconds=config.alert_webhook_timeout,
         events=config.alert_events,
+        channels=channels,
     )
 
 
