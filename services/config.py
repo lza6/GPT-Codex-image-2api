@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import functools
 import json
 import logging
 import os
@@ -506,8 +507,9 @@ class ConfigStore:
             self.path.write_text(payload, encoding="utf-8")
         self._config_mtime = self._get_file_mtime()
 
-    @property
+    @functools.cached_property
     def auth_key(self) -> str:
+        """高频读取（每个请求鉴权），用 cached_property 缓存。"""
         return _normalize_auth_key(os.getenv("CHATGPT2API_AUTH_KEY") or self.data.get("auth-key"))
 
     @property

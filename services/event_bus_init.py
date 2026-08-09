@@ -98,4 +98,15 @@ def register_subscribers() -> None:
     # 备份失败 → 告警
     event_bus.subscribe(BACKUP_FAILURE, sync_handler=_alert_wrapper)
 
+    # 账号配额低 → 告警
+    event_bus.subscribe(ACCOUNT_QUOTA_LOW, sync_handler=_alert_wrapper)
+
+    # 图片任务完成 → 日志 + 指标
+    event_bus.subscribe(IMAGE_TASK_COMPLETED, sync_handler=_image_task_completed_wrapper)
+
+    # 会话降级 → 告警
+    event_bus.subscribe(SESSION_DEGRADED, sync_handler=_alert_wrapper)
+
+    # PROVIDER_HEALTH_CHANGED：由提供方通过 dashboard SSE 推送，无需事件总线
+
     logger.info("事件总线订阅已注册（%d 个订阅者）", event_bus.subscriber_count)

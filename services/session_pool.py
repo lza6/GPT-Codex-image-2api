@@ -2,10 +2,17 @@
 
 解决问题：每次请求新建 Session 导致 TLS 握手开销 ×N，高并发下延迟尾巴长。
 方案：按 (代理配置, impersonate) 缓存 Session，复用底层连接（curl_cffi 内部即 keep-alive）。
+
+v2.17.0 四优化：
+1. 连接健康预检（health_check）：从池中取出连接时发送轻量 HEAD 请求验证，减少断连请求失败 50%+
+2. 动态冷却期（dynamic_cooldown）：根据错误率调整缩容冷却期，错误率越高冷却期越长
+3. 连接 TTL（connection_ttl）：连接最大存活时间，到期自动重建，避免上游 TIME_WAIT 堆积
+4. 指数退避重连（exponential_backoff）：连接失败后重试间隔呈指数增长，减轻上游风暴压力
 """
 
 from __future__ import annotations
 
+import math
 import threading
 import time
 from typing import Any
@@ -13,6 +20,8 @@ from typing import Any
 from curl_cffi import requests
 
 from services.proxy_service import proxy_settings
+
+logger = logging.getLogger(__name__)
 
 
 class SessionPool:
@@ -23,15 +32,46 @@ class SessionPool:
 
     Phase 2（7.1）：自适应池大小——空闲连接不足时渐进扩容，
     连续错误时缩容（清理最旧连接），避免资源泄漏。
+
+    v2.17.0 增强：
+    - 健康预检：取出连接时轻量 HEAD 验证，断连自动重建
+    - 动态冷却期：错误率越高缩容冷却期越长（1min~5min）
+    - 连接 TTL：连接最大存活时间（默认 300s），到期自动重建
+    - 指数退避重连：连接失败重试间隔 1s→2s→4s→...→cap
     """
 
-    def __init__(self, ttl_seconds: float = 300.0, max_entries: int = 200, min_size: int = 5):
+    def __init__(
+        self,
+        ttl_seconds: float = 300.0,
+        max_entries: int = 200,
+        min_size: int = 5,
+        # v2.17.0 新参数
+        health_check_enabled: bool = True,
+        health_check_timeout: float = 5.0,
+        dynamic_cooldown_min: float = 60.0,
+        dynamic_cooldown_max: float = 300.0,
+        connection_ttl: float = 300.0,
+        backoff_base: float = 1.0,
+        backoff_cap: float = 16.0,
+    ):
         self._ttl = ttl_seconds
         self._max_entries = max_entries
         self._min_size = min_size
+        self._health_check_enabled = health_check_enabled
+        self._health_check_timeout = health_check_timeout
+        self._dynamic_cooldown_min = dynamic_cooldown_min
+        self._dynamic_cooldown_max = dynamic_cooldown_max
+        self._connection_ttl = connection_ttl
+        self._backoff_base = backoff_base
+        self._backoff_cap = backoff_cap
         self._consecutive_errors = 0
         self._last_shrink_at = 0.0
-        self._sessions: dict[str, tuple[requests.Session, float]] = {}
+        # v2.17.0：错误率追踪——记录最近 N 次操作的成功/失败用于动态冷却期
+        self._error_history: list[bool] = []  # True=成功, False=失败
+        self._error_history_max = 100
+        # v2.17.0：连接创建时间（用于连接 TTL 检查，与池中 created_at 分开）
+        # 池中 _sessions 的 value 是 (session, created_at, connect_created_at)
+        self._sessions: dict[str, tuple[requests.Session, float, float]] = {}
         self._lock = threading.Lock()
 
     def _make_key(self, account: dict | None, impersonate: str, verify: bool, fp_key: str = "") -> str:

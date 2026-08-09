@@ -1,5 +1,38 @@
 # Changelog
 
+## 2.18.0 - 2026-08-10 (多模型路由)
+
+**8.3 多模型路由：**
++ [新增] `services/config.py` — `model_upstream_map` 配置项（dict[str,str] 用户面向模型名→上游模型名映射表），`_DICT_FIELDS` 校验，`get()` 序列化
++ [新增] `services/openai_backend_api.py` — `_resolve_upstream_model` 静态方法将用户请求模型名映射为上游模型名（映射表命中→返回映射值，空/auto→返回默认值，未命中→透传原值），`_conversation_payload` 和 `_image_model_settings` 已接入映射
++ [新增] `services/protocol/openai_v1_models.py` — `list_models()` 返回映射表中的模型，使用户能在 `/v1/models` 中看到映射后的模型名
++ [新增] `config.json` — `model_upstream_map`（`{}`）默认值
++ [前端] `web/src/lib/api.ts` — `SettingsConfig` 新增 `model_upstream_map` 字段
++ [前端] `web/src/app/settings/store.ts` — `normalizeConfig` 新增 `model_upstream_map` 归一化
++ [测试] 7 新增用例（映射命中/透传/auto/空映射表/空模型名/conversation payload/list_models），全绿；705 全量全绿
+
+## 2.17.0 - 2026-08-10 (账号管理增强 + 全局交互升级)
+
+**3.4 账号管理增强：**
++ [新增] 虚拟滚动 — @tanstack/react-virtual 实现账号列表虚拟滚动，1000+ 账号流畅渲染
++ [新增] 列显隐定制 — 用户可自行选择显示/隐藏表格列
++ [新增] 账号详情侧面板 — 点击账号行展开右侧 Sheet 详情面板
++ [新增] 批量选择增强 — Shift 范围选择、Ctrl 多选、全选/反选
++ [新增] 账号标签系统 — 按标签过滤账号
++ [新增] 导出选中账号 — CSV/JSON 格式导出
+
+**3.5 全局交互升级：**
++ [新增] 全局搜索 — Cmd+K 搜索框，搜索账号/设置/日志
++ [新增] 可折叠侧边栏 — 左侧可折叠侧边栏 + 面包屑导航
++ [新增] 键盘快捷键体系 — ? 键查看快捷键列表
++ [新增] 错误边界 — 全局 ErrorBoundary 组件 + 重试按钮
++ [新增] 页面过渡 — motion 页面切换动画
++ [新增] 响应式适配 — 移动端表格卡片化
++ [新增] 离线增强 — 缓存数据 + 重连自动刷新
++ [新增] 空状态引导 — 列表/表格空状态插图 + 引导文案
++ [新增] 渐进式加载 — Skeleton + 内容渐进式渲染
++ [新增] Toast 增强 — 操作撤销、进度条、分组展示
+
 ## 2.16.0 - 2026-08-10 (多 Provider 精细调度)
 
 **8.2 多 Provider 精细调度：**

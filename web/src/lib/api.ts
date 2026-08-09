@@ -66,6 +66,52 @@ export type Account = {
   provider?: string;
 };
 
+/** 账号标签（name + color）。 */
+export type AccountTag = {
+  name: string;
+  color: string;
+};
+
+/** 批量导出请求参数。 */
+export type AccountBatchExportRequest = {
+  format: "csv" | "json";
+  ids: string[];
+};
+
+/** 账号表格列显隐控制。 */
+export type AccountColumnVisibility = {
+  email: boolean;
+  type: boolean;
+  status: boolean;
+  provider: boolean;
+  tier: boolean;
+  score: boolean;
+  quota: boolean;
+  label: boolean;
+  proxy: boolean;
+  success: boolean;
+  fail: boolean;
+  image_inflight: boolean;
+  last_used_at: boolean;
+  created_at: boolean;
+  lifetime_risk: boolean;
+  lifetime_eta_days: boolean;
+  last_refresh_error: boolean;
+};
+
+/** 账号完整详情（含敏感字段）。 */
+export type AccountDetail = Account & {
+  refresh_token?: string;
+  id_token?: string;
+  session_token?: string;
+  password?: string;
+  mail_credential?: {
+    client_id: string;
+    refresh_token: string;
+  };
+  tags?: AccountTag[];
+};
+
 export type AccountImportPayload = {
   // 纯账号密码导入时无 access_token，后端会按 email+password 自动登录抓 token 入库。
   access_token?: string;
@@ -1364,4 +1410,41 @@ export function extractKookeey(country?: string, count?: number) {
     method: "POST",
     body: { country: country ?? "", count: count ?? 0 },
   });
+}
+
+// ── 账号导出 CSV ──────────────────────────────────────────────────
+
+/** 导出选中账号为 CSV 文件（触发浏览器下载）。 */
+export async function exportAccountsCSV(requestBody: AccountBatchExportRequest) {
+  const response = await request.post("/api/accounts/export-csv", requestBody, {
+    responseType: "blob",
+  });
+  const blob = response.data as Blob;
+  const disposition = String(response.headers?.["content-disposition"] || "");
+  const match = disposition.match(/filename="?([^";]+)"?/);
+  const filename = match ? match[1] : `accounts-${Date.now()}.csv`;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// ── 账号标签 ──────────────────────────────────────────────────────
+
+/** 获取所有账号标签。 */
+export async function fetchAccountTags() {
+  return httpRequest<{ tags: AccountTag[] }>("/api/accounts/tags");
+}
+
+// ── 账号详情 ──────────────────────────────────────────────────────
+
+/** 获取指定账号完整信息（含敏感字段）。 */
+export async function fetchAccountDetail(token: string) {
+  const params = new URLSearchParams();
+  params.set("token", token);
+  return httpRequest<{ item: AccountDetail }>(`/api/accounts/detail?${params.toString()}`);
 }
