@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.16.0 - 2026-08-10 (多 Provider 精细调度)
+
+**8.2 多 Provider 精细调度：**
++ [新增] `services/config.py` — `provider_weights` / `provider_rate_limit_rpm` 配置项 + `_DICT_FIELDS` 校验表 + `get()` 序列化
++ [新增] `services/provider_scheduler.py` — Provider 级 rate limiter（滑动窗口，独立计数互不阻塞）、权重选取（`_pick_provider_by_weight` 配置化比率）、Provider 熔断器（阈值 3 次/60s 冷却/成功清零，独立于账号级熔断器），`get_provider_stats` 扩展 quota_remaining/weight/breaker_state/breaker_recover_in_seconds
++ [新增] `services/account_service.py` — `get_text_access_token` 接入权重调度+配额检查+熔断检查+provider fallback（配额耗尽/熔断自动转向其他 provider）；`get_available_access_token` 接入权重选取+配额/熔断检查
++ [新增] `web/src/lib/api.ts` — `ProviderStats` 类型新增 `quota_remaining`/`weight`/`breaker_state`/`breaker_recover_in_seconds`
++ [新增] `web/src/app/dashboard/page.tsx` — provider 卡片展示调度权重/配额剩余/熔断状态
++ [新增] `config.json` — `provider_weights`（`{"chatgpt": 3}`）和 `provider_rate_limit_rpm`（`{}`）默认值
++ [测试] 18 新增用例（配额隔离 6 + 权重调度 6 + 熔断隔离 6 + 新字段 1），29 全绿；692 全量全绿；五道防线全 PASS
+
 ## 2.15.0 - 2026-08-10 (轻量请求追踪 + 性能看板)
 
 **轻量请求追踪（6.1）：**

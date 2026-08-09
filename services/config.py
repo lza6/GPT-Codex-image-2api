@@ -432,6 +432,10 @@ class ConfigStore:
         "proactive_probe_enabled",
         "upstream_failover_enabled",
     )
+    _DICT_FIELDS: tuple[str, ...] = (
+        "provider_weights",
+        "provider_rate_limit_rpm",
+    )
     _ENUM_FIELDS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("scheduler_mode", ("round_robin", "remaining_quota", "weighted_random")),
     )
@@ -472,6 +476,11 @@ class ConfigStore:
         sp = data.get("scheduler_priority")
         if sp is not None and not isinstance(sp, dict):
             errors.append(f"scheduler_priority 必须是对象 {{}}，当前为 {type(sp).__name__}")
+        # dict 字段校验（类型为 dict 即可）
+        for field in cls._DICT_FIELDS:
+            df = data.get(field)
+            if df is not None and not isinstance(df, dict):
+                errors.append(f"{field} 必须是对象 {{}}，当前为 {type(df).__name__}")
         if errors:
             raise ValueError("❌ config.json 配置校验失败：\n" + "\n".join(f"   - {e}" for e in errors))
 
@@ -852,6 +861,38 @@ class ConfigStore:
         return bool(value)
 
     @property
+    def provider_weights(self) -> dict[str, int]:
+        """Provider 权重调度配置（如 {"chatgpt": 3, "grok": 1}）。"""
+        raw = self.data.get("provider_weights")
+        if not isinstance(raw, dict):
+            return {}
+        result: dict[str, int] = {}
+        for key, value in raw.items():
+            try:
+                w = int(value)
+                if w >= 0:
+                    result[str(key).strip()] = w
+            except (TypeError, ValueError):
+                pass
+        return result
+
+    @property
+    def provider_rate_limit_rpm(self) -> dict[str, int]:
+        """Provider 独立 rate limit（如 {"chatgpt": 60, "grok": 30}，0=不限）。"""
+        raw = self.data.get("provider_rate_limit_rpm")
+        if not isinstance(raw, dict):
+            return {}
+        result: dict[str, int] = {}
+        for key, value in raw.items():
+            try:
+                w = int(value)
+                if w >= 0:
+                    result[str(key).strip()] = w
+            except (TypeError, ValueError):
+                pass
+        return result
+
+    @property
     def abnormal_auto_recover_max_workers(self) -> int:
         """v2.9.0：异常账号自动恢复并发数上限。"""
         try:
@@ -961,6 +1002,8 @@ class ConfigStore:
         data["proactive_probe_interval_minute"] = self.proactive_probe_interval_minute
         data["redis_url"] = self.redis_url
         data["upstream_failover_enabled"] = self.upstream_failover_enabled
+        data["provider_weights"] = self.provider_weights
+        data["provider_rate_limit_rpm"] = self.provider_rate_limit_rpm
         data["image_remove_conversation_after_result"] = self.image_remove_conversation_after_result
         data["image_remove_conversation_always"] = self.image_remove_conversation_always
         data["auto_remove_invalid_accounts"] = self.auto_remove_invalid_accounts

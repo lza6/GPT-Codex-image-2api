@@ -390,6 +390,31 @@ function DashboardContent() {
                     {ps.tiers.healthy ?? 0} / {ps.tiers.warm ?? 0} / {ps.tiers.risky ?? 0}
                   </span>
                 </div>
+                {/* 8.2：调度权重 */}
+                {ps.weight !== undefined && ps.weight > 0 && (
+                  <div className="flex justify-between">
+                    <span>调度权重</span>
+                    <span className="font-medium">{ps.weight}</span>
+                  </div>
+                )}
+                {/* 8.2：配额剩余 */}
+                {ps.quota_remaining !== undefined && (
+                  <div className="flex justify-between">
+                    <span>配额剩余</span>
+                    <span className={`font-medium ${ps.quota_remaining === 0 ? 'text-red-600' : ''}`}>
+                      {ps.quota_remaining === -1 ? '不限' : `${ps.quota_remaining}/min`}
+                    </span>
+                  </div>
+                )}
+                {/* 8.2：熔断状态 */}
+                {ps.breaker_state && (
+                  <div className="flex justify-between">
+                    <span>熔断状态</span>
+                    <span className={`font-medium ${ps.breaker_state === 'open' ? 'text-red-600' : 'text-green-600'}`}>
+                      {ps.breaker_state === 'open' ? `熔断中 ${ps.breaker_recover_in_seconds ?? 0}s` : '正常'}
+                    </span>
+                  </div>
+                )}
               </CardContent>
             </Card>
           ))}

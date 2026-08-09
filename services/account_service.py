@@ -1237,9 +1237,25 @@ class AccountService:
     ) -> str:
         """从候选池中获取一个可用的图片生图 token。
 
+        8.2：当 provider 未指定时，按权重选取 provider。
         基于本地缓存做初筛，然后通过 fetch_remote_info 做远程验证（token 有效性、配额等）。
         限制最大尝试次数防止 token rotation 导致无限循环。
         """
+        # 8.2：权重调度：当 provider 未指定时，按权重选取
+        from services.provider_scheduler import provider_scheduler
+
+        if provider is None:
+            chosen = provider_scheduler._pick_provider_by_weight()
+            if chosen:
+                provider = chosen
+
+        # 8.2：配额 + 熔断检查
+        if provider is not None:
+            if not provider_scheduler._provider_allow_request(provider):
+                raise RuntimeError(f"provider {provider} is circuit-broken")
+            if not provider_scheduler._check_provider_rate_limit(provider):
+                raise RuntimeError(f"provider {provider} rate limit exceeded")
+
         max_attempts = 20  # 防止无限循环
         attempted_tokens: set[str] = set()
         for _attempt in range(max_attempts):
@@ -1302,9 +1318,42 @@ class AccountService:
     ) -> str:
         excluded = set(excluded_tokens or set())
         requested_model = str(model or "auto").strip() or "auto"
+
+        # 8.2：权重调度 + 配额检查 + 熔断检查
+        # 当未指定 provider 且 model=auto 时，按权重选取 provider
+        # 权重调度仅在 provider_weights 配置非空时生效
+        from services.provider_scheduler import provider_scheduler
+
+        if provider is None and requested_model == "auto":
+            chosen = provider_scheduler._pick_provider_by_weight()
+            if chosen:
+                provider = chosen
+
         # Phase 3：provider 为空时按模型自动路由
         if provider is None and requested_model != "auto":
             provider = router_service.route_for_model(requested_model)
+
+        # 8.2：配额耗尽 + 熔断时 fallback 到其他 provider
+        if provider is not None:
+            attempted_providers: set[str] = set()
+            max_provider_attempts = len(config.provider_weights) or 1
+            for _ in range(max_provider_attempts + 1):
+                if provider in attempted_providers:
+                    raise RuntimeError("no available provider")
+                if not provider_scheduler._provider_allow_request(provider):
+                    attempted_providers.add(provider)
+                    provider = provider_scheduler._pick_provider_by_weight(
+                        [p for p in (provider_scheduler._get_weighted_providers() or []) if p not in attempted_providers]
+                    ) or "chatgpt"
+                    continue
+                if not provider_scheduler._check_provider_rate_limit(provider):
+                    attempted_providers.add(provider)
+                    provider = provider_scheduler._pick_provider_by_weight(
+                        [p for p in (provider_scheduler._get_weighted_providers() or []) if p not in attempted_providers]
+                    ) or "chatgpt"
+                    continue
+                break
+
         route = None
         if requested_model != "auto":
             from services.model_service import model_catalog_service

@@ -1129,6 +1129,14 @@ export type SchedulerDashboard = {
     total_accounts: number;
     available_accounts: number;
     tiers: Record<string, number>;
+    /** 8.2：配额剩余（-1 表示不限） */
+    quota_remaining?: number;
+    /** 8.2：调度权重 */
+    weight?: number;
+    /** 8.2：熔断状态 closed/open */
+    breaker_state?: string;
+    /** 8.2：熔断恢复剩余秒数 */
+    breaker_recover_in_seconds?: number;
   }>;
 };
 
