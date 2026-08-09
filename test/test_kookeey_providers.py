@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import hashlib
 
+import pytest
+
 import services.proxy_service as ps
 from services.providers import (
     get_provider,
@@ -129,35 +131,40 @@ class TestProvidersRegistry:
 
 
 # ---------------------------------------------------------------- kookeey-egress 端点
+@pytest.fixture(scope="module")
+def _kookeey_egress_client():
+    """模块级缓存 TestClient 避免每次新建 FastAPI 应用。"""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    import api.proxy_pool as pp
+    from api.proxy_pool import create_router
+
+    app = FastAPI()
+    app.include_router(create_router())
+    return pp, TestClient(app)
+
+
 class TestKookeeyEgressEndpoint:
     """POST /api/proxies/kookeey-egress：探测账号经 kookeey 粘性代理的真实出口 IP。"""
 
-    def _client(self):
-        from fastapi import FastAPI
-        from fastapi.testclient import TestClient
-
-        import api.proxy_pool as pp
-        from api.proxy_pool import create_router
-
-        app = FastAPI()
-        app.include_router(create_router())
-        return app, pp, TestClient(app)
+    @pytest.fixture(autouse=True)
+    def _inject_client(self, _kookeey_egress_client):
+        self._pp, self._client = _kookeey_egress_client
 
     def test_missing_email_400(self) -> None:
         from unittest.mock import patch
 
-        app, pp, client = self._client()
-        with patch.object(pp, "require_admin", return_value={"role": "admin"}):
-            r = client.post("/api/proxies/kookeey-egress", json={})
+        with patch.object(self._pp, "require_admin", return_value={"role": "admin"}):
+            r = self._client.post("/api/proxies/kookeey-egress", json={})
         assert r.status_code == 400
 
     def test_kookeey_disabled_returns_enabled_false(self) -> None:
         from unittest.mock import patch
 
-        app, pp, client = self._client()
-        with patch.object(pp, "require_admin", return_value={"role": "admin"}), \
+        with patch.object(self._pp, "require_admin", return_value={"role": "admin"}), \
              patch("services.proxy_service.kookeey_proxy_for", return_value=""):
-            r = client.post("/api/proxies/kookeey-egress", json={"email": "a@x.com"})
+            r = self._client.post("/api/proxies/kookeey-egress", json={"email": "a@x.com"})
         body = r.json()
         assert r.status_code == 200
         assert body["ok"] is False
@@ -167,7 +174,6 @@ class TestKookeeyEgressEndpoint:
         """粘性 session 应从代理 URL 正确解析出（供前端展示）。"""
         from unittest.mock import MagicMock, patch
 
-        app, pp, client = self._client()
         proxy_url = "http://UID-SUSER:SPASS-US-ab12cd34@gate.kookeey.info:1000"
         fake_resp = MagicMock()
         fake_resp.json.return_value = {"ip": "1.2.3.4"}
@@ -175,14 +181,62 @@ class TestKookeeyEgressEndpoint:
         fake_session.get.return_value = fake_resp
         fake_session.__enter__ = lambda s: s
         fake_session.__exit__ = lambda *a: False
-        with patch.object(pp, "require_admin", return_value={"role": "admin"}), \
+        with patch.object(self._pp, "require_admin", return_value={"role": "admin"}), \
              patch("services.proxy_service.kookeey_proxy_for", return_value=proxy_url), \
              patch("curl_cffi.requests.Session", return_value=fake_session):
-            r = client.post("/api/proxies/kookeey-egress", json={"email": "a@x.com"})
+            r = self._client.post("/api/proxies/kookeey-egress", json={"email": "a@x.com"})
         body = r.json()
         assert body["ok"] is True
         assert body["ip"] == "1.2.3.4"
         assert body["session"] == "ab12cd34"
+
+
+# ---------------------------------------------------------------- kookeey balance 端点
+@pytest.fixture(scope="module")
+def _kookeey_balance_client():
+    """模块级缓存 TestClient 避免每次新建 FastAPI 应用。"""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    import api.kookeey as ak
+    from api.kookeey import create_router
+
+    app = FastAPI()
+    app.include_router(create_router())
+    return ak, TestClient(app)
+
+
+class TestKookeeyBalanceEndpoint:
+    """GET /api/kookeey/balance：kookeey 账户余额（分）。"""
+
+    @pytest.fixture(autouse=True)
+    def _inject_client(self, _kookeey_balance_client):
+        self._ak, self._client = _kookeey_balance_client
+
+    def test_balance_need_config(self) -> None:
+        """未配置 developer_token/access_id → need_config。"""
+        from unittest.mock import patch
+
+        with patch.object(self._ak, "require_admin", return_value={"role": "admin"}):
+            r = self._client.get("/api/kookeey/balance")
+        body = r.json()
+        assert r.status_code == 200
+        assert body["ok"] is False
+        assert body["need_config"] is True
+
+    def test_balance_configured(self) -> None:
+        """已配置 → 返回余额数据。"""
+        from unittest.mock import patch
+
+        fake_result = {"ok": True, "balance_cents": 10000, "uncount_cents": 500}
+        with patch.object(self._ak, "require_admin", return_value={"role": "admin"}), \
+             patch.object(self._ak.kookeey_service, "get_account_balance", return_value=fake_result):
+            r = self._client.get("/api/kookeey/balance")
+        body = r.json()
+        assert r.status_code == 200
+        assert body["ok"] is True
+        assert body["balance_cents"] == 10000
+        assert body["uncount_cents"] == 500
 
 
 # ---------------------------------------------------------------- 单 IP 使用画像 + 流量接口

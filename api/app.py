@@ -32,9 +32,9 @@ def create_app() -> FastAPI:
         from services.log_service import log_service
         log_service.migrate_legacy()
         from services.usage_agg import start_usage_agg_watcher
-        # v2.9.0：启动即从 config.json 加载 kookeey 配置
+        # v2.9.0：启动即从 config.json 加载 kookeey 配置（支持 KOOKEEY_DEVELOPER_TOKEN 环境变量覆盖）
         try:
-            kookeey_cfg = config.data.get("kookeey")
+            kookeey_cfg = config.get_kookeey_settings()
             if isinstance(kookeey_cfg, dict):
                 from services.kookeey_service import kookeey_service
                 kookeey_service.update_config(kookeey_cfg)
@@ -44,8 +44,8 @@ def create_app() -> FastAPI:
         # v2.9.0：定时批量探测所有账号出口 IP（默认每 2 小时，KOOKEEY_IP_PROBE_INTERVAL_SEC 可调）
         ip_probe_thread = None
         try:
-            from services.kookeey_service import start_ip_probe_watcher
-            ip_probe_thread = start_ip_probe_watcher(stop_event)
+            from services.kookeey_service import kookeey_service
+            ip_probe_thread = kookeey_service.start_ip_probe_watcher(stop_event)
         except Exception:  # noqa: BLE001 - IP 探测线程启动失败不阻断
             ip_probe_thread = None
 

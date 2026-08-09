@@ -1,4 +1,42 @@
-# ChatGPT2API 工作流状态 — 第十七轮（v2.9.0 版本对齐 + 前端智能重建 + 号池救活闭环 + 六维审计修复）
+# ChatGPT2API 工作流状态 — 第十八轮（v2.10.0 失败分类中枢收尾 + 可观测性增强 + 指标扩展 + 健康端点 + 图片透传上游直链）
+
+> 最后更新：2026-08-09
+> 模式：v2.10.0 对标闭环 —— 失败分类双源熔断合一 + 结构日志过滤增强 + Prometheus 指标扩展 + 健康探针 + 图片透传省流量
+> 基线：v2.9.0 收尾
+
+## 本轮完成清单
+
+| 编号 | 事项 | 状态 | 证据 |
+|------|------|------|------|
+| A | 失败分类中枢收尾（双源熔断合一） | ✅ | `image_failure.classify_image_exception` 兼容 str 入参，`conversation.stream_text_deltas` 与 `openai_search` 熔断判定统一走 `classify_image_exception` + `should_record_circuit_failure`；`is_upstream_instability_error` 保留定义供复用，全仓无调用点残留 |
+| B | 结构日志字段过滤 | ✅ | `/api/logs` 新增 `event=`/`request_id=`/`result=` 可选过滤参数，匹配 `detail.event`/`request_id`/`detail.result`；`log_service.list` 加对应过滤谓词；向后兼容 |
+| C | Prometheus 指标扩展 | ✅ | 熔断状态机 `chatgpt2api_circuit_breaker_transitions{from,to}`（_trip/state/record_success 三处埋点）；调度选取 `chatgpt2api_scheduler_pick_total{tier}`（_acquire_next_candidate_token 埋点）；寿命预测 `chatgpt2api_lifetime_risk{risk}`（dashboard 看板端点埋点） |
+| D | 健康端点 | ✅ | `GET /api/system/healthz`（无鉴权，200 空 JSON，供 docker healthcheck）；`GET /api/system/health/ready`（存储可写自检，不可用 503 + 原因） |
+| E | 图片透传上游直链 | ✅ | config.json 新增 `image_passthrough_enabled`（默认 True）/ `image_passthrough_ttl_secs`（默认 3600），设置页开关实时生效；`services/protocol/conversation.py` 新增 `build_passthrough_items`/`_image_items_from_urls`/`_passthrough_items_to_data`；三处生图下载点按开关分流；`image_task_service.py` resume-poll 续轮询同步接入透传；`config.py._save` 单文件挂载场景原子写失败回退直接写（解决 docker compose 500） |
+| F | 验证全绿 | ✅ | pytest 全绿；五道防线全 PASS；ruff 无新增错误；契约断链=0 漂移=0 |
+
+## 五道防线状态
+
+| 批次 | 契约守卫 | SQL | 慢查询 | 变异 | 施压 |
+|------|---------|-----|--------|------|------|
+| 第十八轮 | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+## 当前 git 状态
+
+- 测试：全绿（含已有 live/redis 排除标记）
+- 前端：设置页新增「图片透传上游直链」开关
+- 契约：断链=0 漂移=0
+- 版本：**v2.10.0**
+
+## 边界声明（诚实）
+
+- **图片透传直链**：上游直链有 TTL（默认 3600s），过期后按原下载逻辑回退；resume-poll 同步接入透传经评审补充
+- **config.py 原子写回退**：仅单文件挂载场景（docker compose volume mount）触发，不影响正常多文件场景
+- **Prometheus 指标**：新增指标在 prometheus multiprocess 模式下自动聚合，无需额外配置
+
+---
+
+## 第十七轮历史（v2.9.0 版本对齐 + 前端智能重建 + 号池救活闭环 + 六维审计修复）
 
 > 最后更新：2026-08-07
 > 模式：终局闭环 —— 部署 v2.9.0（版本号停滞根治）+ 号池救活（71 异常 passwordless 账号 OTP 救活链路）+ 多 agent 六维审计

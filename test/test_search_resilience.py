@@ -45,7 +45,7 @@ def test_search_fails_fast_when_breaker_open(monkeypatch):
 
 
 def test_search_records_failure_on_upstream_5xx(monkeypatch):
-    """上游 5xx 时 search 记熔断失败（is_upstream_instability_error 白名单）。"""
+    """上游 5xx 时 search 记熔断失败（image_failure should_record_circuit_failure 白名单）。"""
     from services.protocol import openai_search
     from utils.helper import UpstreamHTTPError
 

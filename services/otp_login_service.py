@@ -43,6 +43,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 from curl_cffi import requests
 
+from services.config import config
 from services.openai_oauth import (
     auth_base,
     common_headers,
@@ -69,8 +70,6 @@ MAIL_API_BASE = "https://app.98faka.top"
 GRAPH_TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
 GRAPH_MESSAGES_URL = "https://graph.microsoft.com/v1.0/me/messages"
 GRAPH_SCOPE = "offline_access https://graph.microsoft.com/Mail.Read"
-# cf_solver 本地服务（Camoufox 过 Cloudflare WAF）
-CF_SOLVER_BASE = "http://127.0.0.1:8001"
 OTP_WAIT_MAX = 90          # 等验证码邮件秒数
 OTP_POLL_SEC = 4
 OTP_CODE_RE = re.compile(r"\b(\d{6})\b")
@@ -81,7 +80,8 @@ class OTPLoginService:
     """邮箱验证码登录：cf_solver清CF → authorize → OTP → 取码 → validate → exchange。"""
 
     def __init__(self, cf_solver_url: str = "") -> None:
-        self.cf_solver_url = str(cf_solver_url or CF_SOLVER_BASE).strip().rstrip("/")
+        # 优先传入的 url，否则从 config 读取（环境变量 OTP_CF_SOLVER_URL 或 config.json 的 otp_cf_solver_url），兜底 127.0.0.1:8001
+        self.cf_solver_url = str(cf_solver_url or config.cf_solver_url).strip().rstrip("/")
 
     def login(
         self,

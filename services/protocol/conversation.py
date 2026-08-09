@@ -18,6 +18,10 @@ from services.config import config
 from services.image_failure import (
     classify_image_exception,
     failure_policy,
+    image_stream_error_message,
+    is_connection_timeout_error,
+    is_tls_connection_error,
+    is_token_invalid_error,
     should_record_circuit_failure,
     verify_account,
 )
@@ -87,82 +91,6 @@ def public_image_error_message(message: str) -> str:
                 return f"上游错误: {text[idx:idx+200]}"
         return "The image generation request failed. Please try again later."
     return text or "The image generation request failed. Please try again later."
-
-
-def is_token_invalid_error(message: str) -> bool:
-    text = str(message or "").lower()
-    return (
-        "token_invalidated" in text
-        or "token_revoked" in text
-        or "authentication token has been invalidated" in text
-        or "invalidated oauth token" in text
-    )
-
-
-def is_tls_connection_error(message: str) -> bool:
-    """检测 TLS/SSL 连接错误，这类错误通常可以通过重试解决。"""
-    text = str(message or "").lower()
-    return (
-        "curl: (35)" in text
-        or "tls connect error" in text
-        or "openssl_internal" in text
-        or "ssl: wrong_version_number" in text
-        or "ssl: certificate_verify_failed" in text
-        or "connection aborted" in text
-        or "remote disconnected" in text
-        or "connection reset by peer" in text
-    )
-
-
-def is_connection_timeout_error(message: str) -> bool:
-    """检测连接超时错误（如 curl 28），这类错误可通过同账号短等待重试解决。"""
-    text = str(message or "").lower()
-    return (
-        "curl: (28)" in text
-        or "operation timed out" in text
-        or "connection timed out" in text
-        or "read timed out" in text
-        or "connect timeout" in text
-    )
-
-
-def is_upstream_instability_error(message: str) -> bool:
-    """正向白名单：仅真正的上游抖动（5xx/超时/TLS/连接错误）才返回 True。
-
-    用于熔断器 record_failure 判定——业务拒绝（内容审核 400、prompt 违规、
-    模型不支持等 4xx）是上游正常工作的证据，不应记为熔断失败，否则恶意/违规
-    用户输入可逐个熔断健康账号造成拒绝服务。
-    """
-    text = str(message or "").lower()
-    if not text:
-        return False
-    # 5xx 服务器错误
-    for code in ("500", "502", "503", "504", "520", "521", "522", "523", "524"):
-        if code in text:
-            return True
-    # 超时 / TLS / 连接错误（复用现有判定）
-    if is_connection_timeout_error(text) or is_tls_connection_error(text):
-        return True
-    # 通用上游不稳定关键词
-    return (
-        "upstream" in text and ("timeout" in text or "unavailable" in text or "error" in text)
-        or "service unavailable" in text
-        or "bad gateway" in text
-        or "gateway timeout" in text
-        or "connection refused" in text
-        or "connection aborted" in text
-    )
-
-
-def image_stream_error_message(message: str) -> str:
-    text = str(message or "")
-    if is_token_invalid_error(text):
-        return "image generation failed"
-    if is_tls_connection_error(text):
-        return "upstream image connection failed, please retry later"
-    if is_connection_timeout_error(text):
-        return "upstream connection timed out, please retry later"
-    return text or "image generation failed"
 
 
 REFERENCED_IMAGE_IDS_RE = re.compile(r'"referenced_image_ids"\s*:\s*\[([^\]]+)\]')
@@ -1835,7 +1763,7 @@ def _generate_single_image(
                     time.sleep(wait_secs)
                     continue
             # 重试耗尽且确为上游抖动（TLS/连接超时/5xx）才记熔断失败；业务拒绝不记。
-            # N6b：熔断判定改用 image_failure 单一事实来源（与 is_upstream_instability_error 同语义）。
+            # N6b：熔断判定改用 image_failure 单一事实来源（classify_image_exception + should_record_circuit_failure）。
             if token:
                 _fail_code = classify_image_exception(exc)
                 if should_record_circuit_failure(_fail_code):

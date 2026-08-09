@@ -414,7 +414,7 @@ export function ConfigCard() {
           <div className="space-y-2">
             <div className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-4 py-3">
               <Checkbox
-                checked={config?.image_passthrough_enabled ?? true}
+                checked={config?.image_passthrough_enabled ?? false}
                 onCheckedChange={(checked) => setImagePassthroughEnabled(Boolean(checked))}
               />
               <span className="text-sm text-stone-700">图片透传上游直链（省流量）</span>

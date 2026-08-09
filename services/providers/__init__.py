@@ -1,4 +1,16 @@
-"""多提供商支持（地基）。
+"""多提供商支持（地基 — 进度：Phase 1/4）。
+
+当前状态（Phase 1，已完成）：
+  - ProviderMeta 元信息模型 + 注册表（chatgpt 默认/grok 占位未启用）
+  - 账号入库自动附加 provider 字段（默认 chatgpt）
+  - 调度层接受 provider 过滤参数（_account_matches_provider + 各调度入口透传）
+  - 账号列表支持 ?provider= 过滤
+  - GET /api/providers 端点返回注册列表
+
+后续阶段（计划中，未实现）：
+  - Phase 2 — 调度分池：各 provider 独立调度池（各池独立 healthy/warm/risky 档位 + 调度分）
+  - Phase 3 — 路由分发：按模型/请求类型自动路由到对应 provider 的调度池
+  - Phase 4 — 前端切换器：账号列表/设置页/图片工作台支持 provider 切换与筛选
 
 用法：
     from services.providers import normalize_provider, list_providers, is_valid_provider

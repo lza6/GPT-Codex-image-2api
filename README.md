@@ -21,17 +21,24 @@
 | 功能 | 状态 | 说明 |
 |------|------|------|
 | OpenAI 兼容 API | ✅ | `/v1/images/generations`、`/v1/images/edits`、`/v1/chat/completions`、`/v1/responses` |
-| 在线画图工作台 | ✅ | 文生图、图生图、多图组图、编辑模式 |
-| 号池管理 | ✅ | 导入/刷新/状态机/自动移除/健康档位调度 |
-| 智能调度系统 | ✅ | 健康档位（healthy/warm/risky）+ 调度分 + 双模式 |
-| 运维看板 | ✅ | 调度健康度、资源占用、用量统计、账号排行榜 |
-| 管理审计 | ✅ | 管理操作留痕（require_admin 统一埋点 + 登录留痕 + 前端审计日志视图，3.2） |
-| 代理池 | ✅ | 多代理管理、健康检查、自动隔离恢复 |
+| 在线画图工作台 | ✅ | 文生图、图生图、多图组图、编辑模式、固定种子、负向提示 |
+| 号池管理 | ✅ | 导入（CPA/密码/access_token/sub2api）/刷新/状态机/自动移除/健康档位调度/OTP 邮箱救活/批量救号脚本 |
+| 智能调度系统 | ✅ | 健康档位（healthy/warm/risky）+ 调度分 + 双模式 + 加权随机 + 主动探活 |
+| 运维看板 | ✅ | 调度健康度、资源占用、用量统计、账号排行榜、寿命预测、容量报表 |
+| 审计日志 | ✅ | 管理操作统一留痕，独立审计视图，操作/结果/操作者/IP 过滤 |
+| 图片透传上游直链 | ✅ | 可选直链透传，省上下行流量（v2.9.2） |
+| kookeey 集成 | ✅ | 流量看板/单IP画像/出口IP探测，每号独立住宅 IP（v2.9.1） |
+| 代理池 | ✅ | 多代理管理、健康检查、自动隔离恢复、WARP/FlareSolverr 稳定代理 |
 | 多 Worker 并发 | ✅ | 支持多进程利用多核 CPU（需 SQLite/Postgres） |
-| Windows 一键启动 | ✅ | 启动/停止 bat 脚本，自动检测环境 |
+| Windows 一键启动 | ✅ | 启动/停止 bat 脚本，指纹智能重建 |
 | 存储后端 | ✅ | JSON / SQLite / PostgreSQL / Git |
+| Prometheus 指标 | ✅ | 熔断状态机/调度选取/寿命预测多维度指标导出 |
+| 健康端点 | ✅ | 存活探针 + 就绪探针，Docker healthcheck 就绪 |
 
-## 升级到 2.1
+<details>
+<summary><b>旧版迁移指南</b>（v2.0.0 / v2.1.0，含 breaking changes）</summary>
+
+### 升级到 2.1
 
 v2.1.0 引入安全边界收紧（SSRF/文件下载/XFF）与韧性收口，**含 breaking changes**，升级前必读：
 
@@ -42,11 +49,11 @@ v2.1.0 引入安全边界收紧（SSRF/文件下载/XFF）与韧性收口，**�
 | **XFF 伪造防护（已移除）** | v2.1.1 移除 XFF 处理；限流中间件在 v2.3.0 已重新接线（`api/app.py` S-R15），默认关闭 | 无需任何操作 |
 | **账号导出时区** | 导出文件 `expired`/`last_refresh` 从 UTC+8 改 UTC ISO8601 | 解析导出文件方按 UTC 处理 |
 
-**v2.1.1 新变化（当前状态）：**
+**v2.1.1+ 持续状态：**
 - **性能优先**：移除 SecurityHeadersMiddleware/RequestSizeLimitMiddleware/MetricsMiddleware，减少中间件层数（限流已在 v2.3.0 重新接线；SSRF 校验保留在图片抓取路径）
 - **企业内网场景**：CORS 默认 `*`，弱口令/密钥强度由配置在 production 下强制（弱口令拒绝启动）
 
-## 升级到 2.0
+### 升级到 2.0
 
 v2.0.0 引入生产级安全默认值收紧与韧性闭环，**含 breaking changes**，升级前必读：
 
@@ -63,6 +70,8 @@ v2.0.0 引入生产级安全默认值收紧与韧性闭环，**含 breaking chan
 - **上游熔断 + 熔断状态可视化**：账号页熔断列实时标注熔断中/半开账号，支持一键驱逐失效 token
 - **统一错误反馈**：401 跳登录、429 限流提示、5xx 错误带 request-id，SSE 页面隐藏自动暂停
 - **CI 质量门**：GitHub Actions 硬门（pytest + 前端 tsc/build）+ 软门提示（ruff/mypy/pip-audit 宽限分期偿还）+ 本地五道防线（`scripts/run_all_guards.py`：契约/SQL/慢查询/变异/压测）
+
+</details>
 
 ## 架构图
 
@@ -104,7 +113,7 @@ v2.0.0 引入生产级安全默认值收紧与韧性闭环，**含 breaking chan
 
 ### Windows 一键启动（推荐）
 
-首次运行先初始化配置（v2.1.0 起 `config.json` 不再入库，只有脱敏的 `config.example.json`）：
+首次运行先初始化配置（v2.1.0+ `config.json` 不再入库，只有脱敏的 `config.example.json`）：
 
 ```bash
 cp config.example.json config.json
@@ -125,6 +134,17 @@ docker compose up -d
 
 启动前先 `cp config.example.json config.json` 并设置强随机 `auth-key`（≥24 位，生产环境弱口令会拒绝启动），
 也可以通过环境变量 `CHATGPT2API_AUTH_KEY` 覆盖。
+
+> **关于 config.json 挂载方式**：默认 `docker-compose.yml` 使用 bind mount 单文件挂载（`./config.json:/app/config.json`）。此方式下配置的原子写（tmp + rename）无法生效，回退为直接写文件——若写入过程中断电或杀进程，config.json 有截断风险（概率低，但存在）。**建议生产环境改用 named volume 挂载 config.json 所在目录**，以恢复原子写能力：
+> ```bash
+> # 创建配置卷
+> docker volume create chatgpt2api-config
+> # 复制 config.json 到卷中
+> docker run --rm -v chatgpt2api-config:/cfg -v .:/src alpine cp /src/config.json /cfg/
+> # 修改 docker-compose.yml：volumes 中 `- chatgpt2api-config:/app/config`
+> # 注意：挂载点改为目录 `/app/config`，并确保 main.py 从该目录读取 config.json
+> ```
+> 也可直接通过环境变量覆盖关键配置（`CHATGPT2API_AUTH_KEY`、`CHATGPT2API_REDIS_URL` 等），避免运行时写配置文件。
 
 - Web 面板：`http://localhost:23456`
 - API 地址：`http://localhost:23456/v1`（**对外调用见 [`docs/api/developer-guide.md`](docs/api/developer-guide.md)**）
@@ -229,6 +249,7 @@ environment:
 - 内置在线画图工作台，支持生成、图片编辑与多图组图编辑
 - 支持 `gpt-image-2`、`codex-gpt-image-2`、`auto`、`gpt-5`、`gpt-5-1`、`gpt-5-2`、`gpt-5-3`、`gpt-5-3-mini`、`gpt-5-mini` 模型选择
 - 编辑模式支持参考图上传
+- 支持固定种子（seed 全链路透传至上游，实验性 best-effort）与负向提示（语义降级拼入 prompt）
 - 前端支持多图生成交互
 - 本地保存图片会话历史，支持回看、删除和清空
 - 支持服务端缓存图片URL
@@ -252,7 +273,9 @@ environment:
 - 支持 WARP / FlareSolverr 稳定代理运行时
 - 支持搜索、筛选、批量刷新、导出、手动编辑和清理账号
 - 支持四种导入方式：本地 CPA JSON 文件导入、远程 CPA 服务器导入、`sub2api` 服务器导入、`access_token` 导入
+- 支持账号密码导入（自动登录抓 Token，失败保留待登录凭据）
 - 支持在设置页配置 `sub2api` 服务器，筛选并批量导入其中的 OpenAI OAuth 账号
+- 异常链路自动触发 `verify_account` 账号核验，主动剔除失效账号
 
 ### 生产部署建议
 

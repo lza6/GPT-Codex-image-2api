@@ -227,6 +227,71 @@ def download_images_zip(paths: list[str]) -> io.BytesIO:
         raise HTTPException(status_code=404, detail="no images found")
     buf.seek(0)
     return buf
+
+
+# ---------------------------------------------------------------- 上游直链代理下载（临时缓存）
+
+import time as _time
+
+_proxy_cache: dict[str, tuple[float, bytes]] = {}
+_PROXY_CACHE_TTL = 300  # 5 分钟自动过期
+
+
+def _proxy_cache_get(url: str) -> bytes | None:
+    entry = _proxy_cache.get(url)
+    if entry and _time.time() - entry[0] < _PROXY_CACHE_TTL:
+        return entry[1]
+    _proxy_cache.pop(url, None)
+    return None
+
+
+def _proxy_cache_set(url: str, data: bytes) -> None:
+    _proxy_cache[url] = (_time.time(), data)
+    # 惰性淘汰过期条目
+    if len(_proxy_cache) > 200:
+        stale = [k for k, v in _proxy_cache.items() if _time.time() - v[0] >= _PROXY_CACHE_TTL]
+        for k in stale:
+            _proxy_cache.pop(k, None)
+
+
+def proxy_download_upstream_image(url: str) -> bytes:
+    """通过上游正常账号的 token 代理下载图片，带临时内存缓存（5min TTL）。
+
+    用于透传模式下日志页预览/下载——上游直链对客户端 403，
+    需后端用 ChatGPT 会话凭据代为下载。
+
+    注意：上游 estuary 直链签名绑定到生成它的账号，需用该账号的 token 下载。
+    这里遍历所有正常账号直到成功（账号不对会返回 403 "Invalid signature"）。
+    """
+    cached = _proxy_cache_get(url)
+    if cached is not None:
+        return cached
+
+    from services.account_service import account_service
+    from services.openai_backend_api import OpenAIBackendAPI
+
+    tokens = account_service.list_normal_tokens()
+    if not tokens:
+        raise HTTPException(502, detail="无可用账号用于图片代理下载")
+
+    errors: list[str] = []
+    for token in tokens:
+        backend = OpenAIBackendAPI(token)
+        try:
+            backend._bootstrap()
+            images = backend.download_image_bytes([url])
+            if images:
+                data = images[0]
+                _proxy_cache_set(url, data)
+                return data
+        except Exception as exc:
+            errors.append(str(exc)[:80])
+        finally:
+            backend.close()
+
+    raise HTTPException(502, detail=f"上游图片下载失败: {'; '.join(errors)}")
+
+
 def storage_stats() -> dict:
     usage = shutil.disk_usage(config.images_dir)
     total_mb = usage.total // (1024 * 1024)

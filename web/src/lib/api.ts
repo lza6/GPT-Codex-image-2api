@@ -1327,3 +1327,20 @@ export function fetchKookeeyIpUsage() {
 export function probeKookeeyIps() {
   return httpRequest<KookeeyProbeResult>("/api/kookeey/probe-ips", { method: "POST" });
 }
+
+export interface KookeeyExtractResult {
+  ok: boolean;
+  extracted: number;
+  imported: number;
+  deduped: number;
+  skipped: number;
+  country: string;
+  error?: string;
+}
+
+export function extractKookeey(country?: string, count?: number) {
+  return httpRequest<KookeeyExtractResult>("/api/kookeey/extract", {
+    method: "POST",
+    body: { country: country ?? "", count: count ?? 0 },
+  });
+}

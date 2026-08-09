@@ -1,6 +1,11 @@
 # Changelog
 
-## 2.10.0 - 2026-08-09 (失败分类中枢收尾 + 可观测性增强 + 指标扩展 + 健康端点)
+## 2.10.0 - 2026-08-09 (失败分类中枢收尾 + 可观测性增强 + 指标扩展 + 健康端点 + providers 状态标注)
+
+**多提供商地基状态标注（Phase 1/4）：**
++ [状态标注] `services/providers/` 三文件 docstring 全部标注 Phase 1/4 进度（__init__/base/registry），明确已完成项与后续 3 个阶段计划；CHANGELOG 本段做全局可见性标注
++ [已完成 Phase 1] ProviderMeta 元信息模型 + 注册表（chatgpt 默认/grok 占位）；账号入库自动附加 provider 字段；调度层 provider 过滤参数透传；GET /api/providers 端点；单元测试 35 全绿
++ [待实现 Phase 2-4] 调度分池（各 provider 独立调度池）、路由分发（按模型/请求类型自动路由到对应 provider）、前端切换器（账号列表/设置页/图片工作台支持切换）——上述三项均未实现，项目处于地基阶段，不改变现有调度行为
 
 **失败分类中枢收尾（双源熔断合一）：**
 + [文本链路收敛] `image_failure.classify_image_exception` 兼容 str 入参，`conversation.stream_text_deltas` 与 `openai_search` 的熔断判定统一走 `classify_image_exception` + `should_record_circuit_failure`，消除 `is_upstream_instability_error` 双源维护
@@ -18,11 +23,27 @@
 + [存活探针] `GET /api/system/healthz`（无鉴权，200 空 JSON，供 docker healthcheck）
 + [就绪探针] `GET /api/system/health/ready`（存储可写自检，不可用 503 + 原因）
 
+## 2.9.2 - 2026-08-08 (图片透传上游直链 + 累计用量统计 + verify_account 核验挂钩 + 前端沉淀)
+
 **图片透传上游直链（省上下行流量）：**
 + [开关] `config.json` 新增 `image_passthrough_enabled`（默认 True）/ `image_passthrough_ttl_secs`（默认 3600），设置页新增「图片透传上游直链」开关实时生效
 + [后端] `services/protocol/conversation.py` 新增 `build_passthrough_items`/`_image_items_from_urls`/`_passthrough_items_to_data`；三处生图下载点按开关分流
 + [后端] `services/image_task_service.py` resume-poll 续轮询同步接入透传（评审发现遗漏）
 + [容错] `config.py._save` 单文件挂载场景原子写失败时回退直接写（解决 docker compose 500）
+
+**累计用量统计：**
++ [端点] `GET /api/dashboard/usage-totals`：累计请求数/成功/失败/图片生成数，基于 usage_agg 缓存（不触发全量日志扫描）
++ [修复] 端点 500：`usage_agg` 在 `api/dashboard.py` 中改为局部 import 避免循环引用 NameError
+
+**异常链路核验挂钩：**
++ [verify_account] `account_service.verify_account` 在文本链路（`conversation.stream_text_deltas`）、搜索（`openai_search`）、图片链路异常时触发账号核验，主动剔除失效账号，避免死账号反复被调度
+
+**存储可写检查修复：**
++ [health/ready] `GET /api/system/health/ready` 改用 `DATA_DIR` 做存储可写检查，兼容 `config.path` 不可写场景（如只读挂载）
+
+**前端沉淀：**
++ [kookeey IP画像] 设置页 kookeey 标签页 IP 使用排行表已实现
++ [暗色主题] 修正暗色主题下的配色一致性
 
 ## 2.9.1 - 2026-08-08 (kookeey 流量看板 + 单IP画像 + 出口IP探测 + 失败分类接入)
 

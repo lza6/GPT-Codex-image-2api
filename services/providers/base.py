@@ -1,8 +1,18 @@
-"""多提供商元信息（地基）。
+"""多提供商元信息（地基 — 进度：Phase 1/4）。
 
-为后续接入 grok 等提供商搭框架：账号按 provider 归属、调度按 provider 分池、
-前端按 provider 切换。本阶段仅注册元信息，上游调用仍走现有 chatgpt 链路，
+为后续接入 grok 等提供商搭框架：账号按 provider 归属、调度按 provider 分池（Phase 2）、
+路由按 provider 分发（Phase 3）、前端按 provider 切换（Phase 4）。
+
+当前 Phase 1 仅注册元信息，上游调用仍走现有 chatgpt 链路，
 不改变任何现有行为（默认 provider = chatgpt）。
+
+Phase 1 已完成项：
+  - ProviderMeta 元信息模型（本文件）
+  - 注册表 + 归一化/校验/列表（registry.py）
+  - 账号入库自动附加 provider 字段（account_service._normalize_account）
+  - 调度层 provider 过滤参数透传（_account_matches_provider）
+  - GET /api/providers 端点 + 账号列表 ?provider= 过滤
+  - 单元测试覆盖（test_providers_api.py + test_kookeey_providers.py）
 """
 from __future__ import annotations
 

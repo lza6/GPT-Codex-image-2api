@@ -2070,7 +2070,7 @@ class AccountService:
                 except Exception as exc:
                     error_str = str(exc)
                     # TLS/代理连接错误是网络问题，不计入账号失败
-                    from services.protocol.conversation import is_tls_connection_error
+                    from services.image_failure import is_tls_connection_error
                     if not is_tls_connection_error(error_str):
                         errors.append({"token": anonymize_token(token), "error": error_str})
                 else:

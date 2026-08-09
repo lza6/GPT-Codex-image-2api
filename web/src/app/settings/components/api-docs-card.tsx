@@ -1,9 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { ChevronDown, FileArchive, FileText, KeyRound, ListChecks, type LucideIcon } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  ChevronDown,
+  Copy,
+  FileArchive,
+  FileText,
+  KeyRound,
+  ListChecks,
+  type LucideIcon,
+} from "lucide-react";
+import { toast } from "sonner";
 
 import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { copyText } from "@/lib/clipboard";
 import webConfig from "@/constants/common-env";
 import { getStoredAuthSession } from "@/store/auth";
 
@@ -17,6 +28,7 @@ type ApiDoc = {
   input: ParamRow[];
   output: ParamRow[];
   example: (baseUrl: string, key: string) => string;
+  response: string;
 };
 
 const docs: ApiDoc[] = [
@@ -26,13 +38,20 @@ const docs: ApiDoc[] = [
     path: "/v1/models",
     icon: ListChecks,
     input: [
-      ["Authorization", "header", "Bearer <auth-key>。"],
+      ["Authorization", "header", "Bearer <auth-key>，所有接口统一鉴权。"],
     ],
     output: [
       ["data", "array", "模型列表，包含 id、object、created、owned_by。"],
     ],
     example: (baseUrl: string, key: string) => `curl ${baseUrl}/models \\
   -H "Authorization: Bearer ${key}"`,
+    response: `{
+  "data": [
+    { "id": "auto", "object": "model", "created": 1700000000, "owned_by": "chatgpt2api" },
+    { "id": "gpt-image-2", "object": "model", "created": 1700000000, "owned_by": "chatgpt2api" },
+    { "id": "gpt-5-3-mini", "object": "model", "created": 1700000000, "owned_by": "chatgpt2api" }
+  ]
+}`,
   },
   {
     title: "聊天补全",
@@ -40,182 +59,333 @@ const docs: ApiDoc[] = [
     path: "/v1/chat/completions",
     icon: FileText,
     input: [
-      ["model", "string", "模型名，例如 gpt-5-mini，也可用于图片兼容场景。"],
-      ["messages", "array", "OpenAI 兼容消息数组。"],
-      ["stream", "boolean", "可选，是否流式返回。"],
-      ["n", "number", "可选，图片兼容场景会解析为生成数量。"],
+      ["model", "string", "模型名，如 auto、gpt-5-mini 等。"],
+      ["messages", "array", "OpenAI 兼容消息数组，支持多轮对话。"],
+      ["stream", "boolean", "可选，是否流式返回 SSE。"],
+      ["n", "number", "可选，生成数量。"],
+      ["modalities", "array", "可选，如 [\"text\"]。"],
     ],
     output: [
       ["id", "string", "响应 ID。"],
-      ["choices", "array", "OpenAI 兼容 choices。"],
-      ["usage", "object", "可选，token 使用信息。"],
+      ["choices", "array", "OpenAI 兼容 choices，含 message.content。"],
+      ["usage", "object", "可选，token 使用统计。"],
+      ["_account_email", "string", "本次使用的账号邮箱，用于排查。"],
     ],
     example: (baseUrl: string, key: string) => `curl ${baseUrl}/chat/completions \\
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer ${key}" \\
-  -d '{"model":"gpt-5-mini","messages":[{"role":"user","content":"你好"}]}'`,
+  -d '{
+    "model": "auto",
+    "messages": [
+      {"role": "system", "content": "你是一个助手"},
+      {"role": "user", "content": "你好，请介绍一下自己"}
+    ],
+    "stream": false
+  }'`,
+    response: `{
+  "id": "chatcmpl-xxx",
+  "object": "chat.completion",
+  "created": 1700000000,
+  "model": "auto",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "你好！我是 AI 助手，很高兴为你服务。"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 20,
+    "completion_tokens": 15,
+    "total_tokens": 35
+  },
+  "_account_email": "xxx@outlook.com"
+}`,
   },
   {
-    title: "Responses",
+    title: "Responses API",
     method: "POST",
     path: "/v1/responses",
     icon: FileText,
     input: [
-      ["model", "string", "模型名。"],
-      ["input", "string | array | object", "用户输入，图片生成会从中解析提示词。"],
-      ["tools", "array", "可选，Responses 工具定义。"],
+      ["model", "string", "模型名，如 auto、gpt-image-2（图片生成用）。"],
+      ["input", "string | array | object", "用户输入内容。"],
+      ["tools", "array", "可选，工具定义数组。"],
       ["stream", "boolean", "可选，是否流式返回。"],
     ],
     output: [
       ["id", "string", "响应 ID。"],
-      ["output", "array", "Responses 兼容输出。"],
-      ["status", "string", "响应状态。"],
+      ["output", "array", "输出内容列表。"],
+      ["status", "string", "completed / in_progress / failed。"],
+      ["_account_email", "string", "本次使用的账号邮箱。"],
     ],
     example: (baseUrl: string, key: string) => `curl ${baseUrl}/responses \\
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer ${key}" \\
-  -d '{"model":"gpt-5-mini","input":"生成一张未来城市图片"}'`,
+  -d '{
+    "model": "auto",
+    "input": "生成一张未来城市图片"
+  }'`,
+    response: `{
+  "id": "resp_xxx",
+  "object": "response",
+  "status": "completed",
+  "output": [
+    {
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        { "type": "output_text", "text": "这是为您生成的未来城市图片：" },
+        { "type": "image_url", "image_url": { "url": "https://chatgpt.com/backend-api/estuary/content?id=..." } }
+      ]
+    }
+  ],
+  "_account_email": "xxx@outlook.com"
+}`,
   },
   {
-    title: "搜索",
-    method: "POST",
-    path: "/v1/search",
-    icon: ListChecks,
-    input: [
-      ["prompt", "string", "搜索问题或检索指令。"],
-    ],
-    output: [
-      ["answer", "string", "搜索后的回答内容，具体字段以返回结果为准。"],
-      ["sources", "array", "可选，搜索引用来源。"],
-      ["_account_email", "string", "本次使用的账号邮箱。"],
-    ],
-    example: (baseUrl: string, key: string) => `curl ${baseUrl}/search \\
-  -H "Content-Type: application/json" \\
-  -H "Authorization: Bearer ${key}" \\
-  -d '{"prompt":"搜索 chatgpt2api 最新使用方式"}'`,
-  },
-  {
-    title: "图片生成",
+    title: "文生图",
     method: "POST",
     path: "/v1/images/generations",
     icon: FileArchive,
     input: [
-      ["prompt", "string", "图片生成提示词。"],
+      ["prompt", "string", "图片生成提示词，必填。"],
       ["model", "string", "可选，默认 gpt-image-2。"],
-      ["n", "number", "可选，生成数量，当前限制 1-4。"],
-      ["size", "string", "可选，图片尺寸。"],
+      ["n", "number", "可选，生成数量，限制 1-4。"],
+      ["size", "string", "可选，图片尺寸，如 1024x1024、1792x1024。"],
       ["quality", "string", "可选，默认 auto。"],
-      ["response_format", "string", "可选，默认 b64_json。"],
+      ["response_format", "string", "可选，b64_json（默认）或 url。"],
+      ["seed", "number", "可选，固定随机种子（实验性）。"],
     ],
     output: [
       ["data", "array", "图片结果列表。"],
-      ["data[].b64_json", "string", "base64 图片内容。"],
-      ["data[].url", "string", "部分配置下返回图片 URL。"],
+      ["data[].b64_json", "string", "base64 编码的图片内容。"],
+      ["data[].url", "string", "图片 URL（透传模式为上游直链，需 Proxy-Download 接口代理预览）。"],
+      ["data[].revised_prompt", "string", "OpenAI 自动优化的提示词。"],
+      ["data[].expires_at", "number", "透传模式下上游直链过期时间戳。"],
+      ["usage", "object", "token 使用统计。"],
     ],
     example: (baseUrl: string, key: string) => `curl ${baseUrl}/images/generations \\
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer ${key}" \\
-  -d '{"model":"gpt-image-2","prompt":"一张极简产品海报","n":1}'`,
+  -d '{
+    "model": "gpt-image-2",
+    "prompt": "一张极简产品海报，白色背景，居中展示",
+    "n": 1,
+    "size": "1024x1024",
+    "response_format": "b64_json"
+  }'`,
+    response: `{
+  "created": 1700000000,
+  "data": [
+    {
+      "b64_json": "iVBORw0KGgoAAAANSUhEUg...（base64 编码的图片数据）",
+      "url": "https://chatgpt.com/backend-api/estuary/content?id=file_xxx",
+      "revised_prompt": "A minimalist product poster with white background, centered showcase",
+      "expires_at": 1700003600
+    }
+  ],
+  "usage": {
+    "input_text_tokens": 15,
+    "output_tokens": 1024
+  }
+}`,
   },
   {
-    title: "图片编辑",
+    title: "图生图",
     method: "POST",
     path: "/v1/images/edits",
     icon: FileArchive,
     input: [
-      ["image", "file | file[] | URL", "参考图，支持 multipart 上传，也支持 JSON 图片链接。"],
-      ["prompt", "string", "编辑提示词。"],
+      ["image", "file", "参考图，multipart/form-data 上传。支持 PNG/JPG。"],
+      ["prompt", "string", "编辑提示词，描述想要的修改。"],
       ["model", "string", "可选，默认 gpt-image-2。"],
-      ["n", "number", "可选，生成数量，当前限制 1-4。"],
+      ["n", "number", "可选，生成数量，限制 1-4。"],
       ["size", "string", "可选，图片尺寸。"],
       ["quality", "string", "可选，默认 auto。"],
+      ["mask", "file", "可选，透明遮罩图，指定编辑区域。"],
     ],
     output: [
-      ["data", "array", "编辑后的图片结果列表。"],
+      ["data", "array", "编辑后的图片结果列表，格式同文生图。"],
       ["data[].b64_json", "string", "base64 图片内容。"],
-      ["data[].url", "string", "部分配置下返回图片 URL。"],
+      ["data[].url", "string", "图片 URL。"],
+      ["data[].revised_prompt", "string", "优化后的提示词。"],
     ],
     example: (baseUrl: string, key: string) => `curl ${baseUrl}/images/edits \\
   -H "Authorization: Bearer ${key}" \\
   -F "model=gpt-image-2" \\
-  -F "prompt=改成赛博朋克夜景" \\
-  -F "image=@./input.png"`,
+  -F "prompt=改成赛博朋克夜景风格" \\
+  -F "image=@./input.png" \\
+  -F "mask=@./mask.png"`,
+    response: `{
+  "created": 1700000000,
+  "data": [
+    {
+      "b64_json": "iVBORw0KGgo...（base64 编码的编辑后图片）",
+      "url": "https://chatgpt.com/backend-api/estuary/content?id=file_yyy",
+      "revised_prompt": "Cyberpunk night city style, neon lights, dark atmosphere",
+      "expires_at": 1700003600
+    }
+  ],
+  "usage": {
+    "input_text_tokens": 12,
+    "output_tokens": 1024
+  }
+}`,
   },
   {
-    title: "创建 PPT 任务",
+    title: "文生图任务（异步轮询）",
     method: "POST",
-    path: "/v1/ppt/generations",
+    path: "/api/image-tasks/generations",
     icon: FileText,
     input: [
-      ["prompt", "string", "PPT 需求描述，可为空但建议填写完整主题、页数、风格和内容结构。"],
-      ["base64_images", "string[]", "可选，图片 data URL/base64，用作 PPT 参考素材。"],
-      ["client_task_id", "string", "可选，客户端幂等任务 ID；重复提交同 ID 会返回已有任务。"],
+      ["client_task_id", "string", "客户端幂等任务 ID，必填。重复提交同 ID 返回已有任务。"],
+      ["prompt", "string", "图片生成提示词。"],
+      ["model", "string", "可选，默认 gpt-image-2。"],
+      ["size", "string", "可选，图片尺寸。"],
+      ["quality", "string", "可选，默认 auto。"],
+      ["seed", "number", "可选，固定随机种子。"],
     ],
     output: [
-      ["id / taskId", "string", "任务 ID，用于轮询状态。"],
-      ["status", "queued | running | success | error", "任务状态。"],
-      ["kind", "ppt", "任务类型。"],
-      ["created_at / updated_at", "string", "任务创建和更新时间。"],
+      ["id", "string", "任务 ID，后续轮询用。"],
+      ["status", "string", "queued / running / success / error。"],
+      ["created_at", "string", "任务创建时间。"],
+      ["updated_at", "string", "任务更新时间。"],
+      ["data", "array", "status=success 时返回图片结果列表。"],
+      ["error", "string", "status=error 时返回错误信息。"],
     ],
-    example: (baseUrl: string, key: string) => `curl ${baseUrl}/ppt/generations \\
+    example: (baseUrl: string, key: string) => `# 1. 提交任务
+curl -X POST ${baseUrl.replace(/\/v1$/, "")}/api/image-tasks/generations \\
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer ${key}" \\
-  -d '{"prompt":"制作一份 8 页以内的季度业务汇报 PPT","base64_images":[]}'`,
+  -d '{
+    "client_task_id": "my-task-001",
+    "prompt": "红色圆形渐变背景",
+    "model": "gpt-image-2",
+    "size": "1024x1024"
+  }'
+
+# 2. 轮询结果（替换 task_id 为实际返回的 id）
+curl ${baseUrl.replace(/\/v1$/, "")}/api/image-tasks?ids=task_xxx \\
+  -H "Authorization: Bearer ${key}"
+
+# 3. 续轮询（超时后加时等待）
+curl -X POST ${baseUrl.replace(/\/v1$/, "")}/api/image-tasks/task_xxx/resume-poll \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer ${key}" \\
+  -d '{"extra_timeout_secs": 60}'`,
+    response: `{
+  "id": "task_abc123",
+  "status": "running",
+  "created_at": "2026-08-09T07:00:00",
+  "updated_at": "2026-08-09T07:00:00",
+  "quality": "auto",
+  "size": "1024x1024",
+  "model": "gpt-image-2",
+  "account_email": "xxx@outlook.com",
+  "data": [],
+  "error": ""
+}
+
+// 轮询成功后返回（status=success）：
+{
+  "id": "task_abc123",
+  "status": "success",
+  "data": [
+    {
+      "url": "https://chatgpt.com/backend-api/estuary/content?id=file_xxx",
+      "revised_prompt": "Red circular gradient background",
+      "expires_at": 1700003600
+    }
+  ],
+  "duration_ms": 45200
+}`,
   },
   {
-    title: "创建 PSD 任务",
+    title: "图生图任务（异步轮询）",
     method: "POST",
-    path: "/v1/psd/generations",
+    path: "/api/image-tasks/edits",
     icon: FileArchive,
     input: [
-      ["prompt", "string", "PSD 拆分与合成要求，例如保留图层、位置、背景和素材 zip。"],
-      ["base64_images", "string[]", "必填，至少一张图片 data URL/base64，作为 PSD 拆分源图。"],
-      ["client_task_id", "string", "可选，客户端幂等任务 ID。"],
+      ["client_task_id", "string", "客户端幂等任务 ID，必填。"],
+      ["image", "file", "参考图，multipart 上传。"],
+      ["prompt", "string", "编辑提示词。"],
+      ["model", "string", "可选，默认 gpt-image-2。"],
+      ["size", "string", "可选，图片尺寸。"],
+      ["quality", "string", "可选，默认 auto。"],
+      ["mask", "file", "可选，透明遮罩图。"],
     ],
     output: [
-      ["id / taskId", "string", "任务 ID，用于轮询状态。"],
-      ["status", "queued | running | success | error", "任务状态。"],
-      ["kind", "psd", "任务类型。"],
-      ["error", "string", "失败时返回错误信息。"],
+      ["id", "string", "任务 ID。"],
+      ["status", "string", "queued / running / success / error。"],
+      ["data", "array", "status=success 时返回图片结果。"],
+      ["error", "string", "status=error 时返回错误信息。"],
     ],
-    example: (baseUrl: string, key: string) => `curl ${baseUrl}/psd/generations \\
-  -H "Content-Type: application/json" \\
+    example: (baseUrl: string, key: string) => `# 1. 提交图生图任务
+curl -X POST ${baseUrl.replace(/\/v1$/, "")}/api/image-tasks/edits \\
   -H "Authorization: Bearer ${key}" \\
-  -d '{"prompt":"按原图位置拆分海报元素并合成可编辑 PSD","base64_images":["data:image/png;base64,..."]}'`,
-  },
-  {
-    title: "任务状态查询",
-    method: "GET",
-    path: "/v1/editable-file-tasks?ids={taskId1,taskId2}",
-    icon: ListChecks,
-    input: [
-      ["ids", "string", "可选，逗号分隔任务 ID；不传则返回当前用户全部可编辑文件任务。"],
-    ],
-    output: [
-      ["items", "array", "任务列表。成功任务的 result 内包含 primary_url 和 zip_url。"],
-      ["missing_ids", "string[]", "查询指定 ids 时，返回未找到的任务 ID。"],
-      ["result.primary_url", "string", "主文件下载地址。"],
-      ["result.zip_url", "string", "素材 zip 下载地址。"],
-    ],
-    example: (baseUrl: string, key: string) => `curl "${baseUrl}/editable-file-tasks?ids=<task_id>" \\
+  -F "client_task_id=my-edit-001" \\
+  -F "model=gpt-image-2" \\
+  -F "prompt=改成蓝色调" \\
+  -F "image=@./input.png"
+
+# 2. 轮询结果（同文生图任务）
+curl ${baseUrl.replace(/\/v1$/, "")}/api/image-tasks?ids=task_yyy \\
   -H "Authorization: Bearer ${key}"`,
+    response: `{
+  "id": "task_yyy456",
+  "status": "running",
+  "created_at": "2026-08-09T07:05:00",
+  "updated_at": "2026-08-09T07:05:00",
+  "size": "1024x1024",
+  "model": "gpt-image-2",
+  "account_email": "xxx@outlook.com"
+}
+
+// 成功后：
+{
+  "id": "task_yyy456",
+  "status": "success",
+  "data": [
+    {
+      "url": "https://chatgpt.com/backend-api/estuary/content?id=file_yyy",
+      "revised_prompt": "Blue color scheme, cool tones",
+      "expires_at": 1700003600
+    }
+  ],
+  "duration_ms": 52300
+}`,
   },
   {
-    title: "结果文件下载",
+    title: "代理下载上游图片（预览）",
     method: "GET",
-    path: "/files/{file_path}",
+    path: "/api/images/proxy-download?url=...",
     icon: FileArchive,
     input: [
-      ["file_path", "string", "由任务 result.primary_url 或 result.zip_url 返回，通常不需要手动拼接。"],
+      ["url", "query", "上游直链 URL（URL 编码）。后端用账号 token 代理下载，5min 内存缓存。"],
     ],
     output: [
-      ["binary", "file", "返回 pptx/psd/zip 文件流。"],
+      ["binary", "bytes", "返回 PNG 图片二进制流，可直接用于 <img src>。"],
     ],
-    example: (baseUrl: string, _key: string) => `curl ${baseUrl.replace(/\/v1$/, "")}/files/<file_path> -o result.zip`,
+    example: (baseUrl: string, key: string) => `# 透传模式下日志页预览用
+curl "${baseUrl.replace(/\/v1$/, "")}/api/images/proxy-download?url=https%3A%2F%2Fchatgpt.com%2Fbackend-api%2Festuary%2Fcontent%3Fid%3Dfile_xxx" \\
+  -H "Authorization: Bearer ${key}" \\
+  -o preview.png`,
+    response: `（二进制 PNG 图片流，HTTP 200）
+Content-Type: image/png
+Cache-Control: private, max-age=300`,
   },
 ];
 
-const usableModels = ["gpt-image-2", "codex-gpt-image-2", "auto", "gpt-5", "gpt-5-1", "gpt-5-2", "gpt-5-3", "gpt-5-3-mini", "gpt-5-mini"];
+const usableModels = [
+  "auto", "gpt-5", "gpt-5-1", "gpt-5-2", "gpt-5-3",
+  "gpt-5-3-mini", "gpt-5-mini", "gpt-5-4-t-mini", "gpt-5-5",
+  "gpt-5-5-mini", "gpt-5-6", "gpt-5-6-mini",
+  "gpt-image-2", "research",
+];
 
 function ParamTable({ rows }: { rows: ParamRow[] }) {
   return (
@@ -244,7 +414,10 @@ function ParamTable({ rows }: { rows: ParamRow[] }) {
 
 export function ApiDocsCard() {
   const [authKey, setAuthKey] = useState("");
-  const serviceBaseUrl = webConfig.apiUrl.replace(/\/$/, "") || (typeof window !== "undefined" ? window.location.origin : "");
+  const [copied, setCopied] = useState(false);
+  const serviceBaseUrl =
+    webConfig.apiUrl.replace(/\/$/, "") ||
+    (typeof window !== "undefined" ? window.location.origin : "");
   const openAIBaseUrl = `${serviceBaseUrl}/v1`;
   const displayKey = authKey || "<当前密钥>";
 
@@ -258,16 +431,71 @@ export function ApiDocsCard() {
     };
   }, []);
 
+  const fullDocsMarkdown = useMemo(() => {
+    let md = `# ChatGPT2API 接口文档\n\n`;
+    md += `## 连接信息\n\n`;
+    md += `- **服务地址**: \`${serviceBaseUrl}\`\n`;
+    md += `- **Base URL**: \`${openAIBaseUrl}\`\n`;
+    md += `- **API Key**: \`${displayKey}\`\n`;
+    md += `- **鉴权方式**: \`Authorization: Bearer <API Key>\`\n\n`;
+    md += `## 可用模型\n\n`;
+    md += `\`${usableModels.join("`, `")}\`\n\n`;
+    md += `> 也可请求 \`GET /v1/models\` 获取最新模型列表。\n\n`;
+    md += `## 接口列表\n\n`;
+    for (const doc of docs) {
+      md += `### ${doc.title}\n\n`;
+      md += `**${doc.method} \`${doc.path}\`**\n\n`;
+      md += `#### 输入参数\n\n`;
+      md += `| 参数 | 类型 | 说明 |\n|------|------|------|\n`;
+      for (const [name, type, desc] of doc.input) {
+        md += `| \`${name}\` | ${type} | ${desc} |\n`;
+      }
+      md += `\n#### 输出参数\n\n`;
+      md += `| 参数 | 类型 | 说明 |\n|------|------|------|\n`;
+      for (const [name, type, desc] of doc.output) {
+        md += `| \`${name}\` | ${type} | ${desc} |\n`;
+      }
+      md += `\n#### 调用示例\n\n\`\`\`bash\n${doc.example(openAIBaseUrl, displayKey)}\n\`\`\`\n\n`;
+      md += `#### 返回示例\n\n\`\`\`json\n${doc.response}\n\`\`\`\n\n`;
+    }
+    md += `---\n`;
+    md += `> 生成时间: ${new Date().toISOString()}\n`;
+    md += `> 版本: ${webConfig.appVersion}\n`;
+    return md;
+  }, [serviceBaseUrl, openAIBaseUrl, displayKey]);
+
+  const handleCopyAll = async () => {
+    const ok = await copyText(fullDocsMarkdown);
+    if (ok) {
+      toast.success("整页文档已复制为 Markdown，可直接粘贴给 AI 分析");
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } else {
+      toast.error("复制失败");
+    }
+  };
+
   return (
     <Card className="rounded-2xl border-white/80 bg-white/90 shadow-sm">
       <CardContent className="space-y-5 p-6">
         <div>
-          <div className="flex items-center gap-2 text-base font-semibold text-stone-900">
-            <KeyRound className="size-5 text-stone-500" />
-            接口接入说明
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-base font-semibold text-stone-900">
+              <KeyRound className="size-5 text-stone-500" />
+              接口接入说明
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5 rounded-xl border-stone-200 text-xs"
+              onClick={() => void handleCopyAll()}
+            >
+              <Copy className="size-3.5" />
+              {copied ? "已复制" : "复制整页文档"}
+            </Button>
           </div>
           <p className="mt-1 text-xs leading-6 text-stone-500">
-            第三方应用按 OpenAI 兼容接口接入；文件任务接口也使用同一套鉴权方式。
+            第三方应用按 OpenAI 兼容接口接入；所有接口统一使用 Bearer Token 鉴权。
           </p>
         </div>
 
@@ -291,10 +519,33 @@ export function ApiDocsCard() {
         </div>
 
         <div className="space-y-2">
-          <div className="text-xs font-medium text-stone-600">常用模型，也可请求 /v1/models 获取</div>
+          <div className="flex items-center justify-between text-xs font-medium text-stone-600">
+            <span>可用模型（也可请求 GET /v1/models 获取最新列表）</span>
+            <button
+              type="button"
+              className="cursor-pointer text-stone-400 hover:text-stone-600"
+              onClick={() => {
+                void copyText(usableModels.join("\n"));
+                toast.success("模型列表已复制");
+              }}
+              title="点击复制模型列表"
+            >
+              <Copy className="size-3" />
+            </button>
+          </div>
           <div className="flex flex-wrap gap-2">
             {usableModels.map((model) => (
-              <span key={model} className="rounded-md border border-stone-200 bg-white px-2 py-1 font-mono text-xs text-stone-700">{model}</span>
+              <span
+                key={model}
+                className="cursor-pointer rounded-md border border-stone-200 bg-white px-2 py-1 font-mono text-xs text-stone-700 transition hover:border-stone-300"
+                onClick={() => {
+                  void copyText(model);
+                  toast.success(`已复制 ${model}`);
+                }}
+                title={`点击复制 ${model}`}
+              >
+                {model}
+              </span>
             ))}
           </div>
         </div>
@@ -303,7 +554,10 @@ export function ApiDocsCard() {
           {docs.map((item) => {
             const Icon = item.icon;
             return (
-              <details key={item.path} className="group rounded-xl border border-stone-200 bg-white px-4 py-3">
+              <details
+                key={item.path}
+                className="group rounded-xl border border-stone-200 bg-white px-4 py-3"
+              >
                 <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
                   <span className="flex min-w-0 items-center gap-3">
                     <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-stone-100 text-stone-600">
@@ -311,7 +565,9 @@ export function ApiDocsCard() {
                     </span>
                     <span className="min-w-0">
                       <span className="block text-sm font-semibold text-stone-900">{item.title}</span>
-                      <span className="mt-1 block truncate font-mono text-xs text-stone-500">{item.method} {item.path}</span>
+                      <span className="mt-1 block truncate font-mono text-xs text-stone-500">
+                        {item.method} {item.path}
+                      </span>
                     </span>
                   </span>
                   <ChevronDown className="size-4 shrink-0 text-stone-400 transition group-open:rotate-180" />
@@ -326,9 +582,17 @@ export function ApiDocsCard() {
                     <h3 className="text-xs font-semibold text-stone-700">输出参数</h3>
                     <ParamTable rows={item.output} />
                   </div>
-                  <div className="space-y-2 lg:col-span-2">
+                  <div className="space-y-2">
                     <h3 className="text-xs font-semibold text-stone-700">调用示例</h3>
-                    <pre className="overflow-auto whitespace-pre-wrap break-all rounded-xl bg-stone-950 px-3 py-3 text-xs leading-5 text-stone-100">{item.example(openAIBaseUrl, displayKey)}</pre>
+                    <pre className="overflow-auto whitespace-pre-wrap break-all rounded-xl bg-stone-950 px-3 py-3 text-xs leading-5 text-stone-100">
+                      {item.example(openAIBaseUrl, displayKey)}
+                    </pre>
+                  </div>
+                  <div className="space-y-2">
+                    <h3 className="text-xs font-semibold text-stone-700">返回示例</h3>
+                    <pre className="overflow-auto whitespace-pre-wrap break-all rounded-xl bg-stone-900 px-3 py-3 text-xs leading-5 text-stone-200">
+                      {item.response}
+                    </pre>
                   </div>
                 </div>
               </details>

@@ -164,7 +164,12 @@ function LogsContent() {
   const [auditItems, setAuditItems] = useState<AuditLog[]>([]);
   const [auditLoading, setAuditLoading] = useState(false);
   const detailUrls = getUrls(detailLog);
-  const detailImages = detailUrls.map((url, index) => ({ id: `${index}`, src: url }));
+  const detailImages = detailUrls.map((url, index) => ({
+    id: `${index}`,
+    src: url.includes("chatgpt.com") || url.includes("oaidalle")
+      ? `/api/images/proxy-download?url=${encodeURIComponent(url)}`
+      : url,
+  }));
   const isCallLog = type === LogType.Call;
   // 全文搜索 + 级别筛选
   const filteredItems = useMemo(() => {

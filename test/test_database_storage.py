@@ -335,3 +335,243 @@ def test_sqlite_busy_timeout_default_is_5000_explicit():
     from services.config import config
 
     assert config.sqlite_busy_timeout_ms == 5000, "默认值漂移——可能被意外修改"
+
+
+# ---------------------------------------------------------------------------
+# DatabaseStorageBackend 扩展覆盖：auth_keys 删除、异常数据、健康检查
+# ---------------------------------------------------------------------------
+
+
+def test_save_auth_keys_deletes_only_missing_rows(tmp_path):
+    """save_auth_keys 应删除不在新快照中的行，保留已有行。"""
+    backend = DatabaseStorageBackend(f"sqlite:///{tmp_path / 'auth-del.db'}")
+    backend.save_auth_keys(
+        [
+            {"id": "key-a", "name": "A"},
+            {"id": "key-b", "name": "B"},
+            {"id": "key-c", "name": "C"},
+        ]
+    )
+
+    backend.save_auth_keys(
+        [
+            {"id": "key-a", "name": "A"},
+            {"id": "key-c", "name": "C updated"},
+        ]
+    )
+
+    session = backend.Session()
+    try:
+        rows = {row.key_id: row for row in session.query(AuthKeyModel).all()}
+        assert set(rows) == {"key-a", "key-c"}
+        assert json.loads(rows["key-c"].data)["name"] == "C updated"
+    finally:
+        session.close()
+
+
+def test_save_accounts_empty_items_clears_all(tmp_path):
+    """传入空列表应清空所有账号数据。"""
+    backend = DatabaseStorageBackend(f"sqlite:///{tmp_path / 'empty-acc.db'}")
+    backend.save_accounts([{"access_token": "tok-a", "name": "A"}])
+    backend.save_accounts([])
+    assert backend.load_accounts() == []
+
+
+def test_save_auth_keys_empty_items_clears_all(tmp_path):
+    """传入空列表应清空所有密钥数据。"""
+    backend = DatabaseStorageBackend(f"sqlite:///{tmp_path / 'empty-key.db'}")
+    backend.save_auth_keys([{"id": "k-a", "name": "A"}])
+    backend.save_auth_keys([])
+    assert backend.load_auth_keys() == []
+
+
+def test_save_accounts_skips_items_without_access_token(tmp_path):
+    """缺少 access_token 的项应被跳过，不影响其他数据。"""
+    backend = DatabaseStorageBackend(f"sqlite:///{tmp_path / 'skip.db'}")
+    backend.save_accounts(
+        [
+            {"access_token": "tok-a", "name": "A"},
+            {"name": "no-token"},
+            {},
+            {"access_token": "tok-b", "name": "B"},
+        ]
+    )
+    loaded = backend.load_accounts()
+    assert len(loaded) == 2
+    tokens = {a["access_token"] for a in loaded}
+    assert tokens == {"tok-a", "tok-b"}
+
+
+def test_save_auth_keys_skips_items_without_id(tmp_path):
+    """缺少 id 的密钥项应被跳过。"""
+    backend = DatabaseStorageBackend(f"sqlite:///{tmp_path / 'skip-key.db'}")
+    backend.save_auth_keys(
+        [
+            {"id": "k-a", "name": "A"},
+            {"name": "no-id"},
+            {},
+        ]
+    )
+    loaded = backend.load_auth_keys()
+    assert len(loaded) == 1
+    assert loaded[0]["id"] == "k-a"
+
+
+def test_load_accounts_corrupted_json_skips_bad_row(tmp_path):
+    """数据库中某行 data 字段损坏时，load_accounts 应跳过该行不中断。"""
+    backend = DatabaseStorageBackend(f"sqlite:///{tmp_path / 'corrupt.db'}")
+    backend.save_accounts([{"access_token": "good", "name": "good"}])
+
+    # 手动插入损坏行
+    from sqlalchemy import text as sa_text
+
+    session = backend.Session()
+    try:
+        session.execute(
+            sa_text(
+                "INSERT INTO accounts (access_token, data) VALUES (:token, :data)"
+            ),
+            {"token": "bad", "data": "not valid json at all"},
+        )
+        session.commit()
+    finally:
+        session.close()
+
+    loaded = backend.load_accounts()
+    assert len(loaded) == 1
+    assert loaded[0]["access_token"] == "good"
+
+
+def test_load_auth_keys_corrupted_json_skips_bad_row(tmp_path):
+    """auth_keys 表某行 data 损坏时，load_auth_keys 应跳过该行。"""
+    backend = DatabaseStorageBackend(f"sqlite:///{tmp_path / 'corrupt-key.db'}")
+    backend.save_auth_keys([{"id": "good", "name": "good"}])
+
+    from sqlalchemy import text as sa_text
+
+    session = backend.Session()
+    try:
+        session.execute(
+            sa_text("INSERT INTO auth_keys (key_id, data) VALUES (:id, :data)"),
+            {"id": "bad", "data": "{{{corrupted}}"},
+        )
+        session.commit()
+    finally:
+        session.close()
+
+    loaded = backend.load_auth_keys()
+    assert len(loaded) == 1
+    assert loaded[0]["id"] == "good"
+
+
+def test_save_accounts_preserves_extra_fields(tmp_path):
+    """保存的账号应保留额外字段（如 email, proxy 等）。"""
+    backend = DatabaseStorageBackend(f"sqlite:///{tmp_path / 'extra.db'}")
+    backend.save_accounts(
+        [
+            {
+                "access_token": "tok-a",
+                "name": "A",
+                "email": "a@example.com",
+                "proxy": "http://proxy:8080",
+                "extra": {"nested": True},
+            }
+        ]
+    )
+    loaded = backend.load_accounts()
+    assert len(loaded) == 1
+    assert loaded[0]["email"] == "a@example.com"
+    assert loaded[0]["proxy"] == "http://proxy:8080"
+    assert loaded[0]["extra"] == {"nested": True}
+
+
+def test_health_check_healthy(tmp_path):
+    """健康检查应返回 healthy 状态及账号/密钥数量。"""
+    backend = DatabaseStorageBackend(f"sqlite:///{tmp_path / 'health.db'}")
+    backend.save_accounts([{"access_token": "tok-a", "name": "A"}])
+    backend.save_auth_keys([{"id": "k-a", "name": "A"}])
+
+    status = backend.health_check()
+    assert status["status"] == "healthy"
+    assert status["backend"] == "database"
+    assert status["account_count"] == 1
+    assert status["auth_key_count"] == 1
+    # SQLite 无密码，database_url 应包含路径
+    assert "health.db" in status["database_url"]
+
+
+def test_health_check_no_tables(tmp_path):
+    """空数据库健康检查应返回 healthy 且 count 为 0。"""
+    backend = DatabaseStorageBackend(f"sqlite:///{tmp_path / 'empty-health.db'}")
+    status = backend.health_check()
+    assert status["status"] == "healthy"
+    assert status["account_count"] == 0
+    assert status["auth_key_count"] == 0
+
+
+def test_get_backend_info_returns_correct_type(tmp_path):
+    """get_backend_info 应正确返回存储类型为 sqlite。"""
+    backend = DatabaseStorageBackend(f"sqlite:///{tmp_path / 'info.db'}")
+    info = backend.get_backend_info()
+    assert info["type"] == "database"
+    assert info["db_type"] == "sqlite"
+
+
+def test_save_accounts_handles_large_batch(tmp_path):
+    """大批量账号保存应正确完成（验证批量 upsert 性能）。"""
+    backend = DatabaseStorageBackend(f"sqlite:///{tmp_path / 'batch.db'}")
+    accounts = [
+        {"access_token": f"tok-{i}", "name": f"Account {i}", "seq": i}
+        for i in range(100)
+    ]
+    backend.save_accounts(accounts)
+    loaded = backend.load_accounts()
+    assert len(loaded) == 100
+    tokens = {a["access_token"] for a in loaded}
+    assert tokens == {f"tok-{i}" for i in range(100)}
+
+
+def test_save_accounts_removes_duplicates_in_second_batch(tmp_path):
+    """第二次保存时移除已删除的账号，同时保留新添加的。"""
+    backend = DatabaseStorageBackend(f"sqlite:///{tmp_path / 'remove-add.db'}")
+    backend.save_accounts(
+        [
+            {"access_token": "tok-a", "name": "A"},
+            {"access_token": "tok-b", "name": "B"},
+            {"access_token": "tok-c", "name": "C"},
+        ]
+    )
+    # 移除 B 和 C，添加 D
+    backend.save_accounts(
+        [
+            {"access_token": "tok-a", "name": "A"},
+            {"access_token": "tok-d", "name": "D"},
+        ]
+    )
+    loaded = backend.load_accounts()
+    assert len(loaded) == 2
+    tokens = {a["access_token"] for a in loaded}
+    assert tokens == {"tok-a", "tok-d"}
+
+
+def test_save_auth_keys_removes_duplicates_in_second_batch(tmp_path):
+    """第二次保存时移除已删除的密钥，同时保留新添加的。"""
+    backend = DatabaseStorageBackend(f"sqlite:///{tmp_path / 'remove-add-key.db'}")
+    backend.save_auth_keys(
+        [
+            {"id": "k-a", "name": "A"},
+            {"id": "k-b", "name": "B"},
+            {"id": "k-c", "name": "C"},
+        ]
+    )
+    # 移除 B 和 C，添加 D
+    backend.save_auth_keys(
+        [
+            {"id": "k-a", "name": "A"},
+            {"id": "k-d", "name": "D"},
+        ]
+    )
+    loaded = backend.load_auth_keys()
+    assert len(loaded) == 2
+    ids = {k["id"] for k in loaded}
+    assert ids == {"k-a", "k-d"}

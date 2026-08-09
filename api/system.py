@@ -19,6 +19,7 @@ from services.image_service import (
     get_image_response,
     get_thumbnail_response,
     list_images,
+    proxy_download_upstream_image,
     storage_stats,
 )
 from services.image_storage_service import ImageStorageError, image_storage_service
@@ -157,6 +158,18 @@ def create_router(app_version: str) -> APIRouter:
     async def download_single_image_endpoint(image_path: str, authorization: str | None = Header(default=None)):
         require_admin(authorization)
         return get_image_download_response(image_path)
+
+    @router.get("/api/images/proxy-download")
+    async def proxy_download_image_endpoint(url: str = "", authorization: str | None = Header(default=None)):
+        """代理下载上游直链图片（透传模式下日志页预览用）。临时内存缓存 5min 自动过期。"""
+        require_admin(authorization)
+        if not url.strip():
+            raise HTTPException(status_code=400, detail="url is required")
+        data = await run_in_threadpool(proxy_download_upstream_image, url.strip())
+        return Response(content=data, media_type="image/png", headers={
+            "Access-Control-Allow-Origin": "*",
+            "Cache-Control": "private, max-age=300",
+        })
 
     @router.get("/api/logs")
     async def get_logs(type: str = "", start_date: str = "", end_date: str = "", account_email: str = "", days: int | None = Query(default=None), event: str = "", request_id: str = "", result: str = "", authorization: str | None = Header(default=None)):

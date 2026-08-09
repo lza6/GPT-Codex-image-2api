@@ -23,6 +23,7 @@ from urllib.parse import quote
 
 from curl_cffi.requests import Session
 
+from services.config import _mask_token, config
 from services.log_service import LOG_TYPE_ACCOUNT, log_service
 from services.proxy_pool import proxy_pool
 
@@ -49,11 +50,13 @@ def _api_get(
     token: str,
     timeout: int = 30,
     proxy: str = "",
+    verify: bool = False,
 ) -> dict:
     """调 kookeey 官方 API：GET /[method]?accessid=..&signature=..&ts=..&{params}。
 
     签名串只含业务参数 + ts（不含 accessid/signature），顺序与 URL 一致。
     proxy：kookeey.com 在海外服务器直连被墙，调用方传住宅代理出口（同账号粘性或共享）。
+    verify：SSL 证书校验开关，默认 False（kookeey 住宅代理出口可能做 MITM 截获 HTTPS）。
     返回 data（dict/list）；success!=True 抛错。
     """
     ts = str(int(time.time()))
@@ -64,7 +67,9 @@ def _api_get(
     qs = "&".join(f"{k}={quote(str(v), safe='')}" for k, v in query)
     url = f"{KOOKEEY_API_BASE}/{method.lstrip('/')}?{qs}"
     proxies = {"http": proxy, "https": proxy} if proxy else None
-    with Session(impersonate="chrome110", verify=False, proxies=proxies) as session:
+    with Session(impersonate="chrome110",
+                 verify=verify,
+                 proxies=proxies) as session:
         resp = session.get(url, timeout=timeout)
         body = resp.json() if resp.text else {}
     if not isinstance(body, dict):
@@ -83,6 +88,9 @@ class KookeeyConfig:
     access_id: str = ""  # API 签名模式：accessid
     default_country: str = "US"
     default_count: int = 10
+    ssl_verify: bool = False  # SSL 证书校验：kookeey 住宅代理作为中间人截获 HTTPS 流量
+    #                                   （MITM），导致标准证书链验证失败，默认关闭校验。
+    #                                   若用户自建代理隧道（无 MITM），可开启以防护中间人攻击。
 
 
 @dataclass
@@ -220,13 +228,15 @@ class KookeeyService:
         start = time.time()
         ok = 0
         failed = 0
+        ssl_verify = self._ssl_verify()
 
         def _probe(email: str) -> bool:
             proxy_url = kookeey_proxy_for(email)
             if not proxy_url:
                 return False
             try:
-                with Session(impersonate="chrome110", verify=False,
+                with Session(impersonate="chrome110",
+                             verify=ssl_verify,
                              proxies={"http": proxy_url, "https": proxy_url}) as s:
                     resp = s.get("https://api.ipify.org?format=json", timeout=20)
                     ip = str((resp.json() or {}).get("ip") or "")
@@ -250,17 +260,28 @@ class KookeeyService:
         duration = round(time.time() - start, 1)
         log_service.add(LOG_TYPE_ACCOUNT, "kookeey 批量出口IP探测", {"probed": len(emails), "ok": ok, "failed": failed})
         return {"probed": len(emails), "ok": ok, "failed": failed, "duration_s": duration}
+    def _ssl_verify(self) -> bool:
+        """返回当前 SSL 证书校验开关值（默认 False，kookeey 住宅代理可能 MITM）。"""
+        with self._lock:
+            return self._config.ssl_verify
+
     def update_config(self, cfg: dict) -> None:
         with self._lock:
             self._config.enabled = bool(cfg.get("enabled", False))
             self._config.extract_url = str(cfg.get("extract_url") or "").strip()
-            self._config.developer_token = str(cfg.get("developer_token") or "").strip()
+            raw_token = str(cfg.get("developer_token") or "").strip()
+            if raw_token and raw_token.startswith("****"):
+                # 前端 GET 返回的是脱敏 token（get_public_config），不覆盖真实值
+                pass
+            else:
+                self._config.developer_token = raw_token
             self._config.access_id = str(cfg.get("access_id") or "").strip()
             self._config.default_country = str(cfg.get("default_country") or "US").strip() or "US"
             try:
                 self._config.default_count = max(1, min(100, int(cfg.get("default_count") or 10)))
             except (TypeError, ValueError):
                 self._config.default_count = 10
+            self._config.ssl_verify = bool(cfg.get("ssl_verify", False))
 
     def get_config(self) -> dict:
         with self._lock:
@@ -271,7 +292,16 @@ class KookeeyService:
                 "access_id": self._config.access_id,
                 "default_country": self._config.default_country,
                 "default_count": self._config.default_count,
+                "ssl_verify": self._config.ssl_verify,
             }
+
+    def get_public_config(self) -> dict:
+        """返回给前端/API 的配置（developer_token 脱敏）。"""
+        cfg = self.get_config()
+        raw = cfg["developer_token"]
+        if raw:
+            cfg["developer_token"] = _mask_token(raw) if len(raw) > 4 else "****"
+        return cfg
 
     def get_stats(self) -> dict:
         with self._lock:
@@ -313,8 +343,9 @@ class KookeeyService:
         if not (access_id and token):
             return {"ok": False, "need_config": True, "error": "未配置 developer_token / access_id"}
         proxy = self._api_proxy()
+        verify = self._ssl_verify()
         try:
-            tinfo = _api_get("tinfo", [], access_id, token, proxy=proxy)
+            tinfo = _api_get("tinfo", [], access_id, token, proxy=proxy, verify=verify)
         except Exception as exc:
             return {"ok": False, "error": f"tinfo: {exc}"}
         result: dict[str, Any] = {
@@ -325,7 +356,7 @@ class KookeeyService:
         }
         # /package?t=2 动态住宅包余额（失败不阻断总览）
         try:
-            pkg = _api_get("package", [("t", "2")], access_id, token, proxy=proxy)
+            pkg = _api_get("package", [("t", "2")], access_id, token, proxy=proxy, verify=verify)
             if isinstance(pkg, dict):
                 result["package"] = {
                     "traffic_left_gb": pkg.get("traffic_left"),
@@ -345,7 +376,7 @@ class KookeeyService:
         if not (access_id and token):
             return {"ok": False, "need_config": True, "error": "未配置 developer_token / access_id"}
         try:
-            data = _api_get("info", [("u", access_id)], access_id, token, proxy=self._api_proxy())
+            data = _api_get("info", [("u", access_id)], access_id, token, proxy=self._api_proxy(), verify=self._ssl_verify())
             return {
                 "ok": True,
                 "balance_cents": data.get("balance") if isinstance(data, dict) else None,
@@ -361,7 +392,7 @@ class KookeeyService:
             return {"ok": False, "need_config": True, "error": "未配置 developer_token / access_id"}
         params = [("sdate", sdate), ("edate", edate), ("gb", gb), ("page", str(page)), ("psize", str(psize))]
         try:
-            data = _api_get("tdetail", params, access_id, token, proxy=self._api_proxy())
+            data = _api_get("tdetail", params, access_id, token, proxy=self._api_proxy(), verify=self._ssl_verify())
             if isinstance(data, dict):
                 return {"ok": True, "list": data.get("list") or [], "total": data.get("total"), "raw": data}
             return {"ok": True, "list": [], "total": 0}
@@ -470,37 +501,37 @@ class KookeeyService:
             self._stats.total_errors += 1
             self._stats.last_error = error[:200]
 
+    @staticmethod
+    def start_ip_probe_watcher(stop_event, interval_seconds: int = 7200) -> "Thread":
+        """定时批量探测所有账号出口 IP（默认每 2 小时一轮），常驻刷新看板显示。
 
-def start_ip_probe_watcher(stop_event, interval_seconds: int = 7200) -> "object":
-    """定时批量探测所有账号出口 IP（默认每 2 小时一轮），常驻刷新看板显示。
+        返回线程对象；interval_seconds 可用环境变量 KOOKEEY_IP_PROBE_INTERVAL_SEC 覆盖。
+        """
+        import os
+        from threading import Thread
 
-    返回线程对象；interval_seconds 可用环境变量 KOOKEEY_IP_PROBE_INTERVAL_SEC 覆盖。
-    """
-    import os
-    from threading import Thread
+        try:
+            interval_seconds = max(600, int(os.getenv("KOOKEEY_IP_PROBE_INTERVAL_SEC", str(interval_seconds))))
+        except (TypeError, ValueError):
+            interval_seconds = 7200
 
-    try:
-        interval_seconds = max(600, int(os.getenv("KOOKEEY_IP_PROBE_INTERVAL_SEC", str(interval_seconds))))
-    except (TypeError, ValueError):
-        interval_seconds = 7200
-
-    def worker() -> None:
-        # 启动后先等一小段再首探（让服务先起来），之后按间隔循环
-        if stop_event.wait(60):
-            return
-        while not stop_event.is_set():
-            try:
-                cfg = kookeey_service.get_config()
-                if cfg.get("enabled"):
-                    kookeey_service.probe_all_account_ips()
-            except Exception as exc:  # noqa: BLE001
-                log_service.add(LOG_TYPE_ACCOUNT, "kookeey IP探测线程异常", {"error": str(exc)[:120]})
-            if stop_event.wait(interval_seconds):
+        def worker() -> None:
+            # 启动后先等一小段再首探（让服务先起来），之后按间隔循环
+            if stop_event.wait(60):
                 return
+            while not stop_event.is_set():
+                try:
+                    cfg = kookeey_service.get_config()
+                    if cfg.get("enabled"):
+                        kookeey_service.probe_all_account_ips()
+                except Exception as exc:  # noqa: BLE001
+                    log_service.add(LOG_TYPE_ACCOUNT, "kookeey IP探测线程异常", {"error": str(exc)[:120]})
+                if stop_event.wait(interval_seconds):
+                    return
 
-    t = Thread(target=worker, name="kookeey-ip-probe", daemon=True)
-    t.start()
-    return t
+        t = Thread(target=worker, name="kookeey-ip-probe", daemon=True)
+        t.start()
+        return t
 
 def _parse_kookeey_ip_line(line: str, country: str = "") -> dict | None:
     """解析 kookeey 提取返回的单行 IP。

@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, Database, Globe, LoaderCircle, RefreshCw, Save, TrendingUp } from "lucide-react";
+import { Activity, AlertCircle, Database, Globe, LoaderCircle, RefreshCw, Save, Spline, TrendingUp } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -13,9 +13,11 @@ import {
   fetchKookeeyTraffic,
   probeKookeeyIps,
   updateKookeeyConfig,
+  extractKookeey,
   type KookeeyConfig,
   type KookeeyIpUsageBoard,
   type KookeeyTraffic,
+  type KookeeyExtractResult,
 } from "@/lib/api";
 
 function fmtMb(mb: number | null | undefined): string {
@@ -29,8 +31,11 @@ export function KookeeyCard() {
   const [traffic, setTraffic] = useState<KookeeyTraffic | null>(null);
   const [board, setBoard] = useState<KookeeyIpUsageBoard | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isProbing, setIsProbing] = useState(false);
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [extractResult, setExtractResult] = useState<KookeeyExtractResult | null>(null);
   // 表单字段
   const [developerToken, setDeveloperToken] = useState("");
   const [accessId, setAccessId] = useState("");
@@ -43,14 +48,24 @@ export function KookeeyCard() {
         fetchKookeeyTraffic(),
         fetchKookeeyIpUsage(),
       ]);
+      const errors: string[] = [];
       if (cfg.status === "fulfilled") {
         setConfig(cfg.value);
         setDeveloperToken(cfg.value.developer_token ?? "");
         setAccessId(cfg.value.access_id ?? "");
         setExtractUrl(cfg.value.extract_url ?? "");
+      } else {
+        errors.push(cfg.reason?.message ?? "config");
       }
       if (trf.status === "fulfilled") setTraffic(trf.value);
+      else errors.push(trf.reason?.message ?? "traffic");
       if (brd.status === "fulfilled") setBoard(brd.value);
+      else errors.push(brd.reason?.message ?? "board");
+      if (errors.length === 3) {
+        setLoadError(errors.find(Boolean) ?? "加载 kookeey 数据失败");
+      } else {
+        setLoadError(null);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -94,11 +109,49 @@ export function KookeeyCard() {
     }
   };
 
+  const handleExtract = async () => {
+    setIsExtracting(true);
+    setExtractResult(null);
+    try {
+      const r = await extractKookeey();
+      setExtractResult(r);
+      toast.success(`提取完成：提取 ${r.extracted} 条，入池 ${r.imported} 条，去重 ${r.deduped} 条`);
+      void loadAll();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "提取失败");
+    } finally {
+      setIsExtracting(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <Card className="rounded-2xl border-white/80 bg-white/90 shadow-sm">
         <CardContent className="flex items-center justify-center p-10">
           <LoaderCircle className="size-5 animate-spin text-stone-400" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <Card className="rounded-2xl border-red-200 bg-red-50/80 shadow-sm">
+        <CardContent className="flex flex-col items-center gap-3 p-6 text-center">
+          <AlertCircle className="size-8 text-red-400" />
+          <div>
+            <p className="text-sm font-medium text-red-700">加载 kookeey 数据失败</p>
+            <p className="mt-1 text-xs text-red-500">{loadError}</p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void loadAll()}
+            className="h-8 rounded-lg border-red-200 bg-white text-red-600 hover:bg-red-50"
+          >
+            <RefreshCw className="size-3.5" />
+            重试
+          </Button>
         </CardContent>
       </Card>
     );
@@ -142,13 +195,29 @@ export function KookeeyCard() {
             </div>
           </div>
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-stone-600">提取链接（可选，拉 IP 入池用）</label>
-            <Input
-              value={extractUrl}
-              onChange={(e) => setExtractUrl(e.target.value)}
-              placeholder="https://kookeey.com/...?accessid=..&sign=..&n=10"
-              className="h-10 rounded-xl border-stone-200 bg-white font-mono text-xs"
-            />
+            <label className="text-xs font-medium text-stone-600">提取链接（当前已配置，用于拉取 IP 入池）</label>
+            <div className="flex items-center gap-2">
+              <Input
+                value={extractUrl}
+                onChange={(e) => setExtractUrl(e.target.value)}
+                placeholder="https://kookeey.com/...?accessid=..&sign=..&n=10"
+                className="h-10 flex-1 rounded-xl border-stone-200 bg-white font-mono text-xs"
+              />
+              <Button
+                onClick={() => void handleExtract()}
+                disabled={isExtracting || !extractUrl.trim()}
+                className="h-10 shrink-0 rounded-xl bg-stone-900 px-4 text-white hover:bg-stone-800 disabled:opacity-50"
+              >
+                {isExtracting ? <LoaderCircle className="size-4 animate-spin" /> : <Spline className="size-4" />}
+                提取到代理池
+              </Button>
+            </div>
+            {extractResult && (
+              <p className="text-xs text-emerald-600">
+                提取 {extractResult.extracted} 条 · 入池 {extractResult.imported} 条 · 去重 {extractResult.deduped} 条
+                {extractResult.skipped > 0 && ` · 跳过 ${extractResult.skipped} 条`}
+              </p>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <Button

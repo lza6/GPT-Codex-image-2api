@@ -16,6 +16,7 @@ class KookeeyConfigRequest(BaseModel):
     access_id: str = ""
     default_country: str = "US"
     default_count: int = 10
+    ssl_verify: bool = False
 
 
 class KookeeyExtractRequest(BaseModel):
@@ -29,7 +30,7 @@ def create_router() -> APIRouter:
     @router.get("/api/kookeey/config")
     async def get_kookeey_config(authorization: str | None = Header(default=None)):
         require_admin(authorization)
-        return kookeey_service.get_config()
+        return kookeey_service.get_public_config()
 
     @router.post("/api/kookeey/config")
     async def update_kookeey_config(body: KookeeyConfigRequest, authorization: str | None = Header(default=None)):

@@ -104,8 +104,8 @@ _避免_: 当作普通失败/普通对话。
 **多 Worker 约束**
 JSON 后端 `workers>1` 自动回退 1 并警告（多进程各持独立账号副本=数据损坏）；SQLite/Postgres 才允许多 Worker。多进程共享状态**只走存储层**，禁止模块级可变全局变量跨请求持有；多 worker 精确限流需 Redis（`shared_state`，断连降级本地滑窗不 500）。
 
-**多提供商（Provider，主项目地基）**
-`services/providers/`（ProviderMeta+注册表，chatgpt 默认 / grok 占位未启用）；account normalize 加 `provider` 字段默认 chatgpt，**当前不改调度行为**（调度分池/路由/前端切换器为后续阶段）。
+**多提供商（Provider，主项目地基 — Phase 1/4）**
+`services/providers/`（ProviderMeta+注册表，chatgpt 默认 / grok 占位未启用）；account normalize 加 `provider` 字段默认 chatgpt；已完成 Phase 1（元信息注册+账号字段+API 端点+过滤参数），**当前不改调度行为**。Phase 2 调度分池 / Phase 3 路由分发 / Phase 4 前端切换器均未实现。详见 `services/providers/__init__.py` 顶部标注。
 
 **配置（Config）**
 `config.json` + `services/config.py`：启动 schema 校验 + 环境变量 `CHATGPT2API_*` 覆盖。新增配置项走 6 步（config.json 默认值 + property + get + schema 校验 + api.ts + store/config-card）。

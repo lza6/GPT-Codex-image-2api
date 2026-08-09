@@ -1,7 +1,14 @@
-"""多提供商注册表。
+"""多提供商注册表（地基 — 进度：Phase 1/4）。
 
-地基阶段：chatgpt 为唯一已接入提供商（默认），grok 占位 enabled=False（UI 灰显"即将支持"）。
-后续接入 grok 时，实现对应上游客户端后把 enabled 置 True 即可，无需改调度/UI。
+当前状态（Phase 1）：
+  - chatgpt 为唯一已接入提供商（默认，enabled=True）
+  - grok 占位 enabled=False（UI 灰显"即将支持"）
+  - 后续接入 grok 时，实现对应上游客户端后把 enabled 置 True 即可
+
+后续阶段：
+  - Phase 2 — 调度分池：各 provider 独立调度池
+  - Phase 3 — 路由分发：按模型/请求类型自动路由
+  - Phase 4 — 前端切换器：账号列表/设置页/图片工作台支持切换
 """
 from __future__ import annotations
 

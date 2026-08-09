@@ -13,6 +13,11 @@ type ImageThumbnailProps = {
 };
 
 export function getImageThumbnailUrl(src: string) {
+  // 上游直链（chatgpt.com / oaidalle）→ 走后端代理下载
+  if (src.includes("chatgpt.com") || src.includes("oaidalle")) {
+    const base = typeof window !== "undefined" ? window.location.origin : "";
+    return `${base}/api/images/proxy-download?url=${encodeURIComponent(src)}`;
+  }
   const marker = "/images/";
   const index = src.indexOf(marker);
   if (index < 0) return src;

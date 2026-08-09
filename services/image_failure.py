@@ -3,17 +3,10 @@
 设计目标（ADR-015）：把「这次失败要不要换号 / 要不要记熔断 / 对用户显示什么」
 收敛为一组可测的纯函数，替代散落在各调用点的字符串匹配。
 
-与主项目现有判定的关系（不改动现有函数，仅新增本模块）：
-- `conversation.is_upstream_instability_error` 仍是熔断 record_failure 的正向白名单。
-  本模块的 `should_record_circuit_failure` 复用同一语义（上游抖动才记），保持单一事实来源。
-- `conversation.is_token_invalid_error` / `is_tls_connection_error` /
-  `is_connection_timeout_error` 仍负责文本级识别，本模块在其上做「分类」。
-
-边界（诚实）：
-- 本模块只做「分类 + 公共文案 + 决策谓词」，不改变任何现有调用方行为；
-  接入由后续节点逐个进行，接入点须保持熔断白名单语义不回退。
-- 术语遵循 docs/domain-context.md：业务拒绝（content_policy/quota/text_reply）
-  不是上游抖动，绝不计熔断。
+本模块是唯一的熔断判定事实来源——曾经在 conversation.py 中的
+`is_upstream_instability_error` / `is_token_invalid_error` / `is_tls_connection_error` /
+`is_connection_timeout_error` / `image_stream_error_message` 已全部迁移至此，
+conversation.py 不再保留这些函数，避免双源维护风险。
 """
 
 from __future__ import annotations
@@ -108,8 +101,7 @@ def should_switch_account(code: Any) -> bool:
 def should_record_circuit_failure(code: Any) -> bool:
     """是否应记熔断 record_failure：仅上游瞬时抖动（TRANSIENT）记。
 
-    与 `conversation.is_upstream_instability_error` 同语义——业务拒绝（REQUEST）
-    与账号态（ACCOUNT，如限流/配额）不记，防恶意输入熔断健康账号。
+    业务拒绝（REQUEST）与账号态（ACCOUNT，如限流/配额）不记，防恶意输入熔断健康账号。
     """
     return failure_policy(code).scope is FailureScope.TRANSIENT
 
@@ -170,10 +162,7 @@ def _classify_400_body(body: Any) -> str:
 def classify_image_exception(exc: BaseException | str) -> str:
     """把生图链路的自定义异常/字符串错误分类为失败码（N6b 接入入口）。
 
-    对齐上游用法：把 conversation 的 last_error 字符串 / 自定义异常映射到注册表主码，
-    供熔断判定（should_record_circuit_failure）与对外错误码统一。
-    兼容 str 入参——文本链路 error_message 直接走 _classify_message_text，不再
-    散落 is_upstream_instability_error 白名单。
+    兼容 str 入参——文本链路 error_message 直接走 _classify_message_text 关键词识别。
 
     规则（异常类型优先，其次字符串关键词，最后兜底）：
     - UpstreamHTTPError → classify_upstream_http_error（真实状态码优先）
@@ -206,10 +195,10 @@ def classify_image_exception(exc: BaseException | str) -> str:
 
 
 def _classify_message_text(message: str) -> str:
-    """按错误文本关键词分类（与 conversation 白名单判定同语义，但产出失败码）。
+    """按错误文本关键词分类。
 
-    优先级：业务拒绝 > 账号态 > 上游抖动 > 兜底。与 conversation.is_upstream_instability_error
-    的正向白名单保持互斥一致——凡是「上游抖动」关键词才落 TRANSIENT 码。
+    优先级：业务拒绝 > 账号态 > 上游抖动 > 兜底。与 `should_record_circuit_failure` 互斥一致——
+    凡是「上游抖动」关键词才落 TRANSIENT 码。
     """
     text = str(message or "").lower()
     if not text:
@@ -232,21 +221,21 @@ def _classify_message_text(message: str) -> str:
             return "image_quota_exhausted"
         return "upstream_rate_limited"
 
-    # 上游瞬时抖动（TRANSIENT，记熔断）——与 conversation.is_upstream_instability_error 同语义。
+    # 上游瞬时抖动（TRANSIENT，记熔断）——与 should_record_circuit_failure 同语义。
     # 关键词须与白名单同样精确，避免宽松匹配导致「该记的不记/不该记的记」漂移。
     if "poll_timeout" in text or "生图超时" in text:
         return "image_poll_timeout"
-    # TLS/连接错误（精确对齐 is_tls_connection_error）
+    # TLS/连接错误（精确对齐 is_tls_connection_error，同模块）
     if any(tok in text for tok in ("curl: (35)", "tls connect error", "openssl_internal",
                                     "wrong_version_number", "certificate_verify_failed",
                                     "connection aborted", "remote disconnected",
                                     "connection reset by peer", "connection refused")):
         return "upstream_connection_failed"
-    # 连接/读取超时（精确对齐 is_connection_timeout_error）
+    # 连接/读取超时（精确对齐 is_connection_timeout_error，同模块）
     if any(tok in text for tok in ("curl: (28)", "operation timed out", "connection timed out",
                                     "read timed out", "connect timeout", "gateway timeout")):
         return "upstream_connection_timeout"
-    # 5xx / 网关（对齐 is_upstream_instability_error 的 5xx 段）
+    # 5xx / 网关（对齐 is_upstream_instability_error 的 5xx 段——逻辑已内联于 _classify_message_text）
     if any(tok in text for tok in ("500", "502", "503", "504", "520", "521", "522", "523", "524",
                                     "service unavailable", "bad gateway")):
         return "upstream_unavailable"
@@ -254,3 +243,56 @@ def _classify_message_text(message: str) -> str:
         return "upstream_unavailable"
 
     return "upstream_error"
+
+
+# ── 从 conversation.py 迁移来的文本级错误判定函数（供 retry 逻辑使用）──
+
+
+def is_token_invalid_error(message: str) -> bool:
+    """检测 token 失效/吊销错误，这类错误需刷新或移除 token。"""
+    text = str(message or "").lower()
+    return (
+        "token_invalidated" in text
+        or "token_revoked" in text
+        or "authentication token has been invalidated" in text
+        or "invalidated oauth token" in text
+    )
+
+
+def is_tls_connection_error(message: str) -> bool:
+    """检测 TLS/SSL 连接错误，这类错误通常可以通过重试解决。"""
+    text = str(message or "").lower()
+    return (
+        "curl: (35)" in text
+        or "tls connect error" in text
+        or "openssl_internal" in text
+        or "ssl: wrong_version_number" in text
+        or "ssl: certificate_verify_failed" in text
+        or "connection aborted" in text
+        or "remote disconnected" in text
+        or "connection reset by peer" in text
+    )
+
+
+def is_connection_timeout_error(message: str) -> bool:
+    """检测连接超时错误（如 curl 28），这类错误可通过同账号短等待重试解决。"""
+    text = str(message or "").lower()
+    return (
+        "curl: (28)" in text
+        or "operation timed out" in text
+        or "connection timed out" in text
+        or "read timed out" in text
+        or "connect timeout" in text
+    )
+
+
+def image_stream_error_message(message: str) -> str:
+    """把错误文本转为面向用户的简短消息。"""
+    text = str(message or "")
+    if is_token_invalid_error(text):
+        return "image generation failed"
+    if is_tls_connection_error(text):
+        return "upstream image connection failed, please retry later"
+    if is_connection_timeout_error(text):
+        return "upstream connection timed out, please retry later"
+    return text or "image generation failed"

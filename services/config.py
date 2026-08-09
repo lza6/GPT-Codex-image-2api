@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import copy
 import json
+import logging
 import os
 import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 from services.storage.base import StorageBackend
 
@@ -205,6 +208,15 @@ def _normalize_status_codes(value: object) -> list[int]:
     if not normalized:
         return list(DEFAULT_PROXY_RUNTIME["reset_session_status_codes"])
     return normalized
+
+
+def _mask_token(token: str) -> str:
+    """脱敏敏感 token：只显示末 4 位，其余替换为 ****。"""
+    if not token:
+        return ""
+    if len(token) <= 4:
+        return "****"
+    return "****" + token[-4:]
 
 
 def _normalize_proxy_runtime_settings(value: object) -> dict[str, object]:
@@ -453,6 +465,13 @@ class ConfigStore:
             # 单文件挂载（docker compose `- ./config.json:/app/config.json`）场景：
             # 原子替换需对父目录建 tmp + rename，但挂载点只给了文件写权限、目录不可写，
             # 原子写必 PermissionError。回退为直接写（非原子），保证 UI 运行时改配置可用。
+            # 挂载点是只给文件写权限的 bind mount，父目录不可写，tmp + rename 通不过。
+            # 风险：直接写过程中断（断电/杀进程）可能导致 config.json 截断损坏。
+            # 建议：生产环境改配 named volume 挂载 config.json 目录，恢复原子写能力。
+            logger.warning(
+                "config.json 原子写回退为直接写（非原子），bind mount 场景下写入中断有截断风险。"
+                " 建议改用 named volume 挂载 config.json：`docker volume create cfg` 后挂载到 /app/config/。"
+            )
             self.path.write_text(payload, encoding="utf-8")
 
     @property
@@ -793,6 +812,16 @@ class ConfigStore:
         return max(1, min(1440, value))
 
     @property
+    def cf_solver_url(self) -> str:
+        """OTP 登录 CF 清除服务地址（默认 http://127.0.0.1:8001）。
+        环境变量 OTP_CF_SOLVER_URL 优先于 config.json 的 otp_cf_solver_url。"""
+        return str(
+            os.getenv("OTP_CF_SOLVER_URL")
+            or self.data.get("otp_cf_solver_url")
+            or "http://127.0.0.1:8001"
+        ).strip().rstrip("/")
+
+    @property
     def abnormal_auto_recover_max_workers(self) -> int:
         """v2.9.0：异常账号自动恢复并发数上限。"""
         try:
@@ -925,10 +954,16 @@ class ConfigStore:
         """kookeey 动态住宅代理配置（密码登录 / OTP 取件的每号独立出口）。
 
         结构：{enabled, scheme, gate_host, gate_port, user_id, security_username,
-              security_password, country}。未配置返回 {}。
+              security_password, country, developer_token, access_id}。
+        支持 KOOKEEY_DEVELOPER_TOKEN 环境变量覆盖 developer_token（避免明文 base64 存 config.json）。
+        未配置返回 {}。
         """
         raw = self.data.get("kookeey")
-        return dict(raw) if isinstance(raw, dict) else {}
+        result = dict(raw) if isinstance(raw, dict) else {}
+        env_token = os.getenv("KOOKEEY_DEVELOPER_TOKEN")
+        if env_token:
+            result["developer_token"] = env_token.strip()
+        return result
 
     def get_proxy_runtime_settings(self) -> dict[str, object]:
         return _normalize_proxy_runtime_settings(self.data.get("proxy_runtime"))
