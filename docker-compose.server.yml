@@ -11,6 +11,7 @@ services:
     volumes:
       - ./data:/app/data
       - ./config.json:/app/config.json
+      - ./web_dist:/app/web_dist
     environment:
       - STORAGE_BACKEND=json
       - CHATGPT2API_PORT=80
