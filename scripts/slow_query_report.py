@@ -21,6 +21,7 @@ import re
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -55,11 +56,11 @@ HOTSPOTS = [
 ]
 
 
-def _human_size(n: int) -> str:
+def _human_size(n: int | float) -> str:
     for unit in ("B", "KB", "MB", "GB"):
         if n < 1024 or unit == "GB":
             return f"{n:.1f}{unit}"
-        n /= 1024
+        n = n / 1024
     return f"{n}B"
 
 
@@ -92,7 +93,7 @@ def scan_data_files() -> list[dict]:
 
 def check_sqlite_indexes() -> dict:
     """静态检查数据库后端的索引声明（ORM Column(index=True) 或原生 CREATE INDEX）。"""
-    result = {"backend_found": False, "tables": [], "indexes": [], "warnings": []}
+    result: dict[str, Any] = {"backend_found": False, "tables": [], "indexes": [], "warnings": []}
     storage_dir = ROOT / "services" / "storage"
     for path in storage_dir.glob("*.py"):
         text = path.read_text(encoding="utf-8", errors="ignore")

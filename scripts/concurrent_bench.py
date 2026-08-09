@@ -4,16 +4,12 @@
 """
 from __future__ import annotations
 
-import base64
 import io
 import json
-import sys
 import time
 import urllib.request
 import uuid
-from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from io import BytesIO
 
 BASE = "http://127.0.0.1:80"
 KEY = "cg2api-8tbkFwuqBPLZ2cUuA12f8Ldvt2mkYNlO"
@@ -59,7 +55,8 @@ def do_text2img(seq: int) -> dict:
 
 def create_test_png() -> bytes:
     """生成一个 256x256 红色 PNG 用于图生图测试（纯手工构造，无PIL依赖）"""
-    import struct, zlib
+    import struct
+    import zlib
     def _crc32(data: bytes) -> int:
         return zlib.crc32(data) & 0xFFFFFFFF
     def _chunk(ctype: bytes, data: bytes) -> bytes:
@@ -109,7 +106,7 @@ def do_img2img(seq: int, test_png: bytes) -> dict:
         return {"ok": False, "status": 0, "cost_s": cost, "error": str(e)[:200]}
 
 
-def main() -> None:
+def main() -> dict:
     print("=" * 60)
     print("并发压测：10并发（5文生图 + 5图生图）")
     print("=" * 60)
@@ -200,7 +197,7 @@ def main() -> None:
     avg_cost = round(sum(costs) / len(costs), 1) if costs else 0
     max_cost = max(costs) if costs else 0
     min_cost = min(costs) if costs else 0
-    print(f"\n统计:")
+    print("\n统计:")
     print(f"  成功: {success}/{len(pool_results)}")
     print(f"  失败: {fail}/{len(pool_results)}")
     print(f"  平均耗时: {avg_cost}s")

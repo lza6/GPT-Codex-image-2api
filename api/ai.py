@@ -12,7 +12,6 @@ from services.editable_file_task_service import editable_file_task_service
 from services.log_service import LoggedCall
 from services.protocol import (
     anthropic_v1_messages,
-    openai_search,
     openai_v1_chat_complete,
     openai_v1_image_edit,
     openai_v1_image_generations,

@@ -32,7 +32,7 @@ def install_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(StarletteHTTPException)
     async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
         if _is_openai_compatible_path(request.url.path):
-            return _compatible_error_response(request, exc.detail, exc.status_code, exc.headers)
+            return _compatible_error_response(request, exc.detail, exc.status_code, dict(exc.headers) if exc.headers else None)
         return JSONResponse(
             status_code=exc.status_code,
             content={"detail": jsonable_encoder(exc.detail)},

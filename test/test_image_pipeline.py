@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import time
 import unittest
-from unittest.mock import AsyncMock, MagicMock
 
 from services.image_pipeline import ImagePipeline
 

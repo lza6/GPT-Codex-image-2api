@@ -169,13 +169,13 @@ def main() -> int:
             config_path.write_text(payload, encoding="utf-8")
             tmp_path.unlink(missing_ok=True)
 
-    runtime = data.get("proxy_runtime") if isinstance(data.get("proxy_runtime"), dict) else {}
-    clearance = runtime.get("clearance") if isinstance(runtime.get("clearance"), dict) else {}
+    runtime_summary: dict[Any, Any] = data.get("proxy_runtime") if isinstance(data.get("proxy_runtime"), dict) else {}
+    clearance: dict[Any, Any] = runtime_summary.get("clearance") if isinstance(runtime_summary.get("clearance"), dict) else {}
     print(
         "Proxy runtime summary: "
-        f"enabled={bool(runtime.get('enabled'))}, "
-        f"egress_mode={runtime.get('egress_mode')}, "
-        f"proxy_url={_mask_url(str(runtime.get('proxy_url') or ''))}, "
+        f"enabled={bool(runtime_summary.get('enabled'))}, "
+        f"egress_mode={runtime_summary.get('egress_mode')}, "
+        f"proxy_url={_mask_url(str(runtime_summary.get('proxy_url') or ''))}, "
         f"clearance_mode={clearance.get('mode')}, "
         f"flaresolverr_url={_mask_url(str(clearance.get('flaresolverr_url') or ''))}"
     )

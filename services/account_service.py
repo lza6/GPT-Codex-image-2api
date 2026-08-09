@@ -20,6 +20,7 @@ from services.log_service import (
     LOG_TYPE_ACCOUNT,
     log_service,
 )
+from services.router_service import router_service
 from services.storage.base import StorageBackend
 from utils.helper import anonymize_token
 
@@ -1279,7 +1280,7 @@ class AccountService:
             self.release_image_slot(access_token)
         # 通过事件总线发布配额耗尽事件
         try:
-            from services.event_bus import Event, ACCOUNT_QUOTA_EXHAUSTED, event_bus
+            from services.event_bus import ACCOUNT_QUOTA_EXHAUSTED, Event, event_bus
 
             event_bus.publish(Event(ACCOUNT_QUOTA_EXHAUSTED, {
                 "tried_tokens": len(attempted_tokens),
@@ -1301,6 +1302,9 @@ class AccountService:
     ) -> str:
         excluded = set(excluded_tokens or set())
         requested_model = str(model or "auto").strip() or "auto"
+        # Phase 3：provider 为空时按模型自动路由
+        if provider is None and requested_model != "auto":
+            provider = router_service.route_for_model(requested_model)
         route = None
         if requested_model != "auto":
             from services.model_service import model_catalog_service
@@ -1358,7 +1362,7 @@ class AccountService:
             self.update_account(access_token, {"status": "异常", "quota": 0}, quiet=quiet)
             # 通过事件总线发布账号失效事件
             try:
-                from services.event_bus import Event, ACCOUNT_INVALID, event_bus
+                from services.event_bus import ACCOUNT_INVALID, Event, event_bus
 
                 event_bus.publish(Event(ACCOUNT_INVALID, {
                     "token_suffix": anonymize_token(access_token),
@@ -1797,7 +1801,7 @@ class AccountService:
                 self._accounts[access_token] = account
         if was_invalid:
             try:
-                from services.event_bus import Event, ACCOUNT_RECOVERED, event_bus
+                from services.event_bus import ACCOUNT_RECOVERED, Event, event_bus
 
                 event_bus.publish(Event(ACCOUNT_RECOVERED, {
                     "token_suffix": str(access_token)[-8:],

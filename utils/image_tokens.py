@@ -327,8 +327,10 @@ def image_usage(
 def chat_usage_from_image_usage(usage: dict[str, Any]) -> dict[str, Any]:
     input_tokens = int(usage.get("input_tokens") or 0)
     output_tokens = int(usage.get("output_tokens") or 0)
-    input_details = usage.get("input_tokens_details") if isinstance(usage.get("input_tokens_details"), dict) else {}
-    output_details = usage.get("output_tokens_details") if isinstance(usage.get("output_tokens_details"), dict) else {}
+    _input_details = usage.get("input_tokens_details")
+    _output_details = usage.get("output_tokens_details")
+    input_details: dict[Any, Any] = _input_details if isinstance(_input_details, dict) else {}
+    output_details: dict[Any, Any] = _output_details if isinstance(_output_details, dict) else {}
     return {
         "prompt_tokens": input_tokens,
         "completion_tokens": output_tokens,

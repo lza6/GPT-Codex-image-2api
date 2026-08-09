@@ -249,9 +249,9 @@ class EventBus:
                 info.setdefault(event_type, []).extend(
                     h.__name__ for h in handlers
                 )
-            for event_type, handlers in self._async_handlers.items():
+            for event_type, async_handlers in self._async_handlers.items():
                 info.setdefault(event_type, []).extend(
-                    h.__name__ for h in handlers
+                    h.__name__ for h in async_handlers
                 )
         return info
 

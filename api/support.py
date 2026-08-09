@@ -137,7 +137,7 @@ def start_limited_account_watcher(stop_event: Event) -> Thread:
                 # v2.9.0：限流账号若 quota=0 且 restore_at 在未来（未到期），跳过刷新避免浪费上游额度
                 # 只刷限流但 quota>0（说明限流但还有额度，可能刚解限）或 restore_at 已过期的账号
                 import time as _time_mod
-                from datetime import datetime, UTC
+                from datetime import UTC, datetime
                 now_dt = datetime.now(UTC)
                 skip_count = 0
                 filtered_limited = []

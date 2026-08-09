@@ -294,7 +294,14 @@ def create_router() -> APIRouter:
                 }
             )
         ranked.sort(key=lambda item: (item["tier"] != "healthy", -item["score"]))
-        return {"health": health, "accounts": ranked}
+        # Phase 2：各 provider 调度统计
+        provider_stats = []
+        try:
+            from services.provider_scheduler import provider_scheduler
+            provider_stats = provider_scheduler.get_provider_stats(accounts)
+        except Exception:
+            pass
+        return {"health": health, "accounts": ranked, "provider_stats": provider_stats}
 
     @router.get("/api/dashboard/circuit_breakers")
     async def circuit_breakers(authorization: str | None = Header(default=None)):

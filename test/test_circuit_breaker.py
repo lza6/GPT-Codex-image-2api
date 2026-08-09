@@ -133,6 +133,7 @@ class TestCircuitBreakerConcurrency:
 
     def test_concurrent_state_transitions_thread_safe(self):
         import threading
+
         from services.circuit_breaker import CircuitBreaker
 
         breaker = CircuitBreaker(failure_threshold=100, recovery_timeout=0.01, half_open_max_calls=50)
@@ -156,6 +157,7 @@ class TestCircuitBreakerConcurrency:
 
     def test_registry_concurrent_get_remove_thread_safe(self):
         import threading
+
         from services.circuit_breaker import CircuitBreakerRegistry
 
         registry = CircuitBreakerRegistry()
@@ -183,6 +185,7 @@ class TestHalfOpenPartialTransitions:
 
     def test_half_open_success_then_failure_reopens(self):
         import time
+
         from services.circuit_breaker import CircuitBreaker
 
         b = CircuitBreaker(failure_threshold=3, recovery_timeout=0.05, half_open_max_calls=3)
@@ -197,6 +200,7 @@ class TestHalfOpenPartialTransitions:
 
     def test_half_open_full_success_closes(self):
         import time
+
         from services.circuit_breaker import CircuitBreaker
 
         b = CircuitBreaker(failure_threshold=3, recovery_timeout=0.05, half_open_max_calls=2)

@@ -1,0 +1,68 @@
+from __future__ import annotations
+
+from typing import Any
+
+
+class ProviderScheduler:
+    """各 Provider 独立调度池（Phase 2：调度分池）。
+
+    每个 provider 独立维护：
+    - 健康档位分布（healthy/warm/risky）
+    - 调度分排序列表
+    - 熔断器状态
+
+    与 AccountService 桥接：AccountService 的 _ranked_candidate_tokens 等
+    方法通过 provider 参数过滤后，由本模块包装为 provider 级调度。
+    """
+
+    _HEALTHY = "healthy"
+    _WARM = "warm"
+    _RISKY = "risky"
+    _TIER_ORDER = (_HEALTHY, _WARM, _RISKY)
+
+    def __init__(self):
+        self._cache: dict[str, dict[str, Any]] = {}
+        self._cache_at: float = 0.0
+        self._cache_ttl: float = 5.0
+
+    def compute_tier_distribution(self, accounts: list[dict], provider: str | None = None) -> dict[str, int]:
+        """计算某 provider（或全部）的档位分布。"""
+        from services.account_service import AccountService
+
+        tiers = {"healthy": 0, "warm": 0, "risky": 0}
+        for account in accounts:
+            if provider and account.get("provider") != provider:
+                continue
+            status = str(account.get("status") or "")
+            if status in {"禁用", "异常"}:
+                tiers["risky"] += 1
+            else:
+                tier = AccountService._account_health_tier(account)
+                tiers[tier] = tiers.get(tier, 0) + 1
+        return tiers
+
+    def get_provider_stats(self, accounts: list[dict]) -> list[dict[str, Any]]:
+        """返回各 provider 统计摘要，供前端看板使用。"""
+        from services.providers import list_providers
+
+        providers = list_providers(enabled_only=True)
+        result = []
+        for prov in providers:
+            prov_accounts = [a for a in accounts if a.get("provider") == prov.name]
+            if not prov_accounts:
+                continue
+            tiers = self.compute_tier_distribution(prov_accounts, prov.name)
+            total = sum(tiers.values())
+            available = sum(v for k, v in tiers.items() if k != "risky")
+            result.append({
+                "name": prov.name,
+                "display_name": prov.display_name,
+                "enabled": prov.enabled,
+                "total_accounts": total,
+                "available_accounts": available,
+                "tiers": tiers,
+            })
+        return result
+
+
+provider_scheduler = ProviderScheduler()

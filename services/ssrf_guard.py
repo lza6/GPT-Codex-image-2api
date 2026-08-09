@@ -40,7 +40,7 @@ def _resolve_host_ips(hostname: str) -> list[str]:
         return []
     ips: list[str] = []
     for info in infos:
-        ip = info[4][0]
+        ip: str = str(info[4][0])
         if ip not in ips:
             ips.append(ip)
     return ips

@@ -7,11 +7,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 from git import Repo
 
 from services.storage.git_storage import GitStorageBackend
-
 
 # ---------------------------------------------------------------------------
 # 辅助：创建本地 bare repo 作为"远程"仓库

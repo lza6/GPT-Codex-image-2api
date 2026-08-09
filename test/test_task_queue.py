@@ -1,9 +1,17 @@
 from __future__ import annotations
 
-import threading
 import time
 import unittest
-from services.task_queue import TaskQueue, TaskPriority, TASK_STATUS_PENDING, TASK_STATUS_RUNNING, TASK_STATUS_SUCCESS, TASK_STATUS_ERROR, TASK_STATUS_CANCELLED
+
+from services.task_queue import (
+    TASK_STATUS_CANCELLED,
+    TASK_STATUS_ERROR,
+    TASK_STATUS_PENDING,
+    TASK_STATUS_RUNNING,
+    TASK_STATUS_SUCCESS,
+    TaskPriority,
+    TaskQueue,
+)
 
 
 class TestTaskQueue(unittest.TestCase):

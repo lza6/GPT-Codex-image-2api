@@ -13,9 +13,9 @@ from urllib.parse import quote, urlparse
 from curl_cffi import requests
 from fastapi import HTTPException
 from PIL import Image
-from utils.log import logger
 
 from services.config import DATA_DIR, config
+from utils.log import logger
 
 IMAGE_INDEX_FILE = DATA_DIR / "image_index.json"
 IMAGE_INDEX_LOCK = Lock()

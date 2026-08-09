@@ -16,15 +16,21 @@ from services.proxy_service import proxy_settings
 
 
 class SessionPool:
-    """按代理配置缓存并复用 curl_cffi Session（线程安全）。
+    """按代理配置缓存并复用 curl_cffi Session（线程安全，自适应扩容/缩容）。
 
     Session 是连接级复用（curl_cffi 底层基于 curl，自动 keep-alive），
     但保留独立的 cookie/会话状态。按 key 区分不同代理配置，避免上下文串扰。
+
+    Phase 2（7.1）：自适应池大小——空闲连接不足时渐进扩容，
+    连续错误时缩容（清理最旧连接），避免资源泄漏。
     """
 
-    def __init__(self, ttl_seconds: float = 300.0, max_entries: int = 200):
+    def __init__(self, ttl_seconds: float = 300.0, max_entries: int = 200, min_size: int = 5):
         self._ttl = ttl_seconds
         self._max_entries = max_entries
+        self._min_size = min_size
+        self._consecutive_errors = 0
+        self._last_shrink_at = 0.0
         self._sessions: dict[str, tuple[requests.Session, float]] = {}
         self._lock = threading.Lock()
 
@@ -46,6 +52,32 @@ class SessionPool:
         token = str((account or {}).get("access_token") or "")
         acct_id = token[-8:] if token else "anon"
         return f"{acct_id}|{proxy}|{impersonate}|{int(verify)}|{fp_key}"
+
+    def _adaptive_grow(self) -> None:
+        """空闲连接不足时渐进扩容（每次扩容 10 或 50% 取大值）。"""
+        current = len(self._sessions)
+        if current >= self._max_entries or current < self._min_size:
+            return
+        self._max_entries = min(self._max_entries + 10, int(self._max_entries * 1.5))
+
+    def _adaptive_shrink(self) -> None:
+        """连续错误时缩容：清理最旧的 20% 连接，1 分钟内只缩一次。"""
+        now = time.monotonic()
+        if now - self._last_shrink_at < 60.0:
+            return
+        self._last_shrink_at = now
+        with self._lock:
+            if len(self._sessions) <= self._min_size:
+                return
+            remove_count = max(1, len(self._sessions) // 5)
+            sorted_items = sorted(self._sessions.items(), key=lambda x: x[1][1])
+            for key, _ in sorted_items[:remove_count]:
+                cached = self._sessions.pop(key, None)
+                if cached:
+                    try:
+                        cached[0].close()
+                    except Exception:
+                        pass
 
     def get(self, account: dict | None = None, impersonate: str = "chrome110", verify: bool = True, fp_key: str = "") -> requests.Session:
         """获取（或创建并缓存）一个 Session。"""
@@ -81,6 +113,8 @@ class SessionPool:
             session._chatgpt2api_pooled = True  # type: ignore[attr-defined]
             session._pool_key = key  # type: ignore[attr-defined]
             self._sessions[key] = (session, now)
+            # 自适应扩容：空闲连接不足时渐进扩容
+            self._adaptive_grow()
             return session
 
     def release(self, session: requests.Session) -> None:
@@ -108,7 +142,14 @@ class SessionPool:
         此后调用方 `OpenAIBackendAPI.close()` 检测到无池化标记 → 直接真 close 底层
         连接，不再归还池中。若不清标记，长轮询结束后 close()→release() 会把可能已
         淘汰的死连接重新放回池中，被后续请求复用（连接泄漏/状态不一致）。
+
+        连续错误计数：每次 remove 视为一次错误信号，连续 3 次触发自适应缩容，
+        清理最旧的 20% 连接以隔离故障。
         """
+        self._consecutive_errors += 1
+        if self._consecutive_errors >= 3:
+            self._consecutive_errors = 0
+            self._adaptive_shrink()
         with self._lock:
             for key, (sess, ts) in list(self._sessions.items()):
                 if sess is session:
@@ -154,5 +195,5 @@ class SessionPool:
             }
 
 
-# 全局 Session 池：5 分钟 TTL，最多缓存 200 个配置
-session_pool = SessionPool(ttl_seconds=300.0, max_entries=200)
+# 全局 Session 池：5 分钟 TTL，最多缓存 200 个配置，最小保留 5 个连接
+session_pool = SessionPool(ttl_seconds=300.0, max_entries=200, min_size=5)

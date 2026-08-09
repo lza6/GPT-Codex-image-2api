@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
 """图生图单次测试（验证修复后的PNG是否可用）"""
-import struct, zlib, io, json, urllib.request, uuid, sys, time
+import io
+import json
+import struct
+import time
+import urllib.request
+import uuid
+import zlib
+
 
 def create_test_png(w=256, h=256) -> bytes:
     def _crc32(d): return zlib.crc32(d) & 0xffffffff
@@ -21,7 +28,7 @@ BASE = "http://127.0.0.1:80"
 KEY = "Bearer cg2api-8tbkFwuqBPLZ2cUuA12f8Ldvt2mkYNlO"
 
 png = create_test_png()
-print(f"PNG: {len(png)} bytes, starts with {png[:8]}")
+print(f"PNG: {len(png)} bytes, starts with {png[:8].decode('latin-1')!r}")
 
 # 单次图生图
 boundary = uuid.uuid4().hex

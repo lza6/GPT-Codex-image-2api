@@ -89,7 +89,6 @@ def test_send_failure_does_not_raise():
 def test_circuit_breaker_trip_triggers_alert(monkeypatch):
     """集成：熔断器 OPEN 时通过事件总线触发 circuit_breaker_open 告警。"""
     import services.alert_service as alert_module
-    from services.event_bus import event_bus, Event, CIRCUIT_OPEN
 
     sent: list[dict] = []
     monkeypatch.setattr(alert_module, "_build_from_config", lambda: AlertService("https://hooks.example.com/x", dedupe_window_seconds=0.01))

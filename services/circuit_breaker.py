@@ -51,7 +51,7 @@ class CircuitBreaker:
                     self._success_count_half_open = 0
                     # 通过事件总线发布熔断状态转移
                     try:
-                        from services.event_bus import Event, CIRCUIT_HALF_OPEN, event_bus
+                        from services.event_bus import CIRCUIT_HALF_OPEN, Event, event_bus
                         event_bus.publish(Event(CIRCUIT_HALF_OPEN, {
                             "from_state": "open",
                             "to_state": "half_open",
@@ -75,7 +75,7 @@ class CircuitBreaker:
                     self._failure_count = 0
                     # 通过事件总线发布熔断恢复
                     try:
-                        from services.event_bus import Event, CIRCUIT_CLOSED, event_bus
+                        from services.event_bus import CIRCUIT_CLOSED, Event, event_bus
                         event_bus.publish(Event(CIRCUIT_CLOSED, {
                             "from_state": "half_open",
                             "to_state": "closed",
@@ -110,7 +110,7 @@ class CircuitBreaker:
         self._failure_count = 0
         # 通过事件总线发布熔断事件
         try:
-            from services.event_bus import Event, CIRCUIT_OPEN, event_bus
+            from services.event_bus import CIRCUIT_OPEN, Event, event_bus
 
             event_bus.publish(Event(CIRCUIT_OPEN, {
                 "from_state": "half_open" if prev_state == CircuitState.HALF_OPEN else "closed",

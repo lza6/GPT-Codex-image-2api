@@ -138,13 +138,13 @@ class TestClassifyImageException:
     """N6b 接入点：异常/字符串 → 失败码，且熔断判定与白名单一致。"""
 
     def test_custom_exception_types(self):
+        from services.image_failure import classify_image_exception
         from services.openai_backend_api import (
             ImageContentPolicyError,
             ImagePollTimeoutError,
             ImageRateLimitError,
             InvalidAccessTokenError,
         )
-        from services.image_failure import classify_image_exception
 
         assert classify_image_exception(ImagePollTimeoutError("t")) == "image_poll_timeout"
         assert classify_image_exception(ImageContentPolicyError("c")) == "content_policy_violation"

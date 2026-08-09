@@ -123,3 +123,112 @@ class TestAccountsBatch:
         r = client.post("/api/accounts/evict_stale", headers=_AUTH)
         assert r.status_code == 200
         assert calls["n"] == 1
+
+    def test_update_action_dispatches(self, monkeypatch) -> None:
+        """批量更新 action 应正确分发。"""
+        updated: list[tuple[str, dict]] = []
+        monkeypatch.setattr(
+            account_service, "update_account",
+            lambda token, updates, quiet=False: updated.append((token, updates)) or {"access_token": token},
+        )
+        client = _client()
+        r = client.post(
+            "/api/accounts/batch",
+            json={"action": "update", "ids": ["tok-1", "tok-2"], "updates": {"proxy": "http://new-proxy:8080"}},
+            headers=_AUTH,
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["action"] == "update"
+        assert body["updated"] == 2
+        assert ("tok-1", {"proxy": "http://new-proxy:8080"}) in updated
+
+    def test_update_action_empty_updates_rejected(self) -> None:
+        """批量更新时 updates 为空应拒绝。"""
+        client = _client()
+        r = client.post(
+            "/api/accounts/batch",
+            json={"action": "update", "ids": ["tok-1"], "updates": {}},
+            headers=_AUTH,
+        )
+        assert r.status_code == 400
+
+    def test_update_action_partial_success(self, monkeypatch) -> None:
+        """部分账号不存在时 errors 应包含失败信息。"""
+        results: dict[str, dict | None] = {
+            "tok-1": {"access_token": "tok-1"},
+            "tok-2": None,  # 不存在
+        }
+        monkeypatch.setattr(
+            account_service, "update_account",
+            lambda token, updates, quiet=False: results.get(token),
+        )
+        client = _client()
+        r = client.post(
+            "/api/accounts/batch",
+            json={"action": "update", "ids": ["tok-1", "tok-2"], "updates": {"priority": 5}},
+            headers=_AUTH,
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["action"] == "update"
+        assert body["updated"] == 1
+        assert len(body["errors"]) == 1
+        assert "不存在" in body["errors"][0]["error"]
+
+    def test_update_action_exception_handling(self, monkeypatch) -> None:
+        """update_account 抛异常时 errors 应记录异常信息。"""
+        def _raise_error(token, updates, quiet=False):
+            raise ValueError("模拟数据库错误")
+        monkeypatch.setattr(account_service, "update_account", _raise_error)
+        client = _client()
+        r = client.post(
+            "/api/accounts/batch",
+            json={"action": "update", "ids": ["tok-1"], "updates": {"proxy": "http://x"}},
+            headers=_AUTH,
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["updated"] == 0
+        assert len(body["errors"]) == 1
+        assert "模拟数据库错误" in body["errors"][0]["error"]
+
+    def test_update_action_multiple_fields(self, monkeypatch) -> None:
+        """批量更新支持同时更新多个字段。"""
+        updated: list[tuple[str, dict]] = []
+        monkeypatch.setattr(
+            account_service, "update_account",
+            lambda token, updates, quiet=False: updated.append((token, updates)) or {"access_token": token},
+        )
+        client = _client()
+        r = client.post(
+            "/api/accounts/batch",
+            json={"action": "update", "ids": ["tok-1"], "updates": {"proxy": "http://p", "priority": 3, "tags": ["vip"]}},
+            headers=_AUTH,
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["updated"] == 1
+        assert len(updated) == 1
+        _, updates = updated[0]
+        assert updates["proxy"] == "http://p"
+        assert updates["priority"] == 3
+        assert updates["tags"] == ["vip"]
+
+    def test_update_action_dedup_ids(self, monkeypatch) -> None:
+        """重复的 ids 应被去重。"""
+        updated: list[str] = []
+        monkeypatch.setattr(
+            account_service, "update_account",
+            lambda token, updates, quiet=False: updated.append(token) or {"access_token": token},
+        )
+        client = _client()
+        r = client.post(
+            "/api/accounts/batch",
+            json={"action": "update", "ids": ["tok-1", "tok-1", "tok-2"], "updates": {"label": "dup"}},
+            headers=_AUTH,
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["updated"] == 2
+        # tok-1 只应被处理一次
+        assert updated.count("tok-1") == 1
+        assert sorted(updated) == ["tok-1", "tok-2"]

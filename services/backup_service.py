@@ -502,7 +502,7 @@ class BackupService:
             chatgpt2api_backup_failures_total.inc()
             # 通过事件总线发布备份失败事件
             try:
-                from services.event_bus import Event, BACKUP_FAILURE, event_bus
+                from services.event_bus import BACKUP_FAILURE, Event, event_bus
 
                 event_bus.publish(Event(BACKUP_FAILURE, {"error": str(exc) or exc.__class__.__name__, "trigger": trigger}))
             except Exception:  # noqa: BLE001

@@ -23,7 +23,7 @@ from urllib.parse import quote
 
 from curl_cffi.requests import Session
 
-from services.config import _mask_token, config
+from services.config import _mask_token
 from services.log_service import LOG_TYPE_ACCOUNT, log_service
 from services.proxy_pool import proxy_pool
 
@@ -508,7 +508,7 @@ class KookeeyService:
             self._stats.last_error = error[:200]
 
     @staticmethod
-    def start_ip_probe_watcher(stop_event, interval_seconds: int = 7200) -> "Thread":
+    def start_ip_probe_watcher(stop_event, interval_seconds: int = 7200) -> Thread:
         """定时批量探测所有账号出口 IP（默认每 2 小时一轮），常驻刷新看板显示。
 
         返回线程对象；interval_seconds 可用环境变量 KOOKEEY_IP_PROBE_INTERVAL_SEC 覆盖。

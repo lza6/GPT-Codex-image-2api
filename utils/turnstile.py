@@ -7,8 +7,8 @@ from typing import Any
 
 class OrderedMap:
     def __init__(self) -> None:
-        self.keys = []
-        self.values = {}
+        self.keys: list[str] = []
+        self.values: dict[str, Any] = {}
 
     def add(self, key: str, value: Any) -> None:
         if key not in self.values:

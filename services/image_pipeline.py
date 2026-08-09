@@ -7,8 +7,6 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from services.config import config
-
 logger = logging.getLogger(__name__)
 
 # 图片下载并发限制（默认 5 同时下载）

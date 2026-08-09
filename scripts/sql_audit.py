@@ -121,8 +121,8 @@ def main() -> int:
         "| 级别 | 位置 | 说明 | 代码 |",
         "|------|------|------|------|",
     ]
-    for f in sorted(findings, key=lambda x: (x["level"], x["file"])):
-        lines.append(f"| {f['level']} | {f['file']}:{f['line']} | {f['desc']} | `{f['snippet']}` |")
+    for finding in sorted(findings, key=lambda x: (x["level"], x["file"])):
+        lines.append(f"| {finding['level']} | {finding['file']}:{finding['line']} | {finding['desc']} | `{finding['snippet']}` |")
     if not findings:
         lines.append("| — | — | 未发现危险模式 | — |")
 

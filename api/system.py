@@ -99,7 +99,6 @@ def create_router(app_version: str) -> APIRouter:
     async def health_ready():
         """就绪探针：依赖自检（存储可写 + 各依赖耗时）。不可用时 503 + 具体原因。"""
         import os
-        from pathlib import Path
 
         from services.config import DATA_DIR
 

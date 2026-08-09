@@ -1,5 +1,28 @@
 # Changelog
 
+## 2.13.0 - 2026-08-10 (Provider 调度分池 + 路由分发 + 批量操作 + 自适应连接池)
+
+**多 Provider 调度分池（Phase 2/4）：**
++ [新增] `services/provider_scheduler.py` — `ProviderScheduler` 各 provider 独立调度池（healthy/warm/risky 档位分布统计 + 可用账号统计），供前端看板展示
++ [集成] `api/dashboard.py` — `/api/dashboard/scheduler` 返回 `provider_stats` 字段，前端看板显示各 provider 账号分布卡片
+
+**路由分发（Phase 3/4）：**
++ [新增] `services/router_service.py` — `RouterService` 按模型名前缀自动路由到对应 provider（gpt-→chatgpt, grok-→grok, claude-→chatgpt），支持 config.json 自定义路由规则
++ [集成] `services/account_service.py` — `get_text_access_token` 在 provider 为空时自动调用 RouterService 路由
+
+**批量操作增强（5.4）：**
++ [新增] `api/accounts.py` — `POST /api/accounts/batch` 新增 `update` action，支持批量编辑账号属性（proxy/priority/status 等）
++ [测试] batch_update 单测 6 个全绿（含空 updates 拒绝、部分失败、异常处理、多字段、去重）
+
+**自适应连接池（7.1）：**
++ [增强] `services/session_pool.py` — `SessionPool` 新增自适应扩容（`_adaptive_grow`，空闲连接不足时渐进扩容 10 或 50%）和缩容（`_adaptive_shrink`，连续错误 3 次清理最旧 20% 连接，1 分钟冷却）
++ [增强] `SessionPool.__init__` 新增 `min_size` 参数（最小保留连接数，默认 5）
+
+**前端 Provider 切换器（Phase 4/4）：**
++ [增强] `web/src/app/accounts/page.tsx` — 账号列表新增 Provider 下拉筛选器（从 /api/providers 获取列表，grok 灰显"即将支持"）
++ [增强] `web/src/app/dashboard/page.tsx` — 看板新增 Provider 统计卡片（各 provider 账号总数/可用数/档位分布）
++ [增强] `web/src/lib/api.ts` — `SchedulerDashboard` 类型新增 `provider_stats` 字段
+
 ## 2.12.0 - 2026-08-10 (任务队列系统 + 异步图片管道 + 统一 ORM 层 + SQLite 连接池优化)
 
 **任务队列系统（P1）：**

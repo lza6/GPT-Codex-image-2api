@@ -364,6 +364,38 @@ function DashboardContent() {
         <StatCard icon={Activity} label="近24h调用" value={String(usage?.total_24h ?? 0)} sub={`成功 ${usage?.success_24h ?? 0} · 失败 ${usage?.failed_24h ?? 0}`} />
       </div>
 
+      {/* Phase 2：Provider 调度统计 */}
+      {scheduler?.provider_stats && scheduler.provider_stats.length > 0 && (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {scheduler.provider_stats.map((ps) => (
+            <Card key={ps.name} className="rounded-xl border-stone-200 bg-white">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-semibold text-stone-800">
+                  {ps.display_name}
+                  {!ps.enabled ? <span className="ml-2 text-xs text-stone-400">（未启用）</span> : null}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-1 text-xs text-stone-600">
+                <div className="flex justify-between">
+                  <span>账号总数</span>
+                  <span className="font-medium">{ps.total_accounts}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>可用账号</span>
+                  <span className="font-medium">{ps.available_accounts}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>健康/温存/风险</span>
+                  <span className="font-medium">
+                    {ps.tiers.healthy ?? 0} / {ps.tiers.warm ?? 0} / {ps.tiers.risky ?? 0}
+                  </span>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
       {/* 5.1：濒危账号预警（寿命预测 high/critical） */}
       {criticalAccounts.length > 0 && (
         <div className="rounded-2xl border border-rose-200 bg-rose-50/70 p-4 dark:border-rose-800 dark:bg-rose-950/30">

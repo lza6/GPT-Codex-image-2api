@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 
 def test_backup_failure_logs_full_traceback(caplog, tmp_path, monkeypatch):

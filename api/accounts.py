@@ -86,6 +86,22 @@ def _batch_export(ids: list[str]) -> dict[str, Any]:
     return {"action": "export", "count": len(items), "items": items}
 
 
+def _batch_update(ids: list[str], updates: dict[str, Any]) -> dict[str, Any]:
+    """批量更新账号属性（proxy/priority/tags 等）。"""
+    updated = 0
+    errors: list[dict[str, str]] = []
+    for token in ids:
+        try:
+            result = account_service.update_account(token, updates)
+            if result is not None:
+                updated += 1
+            else:
+                errors.append({"access_token": token[-8:], "error": "账号不存在或已移除"})
+        except Exception as exc:
+            errors.append({"access_token": token[-8:], "error": str(exc)[:200]})
+    return {"action": "update", "updated": updated, "errors": errors}
+
+
 class UserKeyCreateRequest(BaseModel):
     name: str = ""
 
@@ -115,11 +131,12 @@ class AccountExportRequest(BaseModel):
 
 
 class AccountBatchRequest(BaseModel):
-    """3.1.2：批量操作表驱动请求。action: evict_stale / label / export。"""
+    """3.1.2：批量操作表驱动请求。action: evict_stale / label / export / update。"""
 
     action: str = ""
     ids: list[str] = Field(default_factory=list)
     label: str = ""
+    updates: dict[str, Any] = Field(default_factory=dict)
 
 
 class AccountGroupRenameRequest(BaseModel):
@@ -487,6 +504,10 @@ def create_router() -> APIRouter:
             return await run_in_threadpool(_batch_label, ids, str(body.label or ""))
         if action == "export":
             return await run_in_threadpool(_batch_export, ids)
+        if action == "update":
+            if not body.updates:
+                raise HTTPException(status_code=400, detail={"error": "updates 不能为空"})
+            return await run_in_threadpool(_batch_update, ids, body.updates)
         raise HTTPException(status_code=400, detail={"error": f"未知 action: {action}"})
 
     @router.post("/api/accounts/groups")
