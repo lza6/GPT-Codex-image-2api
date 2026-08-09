@@ -105,16 +105,17 @@ class ImagePipeline:
     def _cache_key(url: str) -> str:
         return hashlib.md5(url.encode("utf-8")).hexdigest()
 
-    def cache_stats(self) -> dict[str, Any]:
-        """缓存统计信息"""
-        now = time.time()
-        valid = sum(1 for v in self._cache.values() if now - v[0] < self._cache_ttl)
-        return {
-            "total_entries": len(self._cache),
-            "valid_entries": valid,
-            "stale_entries": len(self._cache) - valid,
-            "cache_ttl_secs": self._cache_ttl,
-        }
+    async def cache_stats(self) -> dict[str, Any]:
+        """缓存统计信息（线程安全）。"""
+        async with self._lock:
+            now = time.time()
+            valid = sum(1 for v in self._cache.values() if now - v[0] < self._cache_ttl)
+            return {
+                "total_entries": len(self._cache),
+                "valid_entries": valid,
+                "stale_entries": len(self._cache) - valid,
+                "cache_ttl_secs": self._cache_ttl,
+            }
 
 
 # 全局单例（需注入 download_fn 方可使用）

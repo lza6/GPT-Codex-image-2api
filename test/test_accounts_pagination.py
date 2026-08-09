@@ -13,12 +13,12 @@ from fastapi.testclient import TestClient
 
 
 def _build_app_with_accounts(accounts: list[dict]):
-    """构造带指定账号的应用（monkeypatch list_accounts）。"""
+    """构造带指定账号的应用（monkeypatch get_accounts_cached）。"""
     import api.accounts as accounts_module
     from api.app import create_app
 
     app = create_app()
-    accounts_module.account_service.list_accounts = lambda: accounts  # type: ignore[method-assign]
+    accounts_module.account_service.get_accounts_cached = lambda: accounts  # type: ignore[method-assign]
     return app
 
 

@@ -55,12 +55,12 @@ class Task:
 class TaskQueue:
     """基于优先级的轻量异步任务队列。
 
-    支持 asyncio 消费者（亦可退化为 threading 模式），
+    支持多 Worker 消费者（线程池），避免长时间任务阻塞队列。
     优先级调度（同优先级 FIFO），任务状态查询与取消。
     无外部依赖；需要持久化时可用 Redis 实现替换。
     """
 
-    def __init__(self) -> None:
+    def __init__(self, max_workers: int = 4) -> None:
         self._lock = threading.RLock()
         self._tasks: dict[str, Task] = {}
         # 按优先级分桶，每个桶是 FIFO 列表（存储 task_id）
@@ -74,6 +74,8 @@ class TaskQueue:
         self._handlers: dict[str, Callable[[Task], Any]] = {}
         self._stop_event = threading.Event()
         self._consumer_thread: threading.Thread | None = None
+        self._max_workers = max_workers
+        self._worker_semaphore = threading.Semaphore(max_workers)
 
     # ---- 处理器注册 ----
 
@@ -106,22 +108,44 @@ class TaskQueue:
             thread.join(timeout=timeout)
 
     def _consumer_loop(self) -> None:
-        """消费者主循环：出队 → 查找 handler → 执行 → 标记完成。"""
+        """消费者主循环：出队 → 分派给线程池 Worker（避免长任务阻塞队列）。"""
         while not self._stop_event.is_set():
             task = self.dequeue()
             if task is None:
                 self._stop_event.wait(0.5)
                 continue
-            handler = self._handlers.get(task.name)
-            if handler is None:
-                self.fail(task.id, error=f"no handler registered for task type: {task.name}")
+            # 使用 Semaphore 限制并发 Worker 数，避免长时间任务阻塞队列消费
+            if not self._worker_semaphore.acquire(blocking=False):
+                # 所有 Worker 已满，将任务放回队列前端等待
+                self._re_enqueue(task)
+                self._stop_event.wait(0.2)
                 continue
-            try:
-                result = handler(task)
-                self.complete(task.id, result=result)
-            except Exception as exc:
-                logger.exception("task %s (%s) failed: %s", task.id, task.name, exc)
-                self.fail(task.id, error=str(exc))
+
+            def _run(task: Task) -> None:
+                try:
+                    handler = self._handlers.get(task.name)
+                    if handler is None:
+                        self.fail(task.id, error=f"no handler registered for task type: {task.name}")
+                        return
+                    try:
+                        result = handler(task)
+                        self.complete(task.id, result=result)
+                    except Exception as exc:
+                        logger.exception("task %s (%s) failed: %s", task.id, task.name, exc)
+                        self.fail(task.id, error=str(exc))
+                finally:
+                    self._worker_semaphore.release()
+
+            threading.Thread(target=_run, args=(task,), daemon=True, name=f"task-worker-{task.id[:8]}").start()
+
+    def _re_enqueue(self, task: Task) -> None:
+        """将任务放回队列前端（保持优先级顺序）。"""
+        with self._lock:
+            # 恢复为 PENDING 状态
+            task.status = TASK_STATUS_PENDING
+            task.started_at = None
+            # 插回队列头部
+            self._queues[int(task.priority)].insert(0, task.id)
 
     # ---- 提交 ----
 

@@ -96,7 +96,7 @@ class TestImagePipeline(unittest.IsolatedAsyncioTestCase):
             cache_ttl=3600,
         )
         await pipeline.process_image("http://example.test/a.png")
-        stats = pipeline.cache_stats()
+        stats = await pipeline.cache_stats()
         self.assertEqual(stats["total_entries"], 1)
         self.assertEqual(stats["valid_entries"], 1)
 

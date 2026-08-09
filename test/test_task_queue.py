@@ -212,7 +212,7 @@ class TestTaskQueue(unittest.TestCase):
         q.enqueue("fail_task", task_id="t1")
         deadline = time.time() + 2.0
         while time.time() < deadline:
-            if q.status("t1") and q.status("t1").status != TASK_STATUS_PENDING:
+            if q.status("t1") and q.status("t1").status == TASK_STATUS_ERROR:
                 break
             time.sleep(0.05)
         q.stop_consumer()
