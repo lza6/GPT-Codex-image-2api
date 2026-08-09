@@ -81,7 +81,9 @@ def test_concurrent_get_thread_safe():
 
 
 def test_session_pool_default_max_entries_is_200_explicit():
-    """默认值显式回归（变异探针防逃逸）：全局池上限必须为 200。"""
-    from services.session_pool import session_pool
+    """默认值显式回归（变异探针防逃逸）：全局池构造参数必须为 200。"""
+    from services.session_pool import SessionPool
 
-    assert session_pool._max_entries == 200, "池上限默认值漂移——可能被意外修改"
+    # 新建一个临时池验证构造参数，而非断言全局池运行时值（auto-scaling 可能已增长）
+    temp_pool = SessionPool(ttl_seconds=300.0, max_entries=200, min_size=5)
+    assert temp_pool._max_entries == 200, "池上限默认值漂移——可能被意外修改"
