@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useRef, useState, type ChangeEvent } from "react";
+import { useRef, useState, type ChangeEvent, useMemo } from "react";
 import {
   ArrowLeft,
   Copy,
@@ -229,6 +229,50 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
   const [oauthSession, setOauthSession] = useState<OAuthLoginStartResponse | null>(null);
   const [oauthCallbackInput, setOauthCallbackInput] = useState("");
   const [oauthStarting, setOauthStarting] = useState(false);
+
+  // 表单验证状态
+  const tokenValidation = useMemo(() => {
+    const tokens = splitTokens(tokenInput);
+    if (tokenInput && tokens.length === 0) return { valid: false, message: "未识别到有效的 Token" } as const;
+    if (tokens.length > 0) return { valid: true, message: `已识别 ${tokens.length} 个 Token` } as const;
+    return { valid: true, message: "" } as const;
+  }, [tokenInput]);
+
+  const passwordValidation = useMemo(() => {
+    const creds = splitCredentials(passwordInput);
+    if (passwordInput && creds.length === 0) return { valid: false, message: "格式错误：每行应为 邮箱----密码" } as const;
+    if (creds.length > 0) return { valid: true, message: `已识别 ${creds.length} 个账号凭据` } as const;
+    return { valid: true, message: "" } as const;
+  }, [passwordInput]);
+
+  const sessionValidation = useMemo(() => {
+    if (!sessionInput.trim()) return { valid: true, message: "" } as const;
+    try {
+      const parsed = JSON.parse(sessionInput) as Record<string, unknown>;
+      if (!parsed.accessToken) return { valid: false, message: "JSON 中未找到 accessToken 字段" } as const;
+      return { valid: true, message: "JSON 格式正确，已提取到 accessToken" } as const;
+    } catch {
+      return { valid: false, message: "JSON 格式错误，请检查" } as const;
+    }
+  }, [sessionInput]);
+
+  const codexAuthValidation = useMemo(() => {
+    if (!codexAuthInput.trim()) return { valid: true, message: "" } as const;
+    try {
+      const parsed = JSON.parse(codexAuthInput) as Record<string, unknown>;
+      if (!parsed.access_token && !parsed.accessToken) return { valid: false, message: "JSON 中未找到 access_token" } as const;
+      return { valid: true, message: "JSON 格式正确" } as const;
+    } catch {
+      return { valid: false, message: "JSON 格式错误，请检查" } as const;
+    }
+  }, [codexAuthInput]);
+
+  const oauthCallbackValidation = useMemo(() => {
+    if (!oauthCallbackInput.trim()) return { valid: true, message: "" } as const;
+    if (oauthCallbackInput.trim().startsWith("https://") || oauthCallbackInput.trim().startsWith("http://")) return { valid: true, message: "URL 格式正确" } as const;
+    if (oauthCallbackInput.trim().startsWith("code=")) return { valid: true, message: "已识别 code 参数" } as const;
+    return { valid: false, message: "看起来不像一个有效的 callback URL" } as const;
+  }, [oauthCallbackInput]);
 
   const txtInputRef = useRef<HTMLInputElement | null>(null);
   const accountJsonInputRef = useRef<HTMLInputElement | null>(null);
@@ -540,6 +584,11 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
               onChange={(event) => setTokenInput(event.target.value)}
               className="min-h-56 resize-none rounded-xl border-stone-200"
             />
+            {tokenValidation.message ? (
+              <p className={`text-xs leading-5 ${tokenValidation.valid ? "text-emerald-600" : "text-rose-500"}`}>
+                {tokenValidation.message}
+              </p>
+            ) : null}
           </div>
           <div className="rounded-2xl border border-dashed border-stone-200 bg-stone-50 p-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -601,6 +650,11 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
               onChange={(event) => setPasswordInput(event.target.value)}
               className="min-h-56 resize-none rounded-xl border-stone-200 font-mono text-xs"
             />
+            {passwordValidation.message ? (
+              <p className={`text-xs leading-5 ${passwordValidation.valid ? "text-emerald-600" : "text-rose-500"}`}>
+                {passwordValidation.message}
+              </p>
+            ) : null}
           </div>
           <div className="rounded-2xl border border-dashed border-stone-200 bg-stone-50 p-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -670,6 +724,11 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
               onChange={(event) => setSessionInput(event.target.value)}
               className="min-h-56 resize-none rounded-xl border-stone-200 font-mono text-xs"
             />
+            {sessionValidation.message ? (
+              <p className={`text-xs leading-5 ${sessionValidation.valid ? "text-emerald-600" : "text-rose-500"}`}>
+                {sessionValidation.message}
+              </p>
+            ) : null}
           </div>
         </div>
       );
@@ -840,6 +899,11 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
               onChange={(event) => setCodexAuthInput(event.target.value)}
               className="min-h-64 resize-none rounded-xl border-stone-200 font-mono text-xs"
             />
+            {codexAuthValidation.message ? (
+              <p className={`text-xs leading-5 ${codexAuthValidation.valid ? "text-emerald-600" : "text-rose-500"}`}>
+                {codexAuthValidation.message}
+              </p>
+            ) : null}
           </div>
         </div>
       );

@@ -75,8 +75,21 @@ import {
 } from "@/lib/api";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 import { cn } from "@/lib/utils";
+import { useKeyboard } from "@/hooks/use-keyboard";
 
 import { AccountImportDialog } from "./components/account-import-dialog";
+
+// 键盘快捷键：全局导航
+const NAV_SHORTCUTS = [
+  { key: "1", ctrl: true, handler: () => window.location.href = "/dashboard", description: "运维看板" },
+  { key: "2", ctrl: true, handler: () => window.location.href = "/image", description: "生图" },
+  { key: "3", ctrl: true, handler: () => window.location.href = "/accounts", description: "号池管理" },
+  { key: "4", ctrl: true, handler: () => window.location.href = "/proxy-pool", description: "IP 池" },
+  { key: "5", ctrl: true, handler: () => window.location.href = "/image-manager", description: "图片管理" },
+  { key: "6", ctrl: true, handler: () => window.location.href = "/logs", description: "日志管理" },
+  { key: "7", ctrl: true, handler: () => window.location.href = "/settings", description: "设置" },
+  { key: "r", ctrl: true, handler: () => window.location.reload(), description: "刷新页面" },
+];
 
 const accountStatusOptions: { label: string; value: AccountStatus | "all" }[] = [
   { label: "全部状态", value: "all" },
@@ -194,6 +207,7 @@ function displayAccountSource(account: Account) {
 }
 
 function AccountsPageContent() {
+  useKeyboard(NAV_SHORTCUTS);
   const didLoadRef = useRef(false);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [availableModels, setAvailableModels] = useState<Model[]>([]);
