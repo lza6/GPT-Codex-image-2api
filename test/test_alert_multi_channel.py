@@ -118,7 +118,8 @@ class TestAlertMultiChannel:
             result = svc.send("account_invalid", {"account": "test@x.com", "reason": "401"})
 
         assert result is True, "任一通道成功应返回 True"
-        assert mock_post.call_count == 2
+        # 通用 webhook 重试 2 次（首次 + 1 次重试），WeCom 成功 1 次 = 3 次
+        assert mock_post.call_count == 3, f"预期 3 次调用（webhook 2 次 + WeCom 1 次），实际: {mock_post.call_count}"
 
     def test_all_channels_fail_returns_false(self):
         """所有通道均失败时返回 False（不抛异常）。"""

@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.14.0 - 2026-08-10 (告警多通道 + 日志聚合/导出/归档)
+
+**告警多通道增强（6.2）：**
++ [增强] `services/alert_service.py` — `AlertService` 新增多通道支持：`channels` 参数可同时配置企业微信(WeCom)、钉钉(DingTalk)、通用 webhook 多通道并发发送，任一通道失败不阻塞其他通道
++ [新增] `_send_wecom` / `_send_dingtalk` / `_format_markdown` — 企业微信/钉钉机器人 Markdown 格式消息体，发送失败重试 1 次
++ [新增] `config.json` 配置项 `alert_channels` — 多通道配置（`{"channel_name": {"webhook_url": "…", "type": "wecom|dingtalk|webhook"}}`）
++ [测试] 13 单测全绿（含多通道并发、通道失败隔离、去重协同、config 加载）
+
+**日志系统增强（6.3）：**
++ [新增] `services/log_service.py` — `LogService` 新增 `aggregate` 方法（按 type/status/hour 维度聚合统计，支持 day/hour 时间粒度）
++ [新增] `LogService.export_csv` — 导出 CSV 格式字符串（id,time,type,summary,status,error），逗号/引号转义，limit 50000
++ [新增] `LogService.archive` — 归档过期日志到 `logs-archive-YYYYMMDD.zip` 压缩文件，归档后删除原文件
++ [测试] 17 单测全绿（含聚合、CSV 导出、归档、空数据、跨天边界）
+
 ## 2.13.0 - 2026-08-10 (Provider 调度分池 + 路由分发 + 批量操作 + 自适应连接池)
 
 **多 Provider 调度分池（Phase 2/4）：**
