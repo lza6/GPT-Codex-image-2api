@@ -297,9 +297,11 @@ def create_router() -> APIRouter:
         6.3：支持服务端分页（page 从 1 起，page_size>0 时启用；默认 0/0 = 全量返回，
         向后兼容旧调用方）。响应含 total 便于前端渲染总数。
         provider 参数可选，按账号归属的提供商过滤（"chatgpt" / "grok" 等），不传返回全部。
+
+        使用 5s 缓存避免频繁切换页面时重复全量加载 accounts.json。
         """
         require_admin(authorization)
-        items = account_service.list_accounts()
+        items = account_service.get_accounts_cached()
         # Phase B：按 provider 过滤（provider 为空/none 时不过滤，兼容旧调用方）
         if provider:
             from services.providers import normalize_provider
