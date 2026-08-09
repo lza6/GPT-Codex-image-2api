@@ -1,0 +1,185 @@
+> """Prometheus 指标（prometheus-client 库）。
+  
+> 支持多 Worker：用 prometheus_client 的 multiprocess 模式。
+> 核心指标：
+> - http_requests_total{path,method,status}
+> - http_request_duration_seconds{path} (histogram)
+> - chatgpt2api_account_pool_size{tier}
+> - chatgpt2api_upstream_requests_total{model,result}
+> - chatgpt2api_upstream_duration_seconds{model}
+> - chatgpt2api_image_tasks_inflight
+> """
+  
+> from __future__ import annotations
+  
+> import os
+  
+> from prometheus_client import (
+>     CONTENT_TYPE_LATEST,
+>     CollectorRegistry,
+>     Counter,
+>     Gauge,
+>     Histogram,
+>     generate_latest,
+>     multiprocess,
+> )
+  
+  # 多 Worker 支持：prometheus_client 需要 PROMETHEUS_MULTIPROC_DIR 环境变量
+> _MULTIPROC_DIR = os.environ.get("PROMETHEUS_MULTIPROC_DIR", "")
+  
+  
+> def _create_registry() -> CollectorRegistry:
+>     """创建指标注册表。
+  
+>     多 Worker 模式：用 multiprocess 从共享目录聚合所有 worker 指标。
+>     单进程模式：用默认注册表（指标注册在这里）。
+>     """
+>     if _MULTIPROC_DIR:
+!         registry = CollectorRegistry()
+!         multiprocess.MultiProcessCollector(registry)
+!         return registry
+      # 单进程：返回默认注册表（指标都注册在这里）
+>     from prometheus_client import REGISTRY
+>     return REGISTRY
+  
+  
+  # 核心指标定义（使用默认注册表，prometheus_client 自动处理多进程聚合）
+> http_requests_total = Counter(
+>     "http_requests_total",
+>     "Total HTTP requests",
+>     ["path", "method", "status"],
+> )
+  
+> http_request_duration_seconds = Histogram(
+>     "http_request_duration_seconds",
+>     "HTTP request duration in seconds",
+>     ["path"],
+>     buckets=(0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0),
+> )
+  
+> chatgpt2api_account_pool_size = Gauge(
+>     "chatgpt2api_account_pool_size",
+>     "Account pool size by health tier",
+>     ["tier"],
+> )
+  
+> chatgpt2api_upstream_requests_total = Counter(
+>     "chatgpt2api_upstream_requests_total",
+>     "Total upstream requests",
+>     ["model", "result"],
+> )
+  
+> chatgpt2api_upstream_duration_seconds = Histogram(
+>     "chatgpt2api_upstream_duration_seconds",
+>     "Upstream request duration in seconds",
+>     ["model"],
+>     buckets=(0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, 120.0),
+> )
+  
+> chatgpt2api_image_tasks_inflight = Gauge(
+>     "chatgpt2api_image_tasks_inflight",
+>     "Current image tasks inflight",
+> )
+  
+> chatgpt2api_backup_failures_total = Counter(
+>     "chatgpt2api_backup_failures_total",
+>     "Total backup failures",
+> )
+  
+> chatgpt2api_audit_actions_total = Counter(
+>     "chatgpt2api_audit_actions_total",
+>     "Admin audit actions by action and result",
+>     ["action", "result"],
+> )
+  
+> chatgpt2api_circuit_breaker_transitions = Counter(
+>     "chatgpt2api_circuit_breaker_transitions",
+>     "Circuit breaker state transitions",
+>     ["from_state", "to_state"],
+> )
+  
+> chatgpt2api_scheduler_pick_total = Counter(
+>     "chatgpt2api_scheduler_pick_total",
+>     "Scheduler picks by health tier",
+>     ["tier"],
+> )
+  
+> chatgpt2api_lifetime_risk = Gauge(
+>     "chatgpt2api_lifetime_risk",
+>     "Account lifetime risk level distribution",
+>     ["risk"],
+> )
+  
+  
+> def record_http_request(path: str, method: str, status: int, duration_seconds: float) -> None:
+>     """记录 HTTP 请求指标。"""
+!     http_requests_total.labels(path=path, method=method, status=str(status)).inc()
+!     http_request_duration_seconds.labels(path=path).observe(duration_seconds)
+  
+  
+> def record_upstream_request(model: str, result: str, duration_seconds: float) -> None:
+>     """记录上游请求指标。"""
+>     chatgpt2api_upstream_requests_total.labels(model=model, result=result).inc()
+>     chatgpt2api_upstream_duration_seconds.labels(model=model).observe(duration_seconds)
+  
+  
+> def update_account_pool_size(tiers: dict[str, int]) -> None:
+>     """更新账号池健康档位数量。"""
+>     for tier, count in tiers.items():
+>         chatgpt2api_account_pool_size.labels(tier=tier).set(count)
+  
+  
+> def update_image_tasks_inflight(count: int) -> None:
+>     """更新在途图片任务数。"""
+>     chatgpt2api_image_tasks_inflight.set(count)
+  
+  
+> def record_circuit_breaker_transition(from_state: str, to_state: str) -> None:
+>     """记录熔断状态机转移。"""
+>     chatgpt2api_circuit_breaker_transitions.labels(from_state=from_state, to_state=to_state).inc()
+  
+  
+> def record_scheduler_pick(tier: str) -> None:
+>     """记录调度选取分布。"""
+>     chatgpt2api_scheduler_pick_total.labels(tier=tier).inc()
+  
+  
+> def update_lifetime_risk(risk_distribution: dict[str, int]) -> None:
+>     """更新寿命预测档位分布。"""
+>     for risk, count in risk_distribution.items():
+>         chatgpt2api_lifetime_risk.labels(risk=risk).set(count)
+  
+  
+> def _normalize_audit_action(action: str) -> str:
+>     """审计指标 action 归一化：把动态路径段（数字/UUID/长随机串）收敛为 {id}。
+  
+>     动态端点（/api/accounts/refresh/progress/{id}、/api/images/download/{path} 等）
+>     若直接作为 Prometheus label，每个唯一路径都会产生新 label 组合，长期运行
+>     会无限膨胀（红队审查 R1）。归一化后 label 基数 = 路由模板数，可控。
+>     审计文件仍保留真实 path（精确可追溯），仅指标 label 归一化。
+>     """
+>     import re
+  
+>     segments = str(action).split("/")
+>     normalized: list[str] = []
+>     for seg in segments:
+>         if not seg:
+>             normalized.append(seg)
+>             continue
+          # UUID 或长数字/随机 id → {id}
+>         if re.fullmatch(r"[0-9a-f]{8,32}", seg) or seg.isdigit():
+!             normalized.append("{id}")
+>         else:
+>             normalized.append(seg)
+>     return "/".join(normalized)
+  
+  
+> def record_audit_action(action: str, result: str) -> None:
+>     """记录管理动作审计指标（3.2）。label 用归一化路由模板，防动态路径膨胀。"""
+>     chatgpt2api_audit_actions_total.labels(action=_normalize_audit_action(action), result=result).inc()
+  
+  
+> def generate_metrics() -> tuple[bytes, str]:
+>     """生成 Prometheus 指标文本。"""
+>     registry = _create_registry()
+>     return generate_latest(registry), CONTENT_TYPE_LATEST

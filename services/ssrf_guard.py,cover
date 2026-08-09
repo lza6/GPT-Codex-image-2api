@@ -1,0 +1,85 @@
+> """SSRF 防护（D2）：image_inputs URL 抓取的协议白名单 + 内网 IP 段校验。
+  
+> 红线：只允许 http/https；解析 host 后拒绝内网/回环/链路本地地址，
+> 防经图片 URL 抓取打内网服务（云元数据 169.254.169.254、内网管理面等）。
+> 重定向防护：调用方应逐步校验（本模块提供逐 URL 校验原语）。
+  
+> 配置回退：ssrf_allow_private_ips=true 时跳过 IP 段校验（用户 legit 抓内网图床）。
+> """
+  
+> from __future__ import annotations
+  
+> import ipaddress
+> import socket
+> from urllib.parse import urlparse
+  
+> _ALLOWED_SCHEMES = {"http", "https"}
+  
+  
+> def _is_private_ip(ip_str: str) -> bool:
+>     """判定 IP 是否为内网/回环/链路本地/保留地址（SSRF 应拒绝）。"""
+>     try:
+>         addr = ipaddress.ip_address(ip_str)
+!     except ValueError:
+!         return True  # 无法解析的按危险处理
+>     return (
+>         addr.is_private
+>         or addr.is_loopback
+>         or addr.is_link_local
+>         or addr.is_multicast
+>         or addr.is_reserved
+>         or addr.is_unspecified
+>     )
+  
+  
+> def _resolve_host_ips(hostname: str) -> list[str]:
+>     """DNS 解析 hostname 到全部 IP。解析失败按危险处理（返回空列表由调用方拒绝）。"""
+>     try:
+>         infos = socket.getaddrinfo(hostname, None)
+!     except (socket.gaierror, UnicodeError, OSError):
+!         return []
+>     ips: list[str] = []
+>     for info in infos:
+>         ip: str = str(info[4][0])
+>         if ip not in ips:
+>             ips.append(ip)
+>     return ips
+  
+  
+> def validate_image_url(url: str, *, allow_private_ips: bool = False) -> None:
+>     """校验图片 URL 是否允许抓取。非法时抛 ValueError。
+  
+>     - 协议白名单：仅 http/https
+>     - IP 段校验：拒绝内网/回环/链路本地（allow_private_ips=True 时跳过）
+>     - host 为 IP 字面量直接校验；为域名时 DNS 解析后逐 IP 校验（防 rebinding 前置拦截）
+>     """
+>     text = str(url or "").strip()
+>     if not text:
+>         raise ValueError("image_url 不能为空")
+>     parsed = urlparse(text)
+>     if parsed.scheme.lower() not in _ALLOWED_SCHEMES:
+>         raise ValueError(f"image_url 必须是 http 或 https URL，当前协议: {parsed.scheme or '(无)'}")
+>     if not parsed.netloc:
+>         raise ValueError("image_url 缺少 host")
+  
+>     if allow_private_ips:
+>         return
+  
+>     hostname = parsed.hostname or ""
+>     if not hostname:
+!         raise ValueError("image_url host 无效")
+  
+      # host 为 IP 字面量
+>     try:
+>         ipaddress.ip_address(hostname)
+>     except ValueError:
+          # host 为域名：DNS 解析逐 IP 校验
+>         ips = _resolve_host_ips(hostname)
+>         if not ips:
+!             raise ValueError(f"image_url 域名无法解析: {hostname}")
+>         for ip in ips:
+>             if _is_private_ip(ip):
+!                 raise ValueError(f"image_url 拒绝内网地址: {hostname} 解析到 {ip}")
+>     else:
+>         if _is_private_ip(hostname):
+>             raise ValueError(f"image_url 拒绝内网/保留地址: {hostname}")

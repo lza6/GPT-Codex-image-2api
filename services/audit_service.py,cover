@@ -1,0 +1,273 @@
+> """3.2 审计日志：管理操作留痕。
+  
+> 记录 require_admin 保护的管理操作（成功 + 失败），独立于业务日志：
+> - 独立文件 `audit-YYYY-MM-DD.jsonl`（按天轮转，不复用业务日志文件，
+>   避免 `/api/logs` 的删除/裁剪误伤审计）。
+> - 读取：`list(days=N)` 只读最近 N 天，跨天倒序，支持 result/operator/action 过滤。
+> - 清理：过期天文件整删（文件级），当天文件超限裁剪（条目级）。
+> - 一致性：append 短行原子写（O_APPEND），覆写类操作互斥；目录从 self.path.parent
+>   动态推导，便于测试重定向到 tmp。
+> - 指标：每次 record 递增 `chatgpt2api_audit_actions_total{action,result}`。
+> """
+  
+> from __future__ import annotations
+  
+> import json
+> import threading
+> import time
+> from datetime import datetime, timedelta
+> from pathlib import Path
+> from typing import Any
+> from uuid import uuid4
+  
+> from services.config import DATA_DIR
+  
+> _AUDIT_RETENTION_DAYS = 90
+> _AUTO_CLEAN_MAX_ENTRIES = 20000
+> _AUTO_CLEAN_KEEP = 12000
+  
+  
+> class AuditService:
+>     def __init__(self, path: Path):
+>         self.path = path
+>         self.path.parent.mkdir(parents=True, exist_ok=True)
+          # 覆写/追加路径互斥：RLock 支持 maybe_cleanup 内部重入（同锁可重入）
+>         self._write_lock = threading.RLock()
+>         self._last_cleanup_at = 0.0
+  
+      # ---- 按天路径（目录始终从 self.path.parent 推导，不缓存，便于测试重定向） ----
+  
+>     @staticmethod
+>     def _day_from_name(name: str) -> str:
+>         if name.startswith("audit-") and name.endswith(".jsonl"):
+>             return name[6:-6]
+!         return ""
+  
+>     def _today_str(self) -> str:
+>         return datetime.now().strftime("%Y-%m-%d")
+  
+>     def _daily_path(self, day: str) -> Path:
+>         return self.path.parent / f"audit-{day}.jsonl"
+  
+>     def _daily_files(self) -> list[Path]:
+>         return sorted(self.path.parent.glob("audit-*.jsonl"))
+  
+>     @staticmethod
+>     def _serialize_item(item: dict[str, Any]) -> str:
+>         return json.dumps(item, ensure_ascii=False, separators=(",", ":"))
+  
+>     @staticmethod
+>     def _mask_operator(operator: object) -> str:
+>         value = str(operator or "").strip()
+>         return value[-8:] if len(value) > 8 else value
+  
+>     def _item_day(self, item: dict[str, Any]) -> str:
+!         return str(item.get("ts") or "")[:10]
+  
+      # ---- 写入 ----
+  
+>     def record(
+>         self,
+>         *,
+>         action: str,
+>         result: str,
+>         operator: object = "",
+>         resource: str = "",
+>         detail: dict[str, Any] | None = None,
+>         request_id: str = "",
+>         ip: str = "",
+>         method: str = "",
+>     ) -> None:
+>         """写入一条审计记录（失败绝不影响调用方：内部吞掉，仅打日志）。"""
+>         try:
+>             from services.metrics_service import get_request_id
+>             rid = request_id or get_request_id()
+!         except Exception:  # noqa: BLE001
+!             rid = request_id
+>         item = {
+>             "id": uuid4().hex,
+>             "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+>             "action": str(action or ""),
+>             "result": str(result or ""),
+>             "operator": self._mask_operator(operator),
+>             "resource": str(resource or ""),
+>             "detail": dict(detail or {}),
+>             "request_id": str(rid or ""),
+>             "ip": str(ip or ""),
+>             "method": str(method or ""),
+>         }
+>         target = self._daily_path(self._today_str())
+          # 追加路径只 append，绝不整文件 replace——多 worker 下 append 与 replace 并发
+          # 会把追加写到被替换的旧 inode 导致数据丢失（审查 R3）。清理统一由
+          # maybe_cleanup（读取端触发）执行，append 热路径不做覆写。
+>         with self._write_lock:
+>             with target.open("a", encoding="utf-8") as fh:
+>                 fh.write(self._serialize_item(item) + "\n")
+          # 指标：管理动作计数（多 worker 下 prometheus_client 自动聚合）
+>         try:
+>             from services.prometheus_metrics import record_audit_action
+>             record_audit_action(action=str(item["action"]), result=str(item["result"]))
+!         except Exception:  # noqa: BLE001 - 指标失败不阻断审计
+!             pass
+  
+      # ---- 读取 ----
+  
+>     def list(
+>         self,
+>         *,
+>         days: int | None = None,
+>         limit: int = 200,
+>         result: str = "",
+>         operator: str = "",
+>         action: str = "",
+>         start_date: str = "",
+>         end_date: str = "",
+>         page: int = 0,
+>         page_size: int = 0,
+>     ) -> list[dict[str, Any]]:
+>         """读取审计，按天文件分片，最新在前。
+  
+>         - `days=N`：只读最近 N 天天文件（limit 凑够 early-exit，不触碰更早文件）。
+>         - `result`/`operator`/`action`：精确过滤（operator 已脱敏，按末 8 位匹配）。
+>         - `start_date`/`end_date`：日期范围过滤（格式 YYYY-MM-DD，覆盖 days 指定）。
+>         - `page`/`page_size`：服务端分页（page 从 1 起，page_size>0 时启用；0/0=向后兼容）。
+  
+>         惰性清理：读取端低频触发（管理操作远少于业务日志，读取频率低，
+>         append 热路径不覆写——审查 R3：多 worker 下 append 与 replace 并发会丢数据）。
+>         """
+>         self.maybe_cleanup()
+>         today = datetime.now().date()
+>         min_day: str | None = None
+>         if start_date:
+!             min_day = start_date.strip()[:10]
+>         elif days is not None and days > 0:
+>             min_day = (today - timedelta(days=days - 1)).strftime("%Y-%m-%d")
+>         max_day: str | None = None
+>         if end_date:
+!             max_day = end_date.strip()[:10]
+>         files = [
+>             p for p in self._daily_files()
+>             if (not min_day or self._day_from_name(p.name) >= min_day)
+>             and (not max_day or self._day_from_name(p.name) <= max_day)
+>         ]
+>         items: list[dict[str, Any]] = []
+>         for path in reversed(files):
+>             if not path.exists():
+!                 continue
+>             lines = path.read_text(encoding="utf-8").splitlines()
+>             for line_number in range(len(lines) - 1, -1, -1):
+>                 item = self._parse_line(lines[line_number])
+>                 if item is None:
+!                     continue
+>                 if result and item.get("result") != result:
+>                     continue
+>                 if operator and item.get("operator") != operator:
+>                     continue
+>                 if action and item.get("action") != action:
+!                     continue
+>                 items.append(item)
+>                 if len(items) >= limit:
+>                     break
+>             if len(items) >= limit:
+>                 break
+          # 服务端分页
+>         total = len(items)
+>         if page_size > 0 and page > 0:
+!             start = (page - 1) * page_size
+!             items = items[start: start + page_size]
+>         return items
+  
+>     def _parse_line(self, raw_line: str) -> dict[str, Any] | None:
+>         try:
+>             item = json.loads(raw_line)
+!         except Exception:  # noqa: BLE001
+!             return None
+>         if not isinstance(item, dict):
+!             return None
+>         return dict(item)
+  
+      # ---- 清理 ----
+  
+      # 惰性清理节流：最多每 60s 触发一次（读取端低频，避免每次 list 扫描目录）
+>     _CLEANUP_INTERVAL_SECONDS = 60
+  
+>     def maybe_cleanup(self) -> None:
+>         """读取端惰性清理入口：节流 + 复用 _auto_cleanup（失败可观测，不静默）。"""
+>         try:
+>             now = time.time()
+>             if now - self._last_cleanup_at < self._CLEANUP_INTERVAL_SECONDS:
+>                 return
+>             self._last_cleanup_at = now
+>             self._auto_cleanup()
+!         except Exception:  # noqa: BLE001
+!             import logging
+!             logging.getLogger(__name__).warning("audit maybe_cleanup failed", exc_info=True)
+  
+>     def _auto_cleanup(self) -> None:
+>         """过期天文件整删 + 当天文件超限裁剪（失败可观测，不静默）。
+  
+>         仅由读取端（maybe_cleanup）触发，append 热路径不覆写——
+>         多 worker 下 append+replace 并发会丢数据（审查 R3）。
+>         """
+>         try:
+>             with self._write_lock:
+>                 cutoff = (datetime.now() - timedelta(days=_AUDIT_RETENTION_DAYS)).strftime("%Y-%m-%d")
+>                 for path in self._daily_files():
+>                     day = self._day_from_name(path.name)
+>                     if day and day < cutoff:
+>                         try:
+>                             path.unlink()
+!                         except OSError:
+!                             pass
+>                 today_path = self._daily_path(self._today_str())
+>                 if not today_path.exists():
+>                     return
+>                 lines = today_path.read_text(encoding="utf-8").splitlines()
+>                 if len(lines) <= _AUTO_CLEAN_MAX_ENTRIES:
+>                     return
+>                 kept = lines[-_AUTO_CLEAN_KEEP:]
+>                 from services.storage.json_storage import _atomic_write_text
+>                 _atomic_write_text(today_path, "\n".join(kept) + "\n")
+!         except Exception:  # noqa: BLE001
+!             import logging
+!             logging.getLogger(__name__).warning("audit auto-cleanup failed", exc_info=True)
+  
+  
+  # 全局单例：管理操作统一落盘点（require_admin / /api/audit 消费）
+> audit_service = AuditService(DATA_DIR / "audit.jsonl")
+  
+  
+> def record_admin_access(
+>     *,
+>     action: str,
+>     result: str,
+>     identity: dict[str, object] | None = None,
+>     detail: dict[str, Any] | None = None,
+> ) -> None:
+>     """require_admin 统一埋点入口：封装 operator/request_id/ip/method 提取，失败不阻断。
+  
+>     审计失败绝不阻断鉴权主流程：本函数内部吞掉异常并打日志。
+>     """
+>     try:
+>         operator = ""
+>         if identity:
+>             operator = str(identity.get("id") or "") or str(identity.get("name") or "")
+>         ip = ""
+>         method = ""
+>         try:
+>             from services.request_context import get_request_ip, get_request_method
+>             ip = get_request_ip()
+>             method = get_request_method()
+!         except Exception:  # noqa: BLE001
+!             pass
+>         audit_service.record(
+>             action=action,
+>             result=result,
+>             operator=operator,
+>             detail=detail,
+>             ip=ip,
+>             method=method,
+>         )
+!     except Exception:  # noqa: BLE001 - 审计失败绝不阻断鉴权主流程
+!         import logging
+!         logging.getLogger(__name__).warning("audit record_admin_access failed", exc_info=True)

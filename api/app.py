@@ -66,6 +66,13 @@ def create_app() -> FastAPI:
         agg_thread = start_usage_agg_watcher(stop_event)
         backup_service.start()
         config.cleanup_old_images()
+        # P2：启动时预热模型缓存，避免首次请求 /v1/models 时等待 0.7s+ 上游调用
+        try:
+            from services.model_service import model_catalog_service
+            from threading import Thread
+            Thread(target=model_catalog_service.list_models, daemon=True).start()
+        except Exception:  # noqa: BLE001 - 预热失败不阻断启动
+            pass
         # S6：启动即补一次审计清理（服务长期无管理操作时，过期天文件也能按期整删）
         try:
             from services.audit_service import audit_service
