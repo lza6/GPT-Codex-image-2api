@@ -353,6 +353,14 @@ class ImageTaskService:
                               duration_ms=duration_ms,
                               **({"conversation_id": conversation_id} if conversation_id else {}),
                               **({"account_email": account_email} if account_email else {}))
+            event_bus.publish(Event(IMAGE_TASK_COMPLETED, {
+                "task_id": key.split(":", 1)[-1],
+                "mode": mode,
+                "model": model,
+                "status": TASK_STATUS_ERROR,
+                "account_email": account_email,
+                "duration_ms": duration_ms,
+            }))
             self._log_call(
                 identity,
                 mode,

@@ -89,3 +89,73 @@ export function toastWithUndo(
     duration: options?.duration ?? 5000,
   });
 }
+
+/**
+ * 分组 Toast — 将相同 key 的 toast 合并为一条，显示计数。
+ * 例如批量操作多条错误时，相同错误只显示一条并累加计数。
+ */
+const groupedToastMap = new Map<string, { count: number; dismiss: () => void }>();
+
+export function groupedToast(key: string, message: string, type: "error" | "success" | "info" = "info"): void {
+  const existing = groupedToastMap.get(key);
+  if (existing) {
+    existing.count += 1;
+    const fn = type === "error" ? toast.error : type === "success" ? toast.success : toast.info;
+    fn(`${message} (${existing.count})`, { id: key, duration: 4000 });
+    return;
+  }
+
+  const fn = type === "error" ? toast.error : type === "success" ? toast.success : toast.info;
+  fn(message, { id: key, duration: 4000 });
+  groupedToastMap.set(key, {
+    count: 1,
+    dismiss: () => {
+      toast.dismiss(key);
+      groupedToastMap.delete(key);
+    },
+  });
+  // 自动清理
+  setTimeout(() => groupedToastMap.delete(key), 5000);
+}
+
+/**
+ * 进度 Toast — 显示带进度条的 toast。
+ * @returns 更新进度的函数
+ */
+export function progressToast(
+  message: string,
+  initialProgress = 0,
+): { update: (progress: number, newMessage?: string) => void; dismiss: () => void } {
+  const id = `progress-${Date.now()}`;
+  let currentProgress = initialProgress;
+
+  const render = () => {
+    toast(
+      <div className="flex flex-col gap-2">
+        <span className="text-sm text-stone-700 dark:text-stone-200">{message}</span>
+        <div className="h-1.5 w-full overflow-hidden rounded-full bg-stone-100 dark:bg-stone-700">
+          <div
+            className="h-full rounded-full bg-stone-950 transition-all duration-300 ease-out dark:bg-white"
+            style={{ width: `${Math.min(100, currentProgress)}%` }}
+          />
+        </div>
+        <span className="text-xs text-stone-400">{Math.round(currentProgress)}%</span>
+      </div>,
+      { id, duration: Infinity },
+    );
+  };
+
+  render();
+
+  return {
+    update: (progress: number, newMessage?: string) => {
+      currentProgress = progress;
+      if (newMessage) message = newMessage;
+      render();
+      if (progress >= 100) {
+        setTimeout(() => toast.dismiss(id), 1000);
+      }
+    },
+    dismiss: () => toast.dismiss(id),
+  };
+}

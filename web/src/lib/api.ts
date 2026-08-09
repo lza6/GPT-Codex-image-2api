@@ -278,6 +278,7 @@ export type SettingsConfig = {
   alert_webhook_url?: string;
   alert_webhook_timeout?: number;
   alert_events?: string[];
+  session_pool_health_check_enabled?: boolean;
   image_storage?: ImageStorageSettings;
   proxy_runtime?: ProxyRuntimeSettings;
   backup?: BackupSettings;

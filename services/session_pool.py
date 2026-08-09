@@ -4,7 +4,7 @@
 方案：按 (代理配置, impersonate) 缓存 Session，复用底层连接（curl_cffi 内部即 keep-alive）。
 
 v2.17.0 四优化：
-1. 连接健康预检（health_check）：从池中取出连接时发送轻量 HEAD 请求验证，减少断连请求失败 50%+
+1. 连接健康预检（health_check）：从池中取出连接时发送轻量 HEAD 请求验证，减少断连请求失败
 2. 动态冷却期（dynamic_cooldown）：根据错误率调整缩容冷却期，错误率越高冷却期越长
 3. 连接 TTL（connection_ttl）：连接最大存活时间，到期自动重建，避免上游 TIME_WAIT 堆积
 4. 指数退避重连（exponential_backoff）：连接失败后重试间隔呈指数增长，减轻上游风暴压力
@@ -13,7 +13,6 @@ v2.17.0 四优化：
 from __future__ import annotations
 
 import logging
-import math
 import threading
 import time
 from typing import Any
@@ -69,9 +68,7 @@ class SessionPool:
         self._last_shrink_at = 0.0
         # v2.17.0：错误率追踪——记录最近 N 次操作的成功/失败用于动态冷却期
         self._error_history: list[bool] = []  # True=成功, False=失败
-        self._error_history_max = 100
-        # v2.17.0：连接创建时间（用于连接 TTL 检查，与池中 created_at 分开）
-        # 池中 _sessions 的 value 是 (session, created_at, connect_created_at)
+        # v2.17.0：池中 value 变为 (session, created_at, conn_created_at)
         self._sessions: dict[str, tuple[requests.Session, float, float]] = {}
         self._lock = threading.Lock()
 
@@ -94,6 +91,68 @@ class SessionPool:
         acct_id = token[-8:] if token else "anon"
         return f"{acct_id}|{proxy}|{impersonate}|{int(verify)}|{fp_key}"
 
+    # ── v2.17.0 新方法 ──────────────────────────────────────────────
+
+    def _record_result(self, success: bool) -> None:
+        """记录一次操作结果（成功/失败）到错误历史，用于动态冷却期计算。"""
+        self._error_history.append(success)
+        if len(self._error_history) > 100:
+            self._error_history = self._error_history[-100:]
+
+    def _error_rate(self) -> float:
+        """计算最近错误率（0.0~1.0），空历史返回 0.0。"""
+        if not self._error_history:
+            return 0.0
+        return sum(1 for s in self._error_history if not s) / len(self._error_history)
+
+    def _cooldown_seconds(self) -> float:
+        """动态冷却期：错误率越高冷却期越长，在 [min, max] 范围内线性映射。"""
+        rate = self._error_rate()
+        ratio = min(1.0, rate * 2.0)
+        return self._dynamic_cooldown_min + (self._dynamic_cooldown_max - self._dynamic_cooldown_min) * ratio
+
+    def _health_check(self, session: requests.Session) -> bool:
+        """发送轻量 HEAD 请求验证连接健康。失败只记录和重建，不触发缩容。"""
+        if not self._health_check_enabled:
+            return True
+        try:
+            resp = session.head(
+                "https://chatgpt.com/",
+                timeout=self._health_check_timeout,
+                headers={"Accept": "text/html,application/xhtml+xml"},
+            )
+            return resp is not None
+        except Exception:
+            return False
+
+    def _backoff_sleep(self, attempt: int) -> None:
+        """指数退避等待：base * 2^attempt, capped at backoff_cap。"""
+        delay = min(self._backoff_cap, self._backoff_base * (2**attempt))
+        if delay > 0:
+            time.sleep(delay)
+
+    def _create_session(self, key: str, account: dict | None, impersonate: str, verify: bool) -> requests.Session | None:
+        """创建新 Session（带指数退避重试，最多 5 次）。"""
+        last_error = None
+        for attempt in range(5):
+            try:
+                session = requests.Session(
+                    **proxy_settings.build_session_kwargs(account=account, impersonate=impersonate, verify=verify)
+                )
+                session._chatgpt2api_pooled = True  # type: ignore[attr-defined]
+                session._pool_key = key  # type: ignore[attr-defined]
+                session._pool_conn_created_at = time.monotonic()  # type: ignore[attr-defined]
+                return session
+            except Exception as exc:
+                last_error = exc
+                self._record_result(False)
+                if attempt < 4:
+                    self._backoff_sleep(attempt)
+        logger.warning("session_pool 创建 Session 失败（重试 5 次后放弃）: %s", last_error)
+        return None
+
+    # ── 原有方法（增强） ────────────────────────────────────────────
+
     def _adaptive_grow(self) -> None:
         """空闲连接不足时渐进扩容（每次扩容 10 或 50% 取大值）。"""
         current = len(self._sessions)
@@ -102,9 +161,10 @@ class SessionPool:
         self._max_entries = min(self._max_entries + 10, int(self._max_entries * 1.5))
 
     def _adaptive_shrink(self) -> None:
-        """连续错误时缩容：清理最旧的 20% 连接，1 分钟内只缩一次。"""
+        """连续错误时缩容：清理最旧的 20% 连接，动态冷却期（v2.17.0 改）。"""
         now = time.monotonic()
-        if now - self._last_shrink_at < 60.0:
+        cool = self._cooldown_seconds()
+        if now - self._last_shrink_at < cool:
             return
         self._last_shrink_at = now
         with self._lock:
@@ -121,23 +181,59 @@ class SessionPool:
                         pass
 
     def get(self, account: dict | None = None, impersonate: str = "chrome110", verify: bool = True, fp_key: str = "") -> requests.Session:
-        """获取（或创建并缓存）一个 Session。"""
-        key = self._make_key(account, impersonate, verify, fp_key)
-        now = time.monotonic()
-        with self._lock:
-            cached = self._sessions.get(key)
-            if cached is not None:
-                session, created_at = cached
-                if now - created_at < self._ttl:
-                    return session
-                # 过期，关闭后重建
-                try:
-                    session.close()
-                except Exception:
-                    pass
-                self._sessions.pop(key, None)
+        """获取（或创建并缓存）一个 Session。
 
-            # 清理过多条目（惰性）
+        v2.17.0 增强：
+        - 健康预检：从池中取出时轻量 HEAD 验证，断连自动重建
+        - 连接 TTL：连接最大存活时间到期自动重建
+        - 指数退避：创建失败时 1s→2s→4s→8s→16s 重试
+        """
+        key = self._make_key(account, impersonate, verify, fp_key)
+
+        # Phase 1：尝试从池中获取（锁内）
+        cached = None
+        with self._lock:
+            entry = self._sessions.get(key)
+            if entry is not None:
+                session, created_at, conn_created_at = entry
+                now = time.monotonic()
+                ttl_expired = (now - created_at) >= self._ttl
+                conn_expired = (now - conn_created_at) >= self._connection_ttl
+                if not ttl_expired and not conn_expired:
+                    cached = (session, created_at, conn_created_at)
+                else:
+                    # TTL 或连接 TTL 过期，移除后关闭
+                    self._sessions.pop(key, None)
+                    try:
+                        session.close()
+                    except Exception:
+                        pass
+
+        # Phase 2：健康预检（锁外，避免阻塞其他 get）
+        if cached is not None:
+            session, _, _ = cached
+            if self._health_check(session):
+                self._record_result(True)
+                return session
+            # 健康检查失败——从池中移除
+            self._record_result(False)
+            with self._lock:
+                existing = self._sessions.get(key)
+                if existing is not None and existing[0] is session:
+                    self._sessions.pop(key, None)
+                    try:
+                        session.close()
+                    except Exception:
+                        pass
+
+        # Phase 3：创建新 Session（锁外，带指数退避）
+        new_session = self._create_session(key, account, impersonate, verify)
+        if new_session is None:
+            raise RuntimeError("session_pool 创建 Session 失败（重试 5 次后放弃）")
+
+        # Phase 4：入池（锁内，LRU 逐出 + 竞态防护）
+        with self._lock:
+            # LRU 逐出：超过上限时移除最旧条目
             if len(self._sessions) >= self._max_entries:
                 oldest_key = min(self._sessions, key=lambda k: self._sessions[k][1])
                 try:
@@ -146,17 +242,22 @@ class SessionPool:
                     pass
                 self._sessions.pop(oldest_key, None)
 
-            session = requests.Session(
-                **proxy_settings.build_session_kwargs(account=account, impersonate=impersonate, verify=verify)
-            )
-            # 标记为池化 Session：OpenAIBackendAPI.close() 检测到后转为 release 而非真正 close，
-            # 避免每次请求结束拆掉底层 TCP/TLS 连接导致复用失效。
-            session._chatgpt2api_pooled = True  # type: ignore[attr-defined]
-            session._pool_key = key  # type: ignore[attr-defined]
-            self._sessions[key] = (session, now)
-            # 自适应扩容：空闲连接不足时渐进扩容
+            # 竞态防护：另一个线程可能已插入同 key Session
+            existing = self._sessions.get(key)
+            if existing is not None:
+                try:
+                    new_session.close()
+                except Exception:
+                    pass
+                self._record_result(True)
+                return existing[0]
+
+            now = time.monotonic()
+            self._sessions[key] = (new_session, now, getattr(new_session, "_pool_conn_created_at", now))
             self._adaptive_grow()
-            return session
+
+        self._record_result(True)
+        return new_session
 
     def release(self, session: requests.Session) -> None:
         """归还池化 Session：不关闭底层连接，仅保留在池中供下次复用。
@@ -170,11 +271,11 @@ class SessionPool:
         if pool_key is None:
             return
         now = time.monotonic()
+        conn_created_at = getattr(session, "_pool_conn_created_at", now)
         with self._lock:
-            # 如果 key 仍在池中（未被 remove），无需操作
             if pool_key in self._sessions:
                 return
-            self._sessions[pool_key] = (session, now)
+            self._sessions[pool_key] = (session, now, conn_created_at)
 
     def remove(self, session: requests.Session) -> None:
         """从池中移除一个 Session（不 close），供长轮询等场景独享 Session。
@@ -192,7 +293,7 @@ class SessionPool:
             self._consecutive_errors = 0
             self._adaptive_shrink()
         with self._lock:
-            for key, (sess, ts) in list(self._sessions.items()):
+            for key, (sess, ts, _) in list(self._sessions.items()):
                 if sess is session:
                     del self._sessions[key]
                     try:
@@ -220,7 +321,7 @@ class SessionPool:
 
     def close_all(self) -> None:
         with self._lock:
-            for session, _ in self._sessions.values():
+            for session, _, _ in self._sessions.values():
                 try:
                     session.close()
                 except Exception:
@@ -233,6 +334,10 @@ class SessionPool:
                 "pooled_sessions": len(self._sessions),
                 "max_entries": self._max_entries,
                 "ttl_seconds": self._ttl,
+                "health_check_enabled": self._health_check_enabled,
+                "connection_ttl": self._connection_ttl,
+                "error_rate": self._error_rate(),
+                "cooldown_seconds": self._cooldown_seconds(),
             }
 
 

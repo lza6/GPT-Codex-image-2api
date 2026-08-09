@@ -434,6 +434,9 @@ class ConfigStore:
         "upstream_failover_enabled",
         "session_pool_health_check_enabled",
     )
+    _FLOAT_FIELDS: tuple[tuple[str, float, float], ...] = (
+        ("metrics_sample_rate", 0.0, 1.0),
+    )
     _DICT_FIELDS: tuple[str, ...] = (
         "provider_weights",
         "provider_rate_limit_rpm",
@@ -471,6 +474,14 @@ class ConfigStore:
             bval = data.get(field)
             if bval is not None and not isinstance(bval, bool):
                 errors.append(f"{field} 必须是布尔值，当前为 {bval!r} ({type(bval).__name__})")
+        # float 字段校验
+        for field, min_v, max_v in cls._FLOAT_FIELDS:
+            fval = data.get(field)
+            if fval is not None:
+                if not isinstance(fval, (int, float)) or isinstance(fval, bool):
+                    errors.append(f"{field} 必须是浮点数，当前为 {fval!r} ({type(fval).__name__})")
+                elif not (min_v <= float(fval) <= max_v):
+                    errors.append(f"{field} 超出允许范围 [{min_v}, {max_v}]，当前为 {fval}")
         # trusted_proxies 类型校验（list[str] 或逗号分隔 str）
         tp = data.get("trusted_proxies")
         if tp is not None and not isinstance(tp, (list, str)):
@@ -986,6 +997,17 @@ class ConfigStore:
         ).strip().rstrip("/")
 
     @property
+    def metrics_sample_rate(self) -> float:
+        """Prometheus 指标采样率（0.0 关闭，1.0 全量采集，默认 1.0）。"""
+        try:
+            return max(0.0, min(1.0, float(
+                os.getenv("CHATGPT2API_METRICS_SAMPLE_RATE")
+                or self.data.get("metrics_sample_rate", 1.0)
+            )))
+        except (TypeError, ValueError):
+            return 1.0
+
+    @property
     def app_version(self) -> str:
         try:
             value = VERSION_FILE.read_text(encoding="utf-8").strip()
@@ -1021,6 +1043,8 @@ class ConfigStore:
         data["proactive_probe_interval_minute"] = self.proactive_probe_interval_minute
         data["redis_url"] = self.redis_url
         data["upstream_failover_enabled"] = self.upstream_failover_enabled
+        data["session_pool_health_check_enabled"] = self.session_pool_health_check_enabled
+        data["metrics_sample_rate"] = self.metrics_sample_rate
         data["provider_weights"] = self.provider_weights
         data["provider_rate_limit_rpm"] = self.provider_rate_limit_rpm
         data["model_upstream_map"] = self.model_upstream_map
