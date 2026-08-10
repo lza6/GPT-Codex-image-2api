@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.20.0 - 2026-08-10 (查询优化闭环)
+
+**2.3 查询优化：**
++ [新增] `services/config.py` — `auth_key` 改用 `@functools.cached_property` 缓存（每个请求鉴权高频读取），`app_version` 改用 `cached_property` 缓存
++ [新增] `services/config.py` — `metrics_sample_rate` 配置项（float 0.0~1.0，默认 1.0），`_FLOAT_FIELDS` 校验，`get()` 序列化，环境变量 `CHATGPT2API_METRICS_SAMPLE_RATE` 覆盖
++ [新增] `services/prometheus_metrics.py` — `_normalize_path()` 路径归一化函数，将含数字/UUID/长随机串的动态路径收敛为 `{id}`，防高 cardinality label 膨胀
++ [新增] `services/prometheus_metrics.py` — `record_http_request()` 自动调用 `_normalize_path()` 归一化 path 标签
++ [新增] `api/app.py` — `access_log_middleware` 接线 `record_http_request`，支持采样率配置（`_should_sample` 基于 request_id 哈希的确定性采样）
++ [新增] `config.json` — `metrics_sample_rate` 默认值 1.0
++ [前端] `web/src/lib/api.ts` — `SettingsConfig` 新增 `metrics_sample_rate` 字段
++ [前端] `web/src/app/settings/store.ts` — `normalizeConfig` 新增 `metrics_sample_rate` 归一化
++ [测试] `test/test_query_optimization.py` — 12 个测试覆盖 metrics_sample_rate 默认值、环境变量覆盖、clamp、schema 校验；路径归一化数字/hex/UUID/短路径/静态路径；record_http_request 归一化验证
+
 ## 2.19.0 - 2026-08-10 (连接池四优化)
 
 **Session Pool 性能增强（v2.17.0 四优化）：**
