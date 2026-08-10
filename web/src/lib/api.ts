@@ -426,6 +426,7 @@ export type UserKey = {
   name: string;
   role: "user";
   enabled: boolean;
+  usage_count?: number;
   created_at: string | null;
   last_used_at: string | null;
 };
@@ -887,13 +888,28 @@ export async function deleteSystemLogs(ids: string[]) {
   });
 }
 
-export async function fetchAuditLogs(filters: { days?: number; result?: string; operator?: string; limit?: number }) {
+export async function fetchAuditLogs(filters: {
+  days?: number;
+  result?: string;
+  action?: string;
+  operator?: string;
+  limit?: number;
+  start_date?: string;
+  end_date?: string;
+  page?: number;
+  page_size?: number;
+}) {
   const params = new URLSearchParams();
   if (filters.days !== undefined) params.set("days", String(filters.days));
   if (filters.result) params.set("result", filters.result);
+  if (filters.action) params.set("action", filters.action);
   if (filters.operator) params.set("operator", filters.operator);
   if (filters.limit !== undefined) params.set("limit", String(filters.limit));
-  return httpRequest<{ items: AuditLog[] }>(`/api/audit${params.toString() ? `?${params.toString()}` : ""}`);
+  if (filters.start_date) params.set("start_date", filters.start_date);
+  if (filters.end_date) params.set("end_date", filters.end_date);
+  if (filters.page !== undefined) params.set("page", String(filters.page));
+  if (filters.page_size !== undefined) params.set("page_size", String(filters.page_size));
+  return httpRequest<{ items: AuditLog[]; total: number }>(`/api/audit${params.toString() ? `?${params.toString()}` : ""}`);
 }
 
 export async function fetchUserKeys() {
@@ -1321,6 +1337,7 @@ export function probeKookeeyEgress(email: string) {
 
 export interface KookeeyConfig {
   enabled: boolean;
+  proxy_enabled?: boolean;
   extract_url?: string;
   developer_token?: string;
   access_id?: string;

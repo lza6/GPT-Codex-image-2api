@@ -2094,6 +2094,7 @@ function AccountsPageContent() {
                 )}
               </div>
             </div>
+          </div>
 
             {/* 分页控件 */}
             <div className="border-t border-stone-100 px-4 py-4">

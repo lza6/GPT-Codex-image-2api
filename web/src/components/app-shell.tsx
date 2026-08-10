@@ -8,8 +8,7 @@ import { ErrorBoundary } from "@/components/error-boundary";
 import { PageTransition } from "@/components/page-transition";
 import { ShortcutsDialog } from "@/components/shortcuts-dialog";
 import { useKeyboard } from "@/hooks/use-keyboard";
-import { getDefaultRouteForRole } from "@/store/auth";
-import { getStoredAuthSession, type StoredAuthSession } from "@/lib/auth-session";
+import { getStoredAuthSession, type StoredAuthSession } from "@/store/auth";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();

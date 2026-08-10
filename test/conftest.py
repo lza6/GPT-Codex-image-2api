@@ -11,6 +11,8 @@ webhook 等会改变存储后端或触发外部告警的变量全部钉死为本
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 _TEST_AUTH_KEY = "chatgpt2api"
@@ -24,10 +26,23 @@ _ISOLATED_ENV = {
     "CHATGPT2API_ALERT_WEBHOOK_URL": "",            # 防测试触发真实 webhook 告警
 }
 
+# 模块级设置环境变量：autouse fixture 在测试函数执行前才运行，但测试文件的
+# 模块级导入（如 `from api.app import create_app`）在 fixture 之前发生，
+# 此时 config 模块已初始化，会读取 config.json 中真实 auth-key 而非测试值，
+# 导致后续测试用 Bearer chatgpt2api 鉴权失败（401）。
+# 模块级 os.environ 确保在 conftest 加载时即注入，覆盖所有后续导入。
+for _key, _value in _ISOLATED_ENV.items():
+    os.environ.setdefault(_key, _value)
+
 
 @pytest.fixture(autouse=True)
 def _isolate_env(monkeypatch):
-    """每个测试固定关键环境变量，避免模块级 setdefault 污染其他测试。"""
+    """每个测试固定关键环境变量，避免模块级 setdefault 污染其他测试。
+
+    注意：模块级 os.environ.setdefault 已确保 config 模块导入时即拿到正确的
+    测试环境变量；此 fixture 在此基础上用 monkeypatch 强覆盖（即使模块级
+    setdefault 因变量已存在而失效，monkeypatch 也能覆盖），形成双重保险。
+    """
     for key, value in _ISOLATED_ENV.items():
         monkeypatch.setenv(key, value)
     yield
