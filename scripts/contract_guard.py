@@ -64,8 +64,11 @@ DYNAMIC_KEY_ENDPOINTS = {
     "/api/dashboard/usage",
     "/api/logs?limit=1",
     "/api/audit?limit=1",
+    "/api/audit/export",
     "/api/dashboard/usage-forecast",
     "/api/dashboard/scheduler",
+    "/api/auth/keys",
+    "/api/auth/keys/usage",
 }
 
 

@@ -912,6 +912,34 @@ export async function fetchAuditLogs(filters: {
   return httpRequest<{ items: AuditLog[]; total: number }>(`/api/audit${params.toString() ? `?${params.toString()}` : ""}`);
 }
 
+
+export async function exportAuditCsv(filters: {
+  days?: number;
+  result?: string;
+  action?: string;
+  operator?: string;
+  start_date?: string;
+  end_date?: string;
+}) {
+  const params = new URLSearchParams();
+  if (filters.days !== undefined) params.set("days", String(filters.days));
+  if (filters.result) params.set("result", filters.result);
+  if (filters.action) params.set("action", filters.action);
+  if (filters.operator) params.set("operator", filters.operator);
+  if (filters.start_date) params.set("start_date", filters.start_date);
+  if (filters.end_date) params.set("end_date", filters.end_date);
+  const response = await request.get(`/api/audit/export?${params.toString()}`, { responseType: "blob" });
+  const blob = response.data as Blob;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "audit-export.csv";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 export async function fetchUserKeys() {
   return httpRequest<{ items: UserKey[] }>("/api/auth/users");
 }
@@ -937,6 +965,86 @@ export async function deleteUserKey(keyId: string) {
 }
 
 // ── CPA (CLIProxyAPI) ──────────────────────────────────────────────
+
+
+
+// ── API Key 管理（v2.14.0：增强版，支持配额/过期/权限） ─────────────
+
+export type KeyQuota = {
+  daily_requests: number | null;
+  daily_images: number | null;
+  monthly_requests: number | null;
+  monthly_images: number | null;
+  reset_cycle: "none" | "daily" | "monthly";
+};
+
+export type KeyQuotaUsed = {
+  daily_requests: number;
+  daily_images: number;
+  monthly_requests: number;
+  monthly_images: number;
+  daily_reset_date: string | null;
+  monthly_reset_date: string | null;
+};
+
+export type ApiKey = {
+  id: string;
+  name: string;
+  role: "admin" | "user";
+  enabled: boolean;
+  created_at: string | null;
+  last_used_at: string | null;
+  usage_count: number;
+  expires_at: string | null;
+  permissions: string[];
+  quota: KeyQuota | null;
+  quota_used: KeyQuotaUsed | null;
+};
+
+export async function fetchApiKeys() {
+  return httpRequest<{ items: ApiKey[] }>("/api/auth/keys");
+}
+
+export async function createApiKey(params: {
+  name?: string;
+  role?: "admin" | "user";
+  expires_at?: string;
+  permissions?: string[];
+  quota?: KeyQuota;
+}) {
+  return httpRequest<{ item: ApiKey; key: string; items: ApiKey[] }>("/api/auth/keys", {
+    method: "POST",
+    body: params,
+  });
+}
+
+export async function updateApiKey(
+  keyId: string,
+  updates: {
+    name?: string;
+    enabled?: boolean;
+    expires_at?: string | null;
+    permissions?: string[];
+    quota?: KeyQuota | null;
+  },
+) {
+  return httpRequest<{ item: ApiKey; items: ApiKey[] }>(`/api/auth/keys/${keyId}`, {
+    method: "POST",
+    body: updates,
+  });
+}
+
+export async function deleteApiKey(keyId: string) {
+  return httpRequest<{ items: ApiKey[] }>(`/api/auth/keys/${keyId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function revokeApiKey(keyId: string) {
+  return httpRequest<{ item: ApiKey; items: ApiKey[] }>(`/api/auth/keys/${keyId}/revoke`, {
+    method: "POST",
+  });
+}
 
 export type CPAPool = {
   id: string;
@@ -1308,6 +1416,22 @@ export type MetricsSummary = {
 
 export function fetchMetricsSummary() {
   return httpRequest<MetricsSummary>("/api/dashboard/metrics_summary");
+}
+
+/** 看板事件流：最近系统事件。 */
+export type DashboardEvent = {
+  id: string;
+  type: string;
+  data: Record<string, unknown>;
+  timestamp: number;
+};
+
+export type DashboardEventsResponse = {
+  events: DashboardEvent[];
+};
+
+export function fetchDashboardEvents(limit = 50) {
+  return httpRequest<DashboardEventsResponse>(`/api/dashboard/events?limit=${limit}`);
 }
 
 /** v2.9.0：拉取 IP 池列表（账号编辑弹窗"从池选 IP"用）。 */

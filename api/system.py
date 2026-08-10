@@ -238,6 +238,39 @@ def create_router(app_version: str) -> APIRouter:
         )
         return {"items": items, "total": len(items)}
 
+    @router.get("/api/audit/export")
+    async def export_audit_csv(
+        days: int | None = Query(default=None),
+        result: str = "",
+        operator: str = "",
+        action: str = "",
+        start_date: str = "",
+        end_date: str = "",
+        authorization: str | None = Header(default=None),
+    ):
+        require_admin(authorization)
+        from services.audit_service import audit_service
+        items = audit_service.list(
+            days=days or 30, limit=10000,
+            result=result.strip(), operator=operator.strip(),
+            action=action.strip(), start_date=start_date.strip(), end_date=end_date.strip(),
+        )
+        import csv, io
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["时间", "方法", "操作", "结果", "操作者", "IP", "请求ID", "资源"])
+        for item in items:
+            writer.writerow([
+                item.get("ts", ""), item.get("method", ""), item.get("action", ""),
+                item.get("result", ""), item.get("operator", ""), item.get("ip", ""),
+                item.get("request_id", ""), item.get("resource", ""),
+            ])
+        return Response(
+            content=output.getvalue(),
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=audit-export.csv"},
+        )
+
     @router.post("/api/proxy/test")
     async def test_proxy_endpoint(body: ProxyTestRequest, authorization: str | None = Header(default=None)):
         require_admin(authorization)

@@ -17,7 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { deleteSystemLogs, fetchAuditLogs, fetchSystemLogs, type AuditLog, type SystemLog } from "@/lib/api";
+import { deleteSystemLogs, exportAuditCsv, fetchAuditLogs, fetchSystemLogs, type AuditLog, type SystemLog } from "@/lib/api";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 
 const LogType = {
@@ -112,6 +112,23 @@ function AuditSection() {
   const safePage = Math.min(page, pageCount);
   const currentRows = auditItems;
 
+  // 统计卡片计算
+  const stats = useMemo(() => {
+    const today = new Date();
+    const todayStr = today.toISOString().slice(0, 10);
+    const todayItems = auditItems.filter((item) => item.ts?.startsWith(todayStr));
+    const todayCount = todayItems.length;
+    const failedCount = auditItems.filter((item) => item.result && item.result !== "success").length;
+    const failRate = auditItems.length > 0 ? ((failedCount / auditItems.length) * 100).toFixed(1) : "0.0";
+    const actionCounts: Record<string, number> = {};
+    for (const item of auditItems) {
+      const a = item.action || "-";
+      actionCounts[a] = (actionCounts[a] || 0) + 1;
+    }
+    const topAction = Object.entries(actionCounts).sort((a, b) => b[1] - a[1])[0];
+    return { todayCount, failRate, topAction: topAction ? `${topAction[0]} (${topAction[1]})` : "-" };
+  }, [auditItems]);
+
   return (
     <Card className="overflow-hidden rounded-2xl border-white/80 bg-white/90 shadow-sm">
       <CardContent className="p-0">
@@ -125,6 +142,34 @@ function AuditSection() {
               <RefreshCw className={`size-4 ${auditPageLoading ? "animate-spin" : ""}`} />
               刷新
             </Button>
+            <Button variant="outline" className="h-8 rounded-lg border-stone-200 bg-white px-3 text-stone-700 text-xs" onClick={() => {
+              void exportAuditCsv({
+                days: 7,
+                result: resultFilter !== "all" ? resultFilter : undefined,
+                action: actionFilter || undefined,
+                operator: operatorFilter || undefined,
+                start_date: startDate || undefined,
+                end_date: endDate || undefined,
+              });
+            }}>
+              导出 CSV
+            </Button>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-4 border-b border-stone-100 px-5 py-3 text-sm">
+          <div className="flex items-center gap-2">
+            <span className="text-stone-400">今日操作</span>
+            <span className="font-semibold text-stone-700">{stats.todayCount}</span>
+          </div>
+          <div className="h-4 w-px bg-stone-200" />
+          <div className="flex items-center gap-2">
+            <span className="text-stone-400">失败率</span>
+            <span className="font-semibold text-stone-700">{stats.failRate}%</span>
+          </div>
+          <div className="h-4 w-px bg-stone-200" />
+          <div className="flex items-center gap-2">
+            <span className="text-stone-400">TOP 操作</span>
+            <span className="max-w-[200px] truncate font-medium text-stone-700">{stats.topAction}</span>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-3 border-b border-stone-100 px-5 py-3">
