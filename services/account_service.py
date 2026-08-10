@@ -1216,6 +1216,35 @@ class AccountService:
         weights = [max(0.0, self._account_dispatch_score(self._accounts.get(t) or {})) + 1.0 for t in tokens]
         return random.choices(tokens, weights=weights, k=1)[0]
 
+    @staticmethod
+    def get_account_health_score(account: dict) -> float:
+        """账号健康评分 (0-100)。"""
+        if not isinstance(account, dict):
+            return 0.0
+        status = str(account.get("status") or "")
+        if status in ("禁用",):
+            return 0.0
+        if status in ("异常",):
+            return 10.0
+        if status in ("限流",):
+            return 25.0
+        fail = max(0, int(account.get("fail") or 0))
+        success = max(0, int(account.get("success") or 0))
+        total = fail + success
+        fail_ratio = fail / max(1, total)
+        quota = max(0, int(account.get("quota") or 0))
+        quota_ratio = min(1.0, quota / 20.0)
+        base = 70.0 * (1 - fail_ratio) * quota_ratio
+        last_invalid = account.get("last_invalid_at")
+        if last_invalid:
+            try:
+                elapsed = (datetime.now(UTC) - datetime.fromisoformat(str(last_invalid).replace("Z", "+00:00"))).total_seconds()
+                recency = max(0.5, 1.0 - elapsed / 3600)
+                base *= recency
+            except Exception:
+                pass
+        return round(base, 1)
+
     def release_image_slot(self, access_token: str) -> None:
         if not access_token:
             return

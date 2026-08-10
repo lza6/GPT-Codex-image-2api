@@ -111,6 +111,51 @@ chatgpt2api_lifetime_risk = Gauge(
     ["risk"],
 )
 
+# ---- 任务 2：新增 7 个指标（Provider 调度 / 配额 / 熔断 / 图片 / 会话池 / 上游延迟） ----
+
+c2api_accounts_total = Gauge(
+    "c2api_accounts_total",
+    "Account count by provider and status",
+    ["provider", "status"],
+)
+
+c2api_token_requests_total = Counter(
+    "c2api_token_requests_total",
+    "Token request count by provider and result",
+    ["provider", "result"],
+)
+
+c2api_session_pool_size = Gauge(
+    "c2api_session_pool_size",
+    "Session pool size by provider",
+    ["provider"],
+)
+
+c2api_circuit_breaker_state = Gauge(
+    "c2api_circuit_breaker_state",
+    "Circuit breaker state (0=closed, 1=half_open, 2=open)",
+    ["provider", "name"],
+)
+
+c2api_image_tasks_total = Counter(
+    "c2api_image_tasks_total",
+    "Image task count by type and status",
+    ["type", "status"],
+)
+
+c2api_quota_remaining = Gauge(
+    "c2api_quota_remaining",
+    "Account quota remaining",
+    ["account"],
+)
+
+c2api_upstream_latency_seconds = Histogram(
+    "c2api_upstream_latency_seconds",
+    "Upstream latency by provider and endpoint",
+    ["provider", "endpoint"],
+    buckets=(0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0),
+)
+
 
 _PATH_CARDINALITY_PATTERNS = (
     # 数字 ID → {id}（如 /api/accounts/refresh/progress/12345）
@@ -206,6 +251,44 @@ def record_audit_action(action: str, result: str) -> None:
 def record_image_task_completed() -> None:
     """记录图片任务完成，递减在途计数。"""
     chatgpt2api_image_tasks_inflight.dec()
+
+
+# ---- 任务 2：record_* 函数（对应 7 个新指标） ----
+
+
+def record_accounts_count(provider: str, status: str, count: int) -> None:
+    """记录账号数量（按 provider 和 status）。"""
+    c2api_accounts_total.labels(provider=provider, status=status).set(count)
+
+
+def record_token_request(provider: str, result: str) -> None:
+    """记录 Token 请求计数（按 provider 和 result）。"""
+    c2api_token_requests_total.labels(provider=provider, result=result).inc()
+
+
+def update_session_pool_size(provider: str, size: int) -> None:
+    """更新会话池大小（按 provider）。"""
+    c2api_session_pool_size.labels(provider=provider).set(size)
+
+
+def record_circuit_breaker_state(provider: str, name: str, state: int) -> None:
+    """记录熔断器状态（0=closed, 1=half_open, 2=open）。"""
+    c2api_circuit_breaker_state.labels(provider=provider, name=name).set(state)
+
+
+def record_image_task(type: str, status: str) -> None:
+    """记录图片任务计数（按 type 和 status）。"""
+    c2api_image_tasks_total.labels(type=type, status=status).inc()
+
+
+def record_quota_remaining(account: str, quota: float) -> None:
+    """记录账号配额剩余。"""
+    c2api_quota_remaining.labels(account=account).set(quota)
+
+
+def record_upstream_latency(provider: str, endpoint: str, duration_seconds: float) -> None:
+    """记录上游请求延迟（按 provider 和 endpoint）。"""
+    c2api_upstream_latency_seconds.labels(provider=provider, endpoint=endpoint).observe(duration_seconds)
 
 
 def generate_metrics() -> tuple[bytes, str]:

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import gzip
 import hashlib
 import itertools
 import json
 import logging
 import os
+import shutil
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -208,6 +210,9 @@ class LogService:
         if self._add_count >= 200:
             self._add_count = 0
             self._auto_cleanup()
+        # 大小轮转检查（1.5：size / mixed 模式）
+        if self._log_rotation_strategy in ("size", "mixed"):
+            self._check_size_rotation()
 
     # ---- 自动清理 ----
     _AUTO_CLEAN_MAX_ENTRIES = 5000
@@ -325,14 +330,34 @@ class LogService:
                 _atomic_write_text(path, content)
         return {"removed": removed}
 
-    # ---- 聚合统计 ----
+    # ---- 1.1 聚合统计 ----
+
+    def _get_group_key(self, item: dict[str, Any], group_by: str, period: str) -> str:
+        """根据 group_by 和 period 提取分组 key。"""
+        detail = item.get("detail") or {}
+        if group_by == "type":
+            return str(item.get("type") or "unknown")
+        elif group_by == "status":
+            return str(detail.get("status") or "unknown")
+        elif group_by == "hour":
+            ts = item.get("time") or item.get("ts") or ""
+            return str(ts)[:13] if period == "hour" else str(ts)[:10]
+        elif group_by == "provider":
+            return str(detail.get("provider") or "unknown")
+        elif group_by == "account_email":
+            emails = _collect_account_emails(detail)
+            return emails[0] if emails else "unknown"
+        elif group_by == "endpoint":
+            return str(detail.get("endpoint") or "unknown")
+        else:
+            return "unknown"
 
     def aggregate(self, filter: dict[str, Any], group_by: str = "type", period: str = "day") -> list[dict[str, Any]]:
         """按维度聚合统计日志。
 
         Args:
             filter: 筛选条件（同 list 的 type/start_date/end_date 等）
-            group_by: 分组维度：type / status / hour
+            group_by: 分组维度：type / status / hour / provider / account_email / endpoint
             period: 时间粒度：day / hour
         Returns:
             [{"group": str, "count": int, "period": str}, ...]
@@ -341,63 +366,335 @@ class LogService:
         items = self.list(**{k: v for k, v in filter.items() if v}, limit=100000)
         buckets: dict[str, int] = {}
         for item in items:
-            detail = item.get("detail") or {}
-            if group_by == "type":
-                key = str(item.get("type") or "unknown")
-            elif group_by == "status":
-                key = str(detail.get("status") or "unknown")
-            elif group_by == "hour":
-                ts = item.get("time") or item.get("ts") or ""
-                key = str(ts)[:13] if period == "hour" else str(ts)[:10]
-            else:
-                key = "unknown"
+            key = self._get_group_key(item, group_by, period)
             buckets[key] = buckets.get(key, 0) + 1
         return sorted([{"group": k, "count": v} for k, v in buckets.items()], key=lambda x: -x["count"])
 
-    # ---- CSV 导出 ----
+    def multi_dimension_aggregate(self, filter: dict, group_by: list[str], period: str = "day") -> list[dict]:
+        """多维度组合聚合查询。
 
-    def export_csv(self, filter: dict[str, Any]) -> str:
-        """导出日志为 CSV 格式字符串。"""
+        Args:
+            filter: 筛选条件（同 list 的 type/start_date/end_date 等）
+            group_by: 多维度列表，如 ["type", "provider"]
+            period: 时间粒度：day / hour
+        Returns:
+            [{"dimensions": {"type": "call", "provider": "chatgpt"}, "count": 10, "period": "2026-08-10"}, ...]
+        """
+        self._ensure_migrated()
+        items = self.list(**{k: v for k, v in filter.items() if v}, limit=100000)
+        buckets: dict[str, dict[str, str] | int] = {}
+        for item in items:
+            dims: dict[str, str] = {}
+            for dim in group_by:
+                dims[dim] = self._get_group_key(item, dim, period)
+            # 用维度组合的 JSON 序列化作为复合 key
+            key = json.dumps(dims, sort_keys=True, separators=(",", ":"))
+            if key not in buckets:
+                buckets[key] = {"dimensions": dims, "count": 0, "period": self._today_str()}
+            buckets[key]["count"] += 1  # type: ignore[operator]
+        return list(buckets.values())
+
+    # ---- 1.2 分页导出 ----
+
+    def export_csv(self, filter: dict[str, Any], fields: list[str] | None = None) -> str:
+        """导出日志为 CSV 格式字符串。
+
+        Args:
+            filter: 筛选条件
+            fields: 可选字段列表，默认 ["id", "time", "type", "summary", "status", "error"]
+        """
         self._ensure_migrated()
         items = self.list(**{k: v for k, v in filter.items() if v}, limit=50000)
-        lines = ["id,time,type,summary,status,error"]
+        if fields is None:
+            fields = ["id", "time", "type", "summary", "status", "error"]
+        lines = [",".join(fields)]
         for item in items:
-            item_id = str(item.get("id", "")).replace(",", " ")
-            ts = str(item.get("time") or item.get("ts") or "")
-            typ = str(item.get("type", "")).replace(",", " ")
-            summary = str(item.get("summary", "")).replace(",", " ").replace('"', "'")
-            detail = item.get("detail") or {}
-            status = str(detail.get("status", "")).replace(",", " ")
-            error = str(detail.get("error", "")).replace(",", " ").replace('"', "'")
-            lines.append(f"{item_id},{ts},{typ},{summary},{status},{error}")
+            row_values = []
+            for field in fields:
+                val = self._csv_field_value(item, field)
+                row_values.append(val.replace(",", " "))
+            lines.append(",".join(row_values))
         return "\n".join(lines)
 
-    # ---- 归档 ----
+    def _csv_field_value(self, item: dict[str, Any], field: str) -> str:
+        """从日志条目中提取 CSV 字段值。"""
+        if field == "id":
+            return str(item.get("id", ""))
+        elif field in ("time", "ts"):
+            return str(item.get("time") or item.get("ts") or "")
+        elif field == "type":
+            return str(item.get("type", ""))
+        elif field == "summary":
+            return str(item.get("summary", "")).replace('"', "'")
+        elif field == "status":
+            detail = item.get("detail") or {}
+            return str(detail.get("status", ""))
+        elif field == "error":
+            detail = item.get("detail") or {}
+            return str(detail.get("error", "")).replace('"', "'")
+        else:
+            detail = item.get("detail") or {}
+            raw = item.get(field) or detail.get(field) or ""
+            return str(raw).replace('"', "'")
+
+    def export_csv_paginated(self, filter: dict, page: int = 1, page_size: int = 1000, fields: list[str] | None = None) -> dict:
+        """分页导出 CSV。
+
+        Args:
+            filter: 筛选条件
+            page: 页码（从 1 开始）
+            page_size: 每页条数
+            fields: 可选字段列表
+        Returns:
+            {"items": [csv_row_str, ...], "total": int, "page": int, "page_size": int, "total_pages": int}
+        """
+        self._ensure_migrated()
+        total_items = self.list(**{k: v for k, v in filter.items() if v}, limit=100000)
+        total = len(total_items)
+        total_pages = max(1, (total + page_size - 1) // page_size)
+        start = (page - 1) * page_size
+        end = start + page_size
+        page_raw = total_items[start:end]
+
+        if fields is None:
+            fields = ["id", "time", "type", "summary", "status", "error"]
+
+        items: list[str] = []
+        if page == 1:
+            items.append(",".join(fields))
+        for item in page_raw:
+            row_values = [self._csv_field_value(item, f).replace(",", " ") for f in fields]
+            items.append(",".join(row_values))
+
+        return {
+            "items": items,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": total_pages,
+        }
+
+    def export_json(self, filter: dict, page: int = 1, page_size: int = 1000, fields: list[str] | None = None) -> dict:
+        """分页导出 JSON 格式字符串行。
+
+        Args:
+            filter: 筛选条件
+            page: 页码（从 1 开始）
+            page_size: 每页条数
+            fields: 可选字段列表
+        Returns:
+            {"items": [json_str_line, ...], "total": int, "page": int, "page_size": int, "total_pages": int}
+        """
+        self._ensure_migrated()
+        total_items = self.list(**{k: v for k, v in filter.items() if v}, limit=100000)
+        total = len(total_items)
+        total_pages = max(1, (total + page_size - 1) // page_size)
+        start = (page - 1) * page_size
+        end = start + page_size
+        page_raw = total_items[start:end]
+
+        items: list[str] = []
+        for item in page_raw:
+            if fields is not None:
+                filtered = {f: item.get(f) or (item.get("detail") or {}).get(f) for f in fields}
+                items.append(json.dumps(filtered, ensure_ascii=False, separators=(",", ":")))
+            else:
+                items.append(json.dumps(item, ensure_ascii=False, separators=(",", ":")))
+
+        return {
+            "items": items,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": total_pages,
+        }
+
+    # ---- 1.3 归档增强 ----
 
     def archive(self, before_days: int = 90) -> dict[str, Any]:
-        """归档过期日志到压缩文件。
+        """归档过期日志到压缩文件（增强版：gzip + sha256 校验 + 归档索引）。
 
-        将超过 before_days 的天文件打包为 data/logs-archive-YYYYMMDD.zip
-        然后删除原文件。
+        将超过 before_days 的天文件 gzip 压缩到 data/logs/archives/logs-archive-YYYYMMDD_HHMMSS/，
+        生成 sha256 校验清单，然后删除原文件。归档索引写入 data/archive_index.json。
+
+        Returns:
+            {"archived": int, "files": [...], "archive_path": str,
+             "checksums": {...}, "index_path": str}
         """
-        import zipfile
-
         self._ensure_migrated()
         cutoff = (datetime.now() - timedelta(days=before_days)).strftime("%Y-%m-%d")
-        archive_path = self._log_dir / f"logs-archive-{datetime.now().strftime('%Y%m%d')}.zip"
+
+        # 收集过期文件
+        expired_paths = []
+        for path in self._daily_files():
+            day = self._day_from_name(path.name)
+            if day and day < cutoff:
+                expired_paths.append(path)
+
+        if not expired_paths:
+            return {
+                "archived": 0,
+                "files": [],
+                "archive_path": "",
+                "checksums": {},
+                "index_path": str(DATA_DIR / "archive_index.json"),
+            }
+
+        archive_dir = self._log_dir / "archives"
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        archive_path = archive_dir / f"logs-archive-{ts}"
+        archive_path.mkdir(parents=True, exist_ok=True)
+
         archived = 0
-        archived_files = []
+        archived_files: list[str] = []
+        checksums: dict[str, str] = {}
 
-        with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED) as zf:
-            for path in self._daily_files():
-                day = self._day_from_name(path.name)
-                if day and day < cutoff:
-                    zf.write(path, arcname=path.name)
-                    archived_files.append(path.name)
-                    archived += 1
-                    path.unlink()
+        for path in expired_paths:
+            data = path.read_bytes()
+            # gzip 压缩
+            gz_name = f"{path.name}.gz"
+            gz_path = archive_path / gz_name
+            gz_path.write_bytes(gzip.compress(data))
+            # sha256 校验
+            checksums[path.name] = hashlib.sha256(data).hexdigest()
+            archived_files.append(path.name)
+            archived += 1
+            path.unlink()
 
-        return {"archived": archived, "files": archived_files, "archive_path": str(archive_path)}
+        # 写入校验清单
+        checksum_path = archive_path / "checksums.sha256"
+        checksum_lines = [f"{digest}  {fname}" for fname, digest in checksums.items()]
+        checksum_path.write_text("\n".join(checksum_lines) + "\n", encoding="utf-8")
+
+        # 更新归档索引
+        index_path = DATA_DIR / "archive_index.json"
+        existing_index: list[dict] = []
+        if index_path.exists():
+            try:
+                existing_index = json.loads(index_path.read_text(encoding="utf-8"))
+                if not isinstance(existing_index, list):
+                    existing_index = []
+            except Exception:
+                existing_index = []
+        existing_index.append({
+            "archive_path": str(archive_path),
+            "timestamp": datetime.now().isoformat(timespec="milliseconds"),
+            "files": archived_files,
+            "checksums": checksums,
+            "before_days": before_days,
+            "cutoff": cutoff,
+        })
+        from services.storage.json_storage import _atomic_write_text
+        _atomic_write_text(index_path, json.dumps(existing_index, ensure_ascii=False, indent=2) + "\n")
+
+        return {
+            "archived": archived,
+            "files": archived_files,
+            "archive_path": str(archive_path),
+            "checksums": checksums,
+            "index_path": str(index_path),
+        }
+
+    # ---- 1.4 慢查询详情 ----
+
+    def slow_query_detail(self, detail: dict) -> None:
+        """写入慢查询详情到 data/slow_queries/slow_queries-YYYY-MM-DD.jsonl。
+
+        Args:
+            detail: 慢查询详情字典，应包含 duration_ms 等字段
+        """
+        slow_dir = DATA_DIR / "slow_queries"
+        slow_dir.mkdir(parents=True, exist_ok=True)
+        today = self._today_str()
+        path = slow_dir / f"slow_queries-{today}.jsonl"
+        entry = dict(detail)
+        entry.setdefault("ts", datetime.now().isoformat(timespec="milliseconds"))
+        with path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False, separators=(",", ":")) + "\n")
+
+    def list_slow_queries(self, start_date: str = "", end_date: str = "", threshold_ms: int = 5000) -> list[dict[str, Any]]:
+        """查询慢查询记录。
+
+        Args:
+            start_date: 起始日期 YYYY-MM-DD，默认 7 天前
+            end_date: 结束日期 YYYY-MM-DD，默认今天
+            threshold_ms: 耗时阈值（毫秒），默认 5000
+        Returns:
+            慢查询条目列表，按 duration_ms 降序
+        """
+        slow_dir = DATA_DIR / "slow_queries"
+        if not slow_dir.exists():
+            return []
+
+        today = self._today_str()
+        end = end_date[:10] if end_date else today
+        start = start_date[:10] if start_date else (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+
+        result: list[dict[str, Any]] = []
+        for path in sorted(slow_dir.glob("slow_queries-*.jsonl")):
+            fname = path.name
+            # slow_queries-YYYY-MM-DD.jsonl
+            day = fname[13:-6] if fname.startswith("slow_queries-") and fname.endswith(".jsonl") else ""
+            if not day or day < start or day > end:
+                continue
+            for line in path.read_text(encoding="utf-8").splitlines():
+                try:
+                    item = json.loads(line)
+                except Exception:
+                    continue
+                if not isinstance(item, dict):
+                    continue
+                duration = item.get("duration_ms") or 0
+                if duration >= threshold_ms:
+                    result.append(item)
+
+        return sorted(result, key=lambda x: -(x.get("duration_ms") or 0))
+
+    # ---- 1.5 可配置轮转策略 ----
+
+    @property
+    def _log_rotation_strategy(self) -> str:
+        """从 config 读取日志轮转策略：day / size / mixed。"""
+        from services.config import config
+        try:
+            strategy = str(config.data.get("log_rotation", {}).get("strategy", "day")).strip().lower()
+        except Exception:
+            strategy = "day"
+        return strategy if strategy in ("day", "size", "mixed") else "day"
+
+    @property
+    def _log_rotation_max_size_mb(self) -> int:
+        """从 config 读取单文件最大大小（MB）。"""
+        from services.config import config
+        try:
+            return max(1, int(config.data.get("log_rotation", {}).get("max_size_mb", 100)))
+        except (TypeError, ValueError):
+            return 100
+
+    def _check_size_rotation(self) -> None:
+        """检查当天日志文件大小，超限则滚动重命名 .1 / .2 后缀。"""
+        today = self._today_str()
+        path = self._daily_path(today)
+        if not path.exists():
+            return
+        max_bytes = self._log_rotation_max_size_mb * 1024 * 1024
+        try:
+            size = path.stat().st_size
+        except OSError:
+            return
+        if size <= max_bytes:
+            return
+        with self._write_lock:
+            # 找到下一个可用序号
+            for i in range(1, 100):
+                rotated = self._log_dir / f"logs-{today}.{i}.jsonl"
+                if not rotated.exists():
+                    try:
+                        path.rename(rotated)
+                    except OSError:
+                        pass
+                    return
 
 
 log_service = LogService(DATA_DIR / "logs.jsonl")
