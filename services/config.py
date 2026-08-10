@@ -427,6 +427,10 @@ class ConfigStore:
         ("alert_webhook_timeout", (1, 300)),
         ("proactive_probe_interval_minute", (5, 1440)),
         ("audit_retention_days", (1, 3650)),
+        ("self_heal_retry_initial_secs", (1, 86400)),
+        ("self_heal_retry_max_secs", (1, 86400)),
+        ("self_heal_retry_max_attempts", (1, 100)),
+        ("account_warmup_timeout_secs", (5, 3600)),
     )
     _BOOL_FIELDS: tuple[str, ...] = (
         "sqlite_wal_mode",
@@ -434,6 +438,8 @@ class ConfigStore:
         "proactive_probe_enabled",
         "upstream_failover_enabled",
         "session_pool_health_check_enabled",
+        "self_heal_auto_replace_enabled",
+        "account_warmup_enabled",
     )
     _FLOAT_FIELDS: tuple[str, ...] = (
         "metrics_sample_rate",
@@ -446,7 +452,7 @@ class ConfigStore:
         "model_upstream_map",
     )
     _ENUM_FIELDS: tuple[tuple[str, tuple[str, ...]], ...] = (
-        ("scheduler_mode", ("round_robin", "remaining_quota", "weighted_random")),
+        ("scheduler_mode", ("round_robin", "remaining_quota", "weighted_random", "least_load", "predictive", "affinity")),
     )
 
     @staticmethod
@@ -596,7 +602,18 @@ class ConfigStore:
             or self.data.get("scheduler_mode")
             or "round_robin"
         ).strip().lower()
-        return value if value in {"round_robin", "remaining_quota", "weighted_random"} else "round_robin"
+        return value if value in {"round_robin", "remaining_quota", "weighted_random", "least_load", "predictive", "affinity"} else "round_robin"
+
+    @property
+    def scheduler_affinity_ttl_seconds(self) -> float:
+        """Affinity 调度模式：同一模型路由到同一账号的亲和超时（秒，默认 300）。"""
+        try:
+            return max(60.0, float(
+                os.getenv("CHATGPT2API_SCHEDULER_AFFINITY_TTL")
+                or self.data.get("scheduler_affinity_ttl_seconds", 300)
+            ))
+        except (TypeError, ValueError):
+            return 300.0
 
     @property
     def rate_limit_rpm(self) -> int:
@@ -917,6 +934,54 @@ class ConfigStore:
         return result
 
     @property
+    def self_heal_retry_initial_secs(self) -> int:
+        """自愈指数退避初始延迟（秒，默认 60）。"""
+        try:
+            return max(1, int(self.data.get("self_heal_retry_initial_secs", 60)))
+        except (TypeError, ValueError):
+            return 60
+
+    @property
+    def self_heal_retry_max_secs(self) -> int:
+        """自愈指数退避最大延迟（秒，默认 3600）。"""
+        try:
+            return max(1, int(self.data.get("self_heal_retry_max_secs", 3600)))
+        except (TypeError, ValueError):
+            return 3600
+
+    @property
+    def self_heal_retry_max_attempts(self) -> int:
+        """自愈指数退避最大重试次数（默认 5）。"""
+        try:
+            return max(1, int(self.data.get("self_heal_retry_max_attempts", 5)))
+        except (TypeError, ValueError):
+            return 5
+
+    @property
+    def self_heal_auto_replace_enabled(self) -> bool:
+        """自动替换不健康账号开关（默认关闭）。"""
+        value = self.data.get("self_heal_auto_replace_enabled", False)
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+        return bool(value)
+
+    @property
+    def account_warmup_enabled(self) -> bool:
+        """新账号预热开关（默认开启）。"""
+        value = self.data.get("account_warmup_enabled", True)
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+        return bool(value)
+
+    @property
+    def account_warmup_timeout_secs(self) -> float:
+        """账号预热超时秒数（默认 60）。"""
+        try:
+            return max(5.0, float(self.data.get("account_warmup_timeout_secs", 60.0)))
+        except (TypeError, ValueError):
+            return 60.0
+
+    @property
     def abnormal_auto_recover_max_workers(self) -> int:
         """v2.9.0：异常账号自动恢复并发数上限。"""
         try:
@@ -1066,6 +1131,12 @@ class ConfigStore:
         data["alert_events"] = self.alert_events
         data["proactive_probe_enabled"] = self.proactive_probe_enabled
         data["proactive_probe_interval_minute"] = self.proactive_probe_interval_minute
+        data["self_heal_retry_initial_secs"] = self.self_heal_retry_initial_secs
+        data["self_heal_retry_max_secs"] = self.self_heal_retry_max_secs
+        data["self_heal_retry_max_attempts"] = self.self_heal_retry_max_attempts
+        data["self_heal_auto_replace_enabled"] = self.self_heal_auto_replace_enabled
+        data["account_warmup_enabled"] = self.account_warmup_enabled
+        data["account_warmup_timeout_secs"] = self.account_warmup_timeout_secs
         data["redis_url"] = self.redis_url
         data["upstream_failover_enabled"] = self.upstream_failover_enabled
         data["session_pool_health_check_enabled"] = self.session_pool_health_check_enabled

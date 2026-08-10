@@ -603,6 +603,28 @@ def create_router() -> APIRouter:
             "items": refresh_result.get("items", add_result.get("items", [])),
         }
 
+    @router.get("/api/accounts/health-scores")
+    async def get_account_health_scores(authorization: str | None = Header(default=None)):
+        """返回所有账号的健康评分列表。"""
+        require_admin(authorization)
+        items = account_service.list_accounts()
+        scores = []
+        for account in items:
+            token = account.get("access_token", "")
+            score = account.get("health_score", account_service._compute_health_score(account))
+            scores.append({
+                "access_token_suffix": str(token)[-8:] if token else "",
+                "email": account.get("email", ""),
+                "health_score": score,
+                "status": account.get("status", ""),
+                "tier": account.get("tier", account_service._account_health_tier(account)),
+                "quota": account.get("quota", 0),
+                "success": account.get("success", 0),
+                "fail": account.get("fail", 0),
+                "health_score_below_20_since": account.get("health_score_below_20_since"),
+            })
+        return {"scores": scores}
+
     @router.get("/api/cpa/pools")
     async def list_cpa_pools(authorization: str | None = Header(default=None)):
         require_admin(authorization)

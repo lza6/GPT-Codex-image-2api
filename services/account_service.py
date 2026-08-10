@@ -10,7 +10,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from threading import Condition, Lock, Thread
+from threading import Condition, Lock, RLock, Thread
 from typing import Any
 from urllib.parse import urlencode
 
@@ -68,7 +68,7 @@ class AccountService:
         self._breaker_registry = circuit_breaker_registry
         # prune 节流：距上次清理 <60s 跳过（防 SSE 高频轮询 get 路径 O(n) 全扫退化，红队 R5）
         self._last_prune_at: dict[int, float] = {}
-        self._lock = Lock()
+        self._lock = RLock()
         self._token_refresh_lock = Lock()
         self._image_slot_condition = Condition(self._lock)
         self._index = 0
@@ -79,6 +79,11 @@ class AccountService:
         self._cumulative_total = self._load_cumulative_total()
         self._account_list_cache: dict[str, object] = {}
         self._account_list_cache_at: float = 0.0
+        # 智能调度增强：Affinity 亲和路由
+        self._affinity_map: dict[str, str] = {}  # model -> last_token
+        self._affinity_at: dict[str, float] = {}  # model -> last_used_timestamp
+        # 智能调度增强：Predictive EWMA 消耗速率（token -> rate）
+        self._usage_rate: dict[str, float] = {}  # token -> EWMA rate (calls/hour)
 
     def set_circuit_breaker_registry(self, registry) -> None:
         """注入熔断器注册表（生产为全局单例，测试注入独立实例验证清理）。"""
@@ -402,6 +407,11 @@ class AccountService:
         from services.providers import normalize_provider
         normalized["provider"] = normalize_provider(normalized.get("provider"))
         normalized["created_at"] = normalized.get("created_at") or AccountService._now()
+        normalized["health_score"] = float(normalized.get("health_score") or 0.0)
+        normalized["health_score_below_20_since"] = normalized.get("health_score_below_20_since") or None
+        normalized["self_heal_retry_attempts"] = int(normalized.get("self_heal_retry_attempts") or 0)
+        normalized["self_heal_next_retry_at"] = normalized.get("self_heal_next_retry_at") or None
+        normalized["replaced_by"] = normalized.get("replaced_by") or None
         return normalized
 
     @staticmethod
@@ -1178,6 +1188,7 @@ class AccountService:
             source_type: str | None = None,
             plan_types: set[str] | tuple[str, ...] | None = None,
             provider: str | None = None,
+            model: str = "",
     ) -> str:
         with self._image_slot_condition:
             while True:
@@ -1196,6 +1207,15 @@ class AccountService:
                         # 摊平单账号磨损（纯 round_robin 均匀但无视健康差异，排序首选手
                         # 又造成单账号热点）。权重取 max(score,0)+1 保底，避免零权。
                         access_token = self._weighted_pick(tokens)
+                    elif config.scheduler_mode == "least_load":
+                        # Least-Load：选择当前负载最低的账号（image_inflight 最小者）
+                        access_token = self._pick_least_load(tokens)
+                    elif config.scheduler_mode == "predictive":
+                        # Predictive：基于历史用量预测选择配额最充足的账号
+                        access_token = self._pick_predictive(tokens)
+                    elif config.scheduler_mode == "affinity":
+                        # Affinity：同一模型路由到同一账号（5 分钟无请求超时释放）
+                        access_token = self._pick_affinity(tokens, model=model)
                     else:
                         access_token = tokens[self._index % len(tokens)]
                         self._index += 1
@@ -1218,6 +1238,90 @@ class AccountService:
         """
         weights = [max(0.0, self._account_dispatch_score(self._accounts.get(t) or {})) + 1.0 for t in tokens]
         return random.choices(tokens, weights=weights, k=1)[0]
+
+    # ---- 智能调度增强：Least-Load / Predictive / Affinity ----
+
+    def _pick_least_load(self, tokens: list[str]) -> str:
+        """Least-Load：选择当前负载最低的账号（image_inflight 最小者）。
+
+        适用于突发流量场景，避免单账号过载。
+        """
+        if not tokens:
+            raise RuntimeError("no available tokens for least_load pick")
+        # 按 image_inflight 升序取首（同负载取第一个）
+        return min(tokens, key=lambda t: int(self._image_inflight.get(t, 0)))
+
+    def _pick_predictive(self, tokens: list[str]) -> str:
+        """Predictive：基于历史用量预测，选择配额最充足的账号。
+
+        使用账号的 success/fail 计数和 last_used_at 计算近似消耗速率，
+        结合剩余配额预测可用时间，选最长者。无历史数据时回退 round_robin。
+        """
+        if not tokens:
+            raise RuntimeError("no available tokens for predictive pick")
+        now = time.time()
+
+        def _predicted_remaining_seconds(token: str) -> float:
+            account = self._accounts.get(token) or {}
+            quota = max(0, int(account.get("quota") or 0))
+            success = max(0, int(account.get("success") or 0))
+            fail = max(0, int(account.get("fail") or 0))
+            total_used = success + fail
+            if total_used == 0:
+                # 无历史数据：视为高可用，返回大值
+                return float(quota * 3600) if quota > 0 else -1.0
+            last_used_raw = account.get("last_used_at")
+            if last_used_raw:
+                try:
+                    last_used = datetime.fromisoformat(str(last_used_raw).replace("Z", "+00:00")).timestamp()
+                except Exception:
+                    last_used = now
+            else:
+                last_used = now
+            hours_since_first_use = max(0.001, (now - min(last_used, now)) / 3600)
+            # EWMA 消耗速率（次/小时），以总用量 / 存在时间 近似
+            rate = total_used / hours_since_first_use
+            if rate <= 0:
+                return float(quota * 3600) if quota > 0 else -1.0
+            return quota / rate * 3600 if quota > 0 else -1.0
+
+        # 按预测剩余时间降序取首
+        return max(tokens, key=_predicted_remaining_seconds)
+
+    def _pick_affinity(self, tokens: list[str], model: str = "") -> str:
+        """Affinity：同一模型（model）的请求尽量路由到同一账号。
+
+        维护 _affinity_map（model -> last_token）字典，优先选上一次同一模型
+        用的账号（若可用）。超时机制：_affinity_ttl 秒无该模型请求则释放。
+        """
+        if not tokens:
+            raise RuntimeError("no available tokens for affinity pick")
+        if not model:
+            # 无模型信息时回退 round_robin
+            return tokens[self._index % len(tokens)]
+
+        now = time.time()
+        # 清理过期亲和性
+        stale_models = [
+            m for m, at in self._affinity_at.items()
+            if now - at > config.scheduler_affinity_ttl_seconds
+        ]
+        for m in stale_models:
+            self._affinity_map.pop(m, None)
+            self._affinity_at.pop(m, None)
+
+        # 尝试亲和命中
+        last_token = self._affinity_map.get(model)
+        if last_token and last_token in tokens:
+            self._affinity_at[model] = now
+            return last_token
+
+        # 亲和未命中或超时，选一个 token 并记录亲和
+        chosen = tokens[self._index % len(tokens)]
+        self._index += 1
+        self._affinity_map[model] = chosen
+        self._affinity_at[model] = now
+        return chosen
 
     @staticmethod
     def get_account_health_score(account: dict) -> float:
@@ -1266,12 +1370,15 @@ class AccountService:
             source_type: str | None = None,
             plan_types: set[str] | tuple[str, ...] | None = None,
             provider: str | None = None,
+            model: str = "",
     ) -> str:
         """从候选池中获取一个可用的图片生图 token。
 
         8.2：当 provider 未指定时，按权重选取 provider。
         基于本地缓存做初筛，然后通过 fetch_remote_info 做远程验证（token 有效性、配额等）。
         限制最大尝试次数防止 token rotation 导致无限循环。
+
+        model 参数用于 affinity/predictive 调度模式（可选，默认空字符串）。
         """
         # 8.2：权重调度：当 provider 未指定时，按权重选取
         from services.provider_scheduler import provider_scheduler
@@ -1297,6 +1404,7 @@ class AccountService:
                 source_type=source_type,
                 plan_types=plan_types,
                 provider=provider,
+                model=model,
             )
             attempted_tokens.add(access_token)
             # 熔断器：熔断中的账号直接跳过，避免上游抖动雪崩
@@ -1525,6 +1633,9 @@ class AccountService:
                 tier = self._account_health_tier(account)
                 account["tier"] = tier
                 account["score"] = self._account_dispatch_score(account, tier)
+                # 确保健康评分存在
+                if "health_score" not in account or account.get("health_score") is None:
+                    account["health_score"] = self._compute_health_score(account)
                 result.append(account)
                 # 注入 Prometheus 账号数量指标
                 try:
@@ -1923,6 +2034,83 @@ class AccountService:
             return True
         return False
 
+    # ---- 自愈功能：健康评分 + 指数退避 + 自动替换 ----
+
+    @classmethod
+    def _compute_health_score(cls, account: dict) -> float:
+        """计算账号健康评分 (0-100)。
+
+        公式：score = 100 * (1 - fail_ratio) * quota_ratio * recency_factor
+        - fail_ratio = fail / max(1, success + fail)
+        - quota_ratio = min(1.0, quota / 20)
+        - recency_factor = max(0.5, 1.0 - last_error_minutes / 60)
+        """
+        if not isinstance(account, dict):
+            return 0.0
+        status = str(account.get("status") or "")
+        if status == "禁用":
+            return 0.0
+        if status == "异常":
+            return 10.0
+        if status == "限流":
+            return 25.0
+        fail = max(0, int(account.get("fail") or 0))
+        success = max(0, int(account.get("success") or 0))
+        total = fail + success
+        fail_ratio = fail / max(1, total)
+        quota = max(0, int(account.get("quota") or 0))
+        quota_ratio = min(1.0, quota / 20.0)
+        recency_factor = 1.0
+        last_invalid = account.get("last_invalid_at")
+        if last_invalid:
+            try:
+                elapsed = (datetime.now(UTC) - datetime.fromisoformat(str(last_invalid).replace("Z", "+00:00"))).total_seconds()
+                recency_factor = max(0.5, 1.0 - elapsed / 3600)
+            except Exception:
+                pass
+        score = 100.0 * (1.0 - fail_ratio) * quota_ratio * recency_factor
+        return round(score, 1)
+
+    def _update_health_score(self, access_token: str) -> None:
+        """计算并更新账号健康评分，同时跟踪低分持续时间。"""
+        with self._lock:
+            access_token = self._resolve_access_token_locked(access_token)
+            current = self._accounts.get(access_token)
+            if current is None:
+                return
+            score = self._compute_health_score(current)
+            next_item = dict(current)
+            next_item["health_score"] = score
+            if score < 20 and current.get("health_score_below_20_since") is None:
+                next_item["health_score_below_20_since"] = datetime.now(UTC).isoformat()
+            elif score >= 20:
+                next_item["health_score_below_20_since"] = None
+            account = self._normalize_account(next_item)
+            if account is not None:
+                self._accounts[access_token] = account
+                self._save_accounts()
+
+    def _exponential_backoff_delay(self, account: dict) -> float | None:
+        """计算指数退避延迟：若未到退避时间返回 None（跳过），否则返回 0 表示可立即重试。
+
+        退避公式：min(initial_delay * 2^attempt, max_delay)
+        """
+        attempts = int(account.get("self_heal_retry_attempts") or 0)
+        if attempts >= config.self_heal_retry_max_attempts:
+            return None
+        initial = config.self_heal_retry_initial_secs
+        max_delay = config.self_heal_retry_max_secs
+        next_retry_raw = account.get("self_heal_next_retry_at")
+        if next_retry_raw:
+            try:
+                next_retry_at = datetime.fromisoformat(str(next_retry_raw).replace("Z", "+00:00"))
+                if next_retry_at > datetime.now(UTC):
+                    return None  # 未到退避时间，跳过
+            except Exception:
+                pass
+        delay = min(initial * (2 ** attempts), max_delay)
+        return delay
+
     def _record_invalid_token_seen(
         self,
         access_token: str,
@@ -1936,17 +2124,37 @@ class AccountService:
             current = self._accounts.get(access_token)
             if current is None:
                 return True
+            # 指数退避检查：只有在退避时间已过时才继续标记为需恢复
+            backoff_delay = self._exponential_backoff_delay(current)
+            if backoff_delay is not None:
+                # 已到达退避时间，重置尝试计数并更新
+                next_item = dict(current)
+                next_item["self_heal_retry_attempts"] = int(next_item.get("self_heal_retry_attempts") or 0) + 1
+                next_attempts = int(next_item["self_heal_retry_attempts"])
+                if next_attempts < config.self_heal_retry_max_attempts:
+                    # 计算下一次重试时间
+                    next_delay = min(config.self_heal_retry_initial_secs * (2 ** next_attempts), config.self_heal_retry_max_secs)
+                    next_item["self_heal_next_retry_at"] = (now + timedelta(seconds=next_delay)).isoformat()
+                else:
+                    next_item["self_heal_next_retry_at"] = None
+            else:
+                # 未到退避时间或已达到最大尝试次数，跳过恢复标记
+                next_item = dict(current)
+                pass  # 仍然记录 invalid_count，但不标记为可恢复
+
             should_defer = defer_invalid_removal and self._should_defer_invalid_token(current, now)
-            next_item = dict(current)
             next_item["invalid_count"] = int(next_item.get("invalid_count") or 0) + 1
             next_item["last_invalid_at"] = now.isoformat()
             next_item["last_refresh_error"] = str(error or "invalid access token")
             next_item["last_refresh_error_at"] = now.isoformat()
             next_item["last_refresh_error_detail"] = str(error or "invalid access token")
+            # 更新健康评分
             account = self._normalize_account(next_item)
             if account is not None:
                 self._accounts[access_token] = account
                 self._save_accounts()
+            # 重新计算健康评分（基于已更新的 fail/last_invalid_at 等字段）
+            self._update_health_score(access_token)
             if should_defer:
                 log_service.add(
                     LOG_TYPE_ACCOUNT,
@@ -1995,6 +2203,8 @@ class AccountService:
             account = self._normalize_account(next_item)
             if account is None:
                 return None
+            # 更新健康评分
+            self._update_health_score(access_token)
             if account.get("status") == "限流" and config.auto_remove_rate_limited_accounts:
                 self._accounts.pop(access_token, None)
                 # D4：自动移除账号时清理熔断器（防注册表孤儿化）
@@ -2215,7 +2425,7 @@ class AccountService:
                 p0.append(token)
                 continue
             try:
-                remaining = _token_expires_in(token)
+                remaining = self._token_expires_in(token)
                 if remaining is not None:
                     if remaining < 1800:
                         p0.append(token)
@@ -2571,6 +2781,96 @@ class AccountService:
             "status": "ok" if stats["active"] > 0 else "degraded",
             **stats,
         }
+
+    # ---- 自愈：自动替换不健康账号 ----
+
+    def _list_backup_candidate_tokens(self, excluded_tokens: set[str] | None = None) -> list[str]:
+        """列出备用池候选账号：status=healthy 且 quota > 20 且未被主调度选取。
+
+        从正常账号中筛选未被排除的、符合健康条件的 token。
+        """
+        excluded = set(excluded_tokens or set())
+        with self._lock:
+            return [
+                item["access_token"]
+                for item in self._accounts.values()
+                if item.get("status") == "正常"
+                and "replaced_by" not in item or not item.get("replaced_by")
+                and int(item.get("quota") or 0) > 20
+                and self._account_health_tier(item) == self._HEALTHY
+                and (token := item.get("access_token") or "")
+                and token not in excluded
+            ]
+
+    def _auto_replace_unhealthy(self) -> dict[str, int]:
+        """自动替换不健康账号：health_score < 20 且持续 1 小时以上。
+
+        从备用池选取替代：status=healthy 且 quota > 20 且未被主调度选取。
+        配置 self_heal_auto_replace_enabled 控制开关（默认关）。
+        替换操作：标记旧账号为 replaced 状态，新账号自动加入调度池。
+        """
+        if not config.self_heal_auto_replace_enabled:
+            return {"replaced": 0, "skipped": 0, "no_backup": 0}
+
+        now = datetime.now(UTC)
+        replaced = 0
+        skipped = 0
+        no_backup = 0
+        unhealthy_tokens: list[str] = []
+
+        with self._lock:
+            for item in self._accounts.values():
+                token = item.get("access_token") or ""
+                if not token:
+                    continue
+                score = float(item.get("health_score") or 0.0)
+                if score >= 20:
+                    continue
+                below_since = item.get("health_score_below_20_since")
+                if not below_since:
+                    continue
+                try:
+                    since = datetime.fromisoformat(str(below_since).replace("Z", "+00:00"))
+                except Exception:
+                    continue
+                if (now - since).total_seconds() < 3600:
+                    skipped += 1
+                    continue
+                unhealthy_tokens.append(token)
+
+        if not unhealthy_tokens:
+            return {"replaced": 0, "skipped": 0, "no_backup": 0}
+
+        for token in unhealthy_tokens:
+            backup_tokens = self._list_backup_candidate_tokens(excluded_tokens={token})
+            if not backup_tokens:
+                no_backup += 1
+                continue
+            backup_token = backup_tokens[0]
+            backup_account = self.get_account(backup_token)
+            if not backup_account:
+                no_backup += 1
+                continue
+            # 标记旧账号为 replaced
+            self.update_account(token, {
+                "status": "replaced",
+                "replaced_by": backup_token,
+                "quota": 0,
+            }, quiet=True)
+            # 更新健康评分
+            self._update_health_score(token)
+            replaced += 1
+            log_service.add(
+                LOG_TYPE_ACCOUNT,
+                "自动替换不健康账号",
+                {
+                    "old_token": anonymize_token(token),
+                    "new_token": anonymize_token(backup_token),
+                    "reason": "health_score_below_20_for_1h",
+                },
+            )
+
+        return {"replaced": replaced, "skipped": skipped, "no_backup": no_backup}
 
 
 account_service = AccountService(

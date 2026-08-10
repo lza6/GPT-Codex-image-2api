@@ -143,15 +143,20 @@ def sanitize_sub2api_servers(servers: list[dict]) -> list[dict]:
 
 
 def start_limited_account_watcher(stop_event: Event) -> Thread:
-    interval_seconds = config.refresh_account_interval_minute * 60
     # v2.9.0：异常账号自动恢复是 watcher 第二职责，独立更长间隔
     abnormal_recover_seconds = config.abnormal_auto_recover_interval_minutes * 60
     last_abnormal_recover_ts: float = 0.0
     last_p1_ts: float = 0.0
     last_p2_ts: float = 0.0
+    # 自愈：自动替换周期（5 分钟）
+    _SELF_HEAL_INTERVAL = 300.0
+    last_self_heal_ts: float = 0.0
+    # 预热：新账号预热周期（5 分钟）
+    _WARMUP_INTERVAL = 300.0
+    last_warmup_ts: float = 0.0
 
     def worker() -> None:
-        nonlocal last_abnormal_recover_ts, last_p1_ts, last_p2_ts
+        nonlocal last_abnormal_recover_ts, last_p1_ts, last_p2_ts, last_self_heal_ts, last_warmup_ts
         while not stop_event.is_set():
             try:
                 # 三级优先级刷新（P0紧急/P1常规/P2低优）
@@ -178,8 +183,6 @@ def start_limited_account_watcher(stop_event: Event) -> Thread:
                 # v2.9.0：限流账号若 quota=0 且 restore_at 在未来（未到期），跳过刷新避免浪费上游额度
                 # 只刷限流但 quota>0（说明限流但还有额度，可能刚解限）或 restore_at 已过期的账号
                 import time as _time_mod
-                from datetime import UTC, datetime
-                now_dt = datetime.now(UTC)
                 skip_count = 0
                 filtered_limited = []
                 for token in limited_tokens:
@@ -247,6 +250,35 @@ def start_limited_account_watcher(stop_event: Event) -> Thread:
                             logger.warning(
                                 {"event": "account_watcher_recover_failed", "error": str(recover_exc)}
                             )
+
+                # 自愈：自动替换不健康账号（每 5 分钟）
+                if now_ts - last_self_heal_ts >= _SELF_HEAL_INTERVAL:
+                    last_self_heal_ts = now_ts
+                    try:
+                        replace_result = account_service._auto_replace_unhealthy()
+                        if replace_result.get("replaced", 0) > 0:
+                            print(
+                                f"[account-watcher] auto-replace unhealthy: "
+                                f"replaced={replace_result.get('replaced', 0)}, "
+                                f"no_backup={replace_result.get('no_backup', 0)}"
+                            )
+                    except Exception as self_heal_exc:  # noqa: BLE001
+                        logger.warning(
+                            {"event": "account_watcher_self_heal_failed", "error": str(self_heal_exc)}
+                        )
+
+                # 预热：新账号预热（每 5 分钟）
+                if now_ts - last_warmup_ts >= _WARMUP_INTERVAL:
+                    last_warmup_ts = now_ts
+                    try:
+                        from services.account_warmup import account_warmup
+                        warmed = account_warmup.warmup_new_accounts()
+                        if warmed:
+                            print(f"[account-watcher] warmup started for {warmed} new accounts")
+                    except Exception as warmup_exc:  # noqa: BLE001
+                        logger.warning(
+                            {"event": "account_watcher_warmup_failed", "error": str(warmup_exc)}
+                        )
             except Exception as exc:  # noqa: BLE001
                 # S-R7：后台线程异常改走 logger（原 print 不进 server.log，bat 下无迹可寻）
                 logger.warning({"event": "account_watcher_failed", "error": str(exc)})
