@@ -78,9 +78,6 @@ class AccountService:
         self._cumulative_total = self._load_cumulative_total()
         self._account_list_cache: dict[str, object] = {}
         self._account_list_cache_at: float = 0.0
-        # 自适应并发：429 限流计数
-        self._consecutive_429_count: int = 0
-        self._max_workers_adjust_lock = Lock()
 
     def set_circuit_breaker_registry(self, registry) -> None:
         """注入熔断器注册表（生产为全局单例，测试注入独立实例验证清理）。"""
@@ -1411,16 +1408,7 @@ class AccountService:
         except Exception:
             pass
         if not config.auto_remove_invalid_accounts:
-            # 读取当前 invalid_count 递增，确保 list_abnormal_tokens_for_recover 能发现
-            cur = self.get_account(access_token) or {}
-            cur_invalid_count = int(cur.get("invalid_count") or 0)
-            self.update_account(access_token, {
-                "status": "异常", "quota": 0,
-                "invalid_count": cur_invalid_count + 1,
-                "last_invalid_at": datetime.now(UTC).isoformat(),
-                "last_refresh_error": str(event or "invalid access token"),
-                "last_refresh_error_at": datetime.now(UTC).isoformat(),
-            }, quiet=quiet)
+            self.update_account(access_token, {"status": "异常", "quota": 0}, quiet=quiet)
             # 通过事件总线发布账号失效事件
             try:
                 from services.event_bus import ACCOUNT_INVALID, Event, event_bus
@@ -2158,123 +2146,11 @@ class AccountService:
         with self._relogin_progress_lock:
             self._relogin_progress.pop(progress_id, None)
 
-    # ---- 增量刷新：三级优先级 + 自适应并发 ----
-
-    # 刷新优先级常量
-    P0 = "P0"  # 紧急：即将过期/限流/keepalive 到期
-    P1 = "P1"  # 常规：正常账号
-    P2 = "P2"  # 低优：异常/禁用/待观察
-    _PRIORITY_ORDER = (P0, P1, P2)
-
-    _ADAPTIVE_MAX_WORKERS_BASE = 10
-    _ADAPTIVE_MAX_WORKERS_MIN = 2
-    _ADAPTIVE_429_THRESHOLD = 3       # 连续 429 超过此值开始降并发
-    _ADAPTIVE_429_RECOVERY_INTERVAL = 60  # 无 429 持续 60s 后恢复一级
-
-    def _prioritize_refresh_tokens(self) -> dict[str, list[str]]:
-        """按优先级将账号 token 分为三级。
-
-        P0（紧急，需立即刷新）：
-          - 限流账号（status=限流，且未到 restore_at）
-          - access_token 即将过期（JWT exp 快到期）
-          - refresh_token keepalive 到期
-          - 最近刷新失败、需重试的账号
-        P1（常规）：status=正常，无近期失败
-        P2（低优）：status=异常/禁用，以及其余账号
-        """
-        now = datetime.now(UTC)
-        p0: list[str] = []
-        p1: list[str] = []
-        p2: list[str] = []
-
-        with self._lock:
-            for account in self._accounts.values():
-                token = str(account.get("access_token") or "").strip()
-                if not token:
-                    continue
-                status = str(account.get("status") or "").strip()
-
-                # P0 判定
-                is_p0 = False
-
-                # 限流账号
-                if status == "限流":
-                    quota = int(account.get("quota") or 0)
-                    restore_at = str(account.get("restore_at") or "").strip()
-                    if quota > 0:
-                        is_p0 = True
-                    elif restore_at:
-                        # restore_at 已过期 → P0，否则跳过（不加入任何级别）
-                        try:
-                            restore_ts = datetime.fromisoformat(restore_at.replace("Z", "+00:00")).timestamp()
-                            if restore_ts <= time.time():
-                                is_p0 = True
-                        except Exception:
-                            is_p0 = True
-                    else:
-                        is_p0 = True
-
-                # access_token 即将过期
-                if not is_p0 and self._token_needs_refresh(token):
-                    is_p0 = True
-
-                # refresh_token keepalive 到期
-                if not is_p0 and self._refresh_token_keepalive_due_at(account, now) is not None:
-                    is_p0 = True
-
-                # 最近刷新失败（需重试）
-                if not is_p0:
-                    refresh_err = self._recent_error_seconds(account, "last_refresh_error_at")
-                    if refresh_err is not None and refresh_err < 600:
-                        is_p0 = True
-
-                if is_p0:
-                    p0.append(token)
-                    continue
-
-                # P1 vs P2
-                if status == "正常":
-                    p1.append(token)
-                else:
-                    # 异常、禁用等
-                    p2.append(token)
-
-        return {"P0": p0, "P1": p1, "P2": p2}
-
-    def _adaptive_max_workers(self, base: int | None = None) -> int:
-        """根据连续 429 调整并发数。
-
-        连续 429 超过 _ADAPTIVE_429_THRESHOLD 次，每超一次降低一级并发：
-        base → base//2 → base//4 → ... → _ADAPTIVE_MAX_WORKERS_MIN。
-        连续 _ADAPTIVE_429_RECOVERY_INTERVAL 秒无新 429 则恢复一级。
-        """
-        with self._max_workers_adjust_lock:
-            base = base or self._ADAPTIVE_MAX_WORKERS_BASE
-            count = self._consecutive_429_count
-            if count <= 0:
-                return base
-            # 每超 threshold 一次，并发减半
-            reduction_levels = max(0, count - self._ADAPTIVE_429_THRESHOLD + 1)
-            workers = max(self._ADAPTIVE_MAX_WORKERS_MIN, base >> reduction_levels)
-            return workers
-
-    def _record_429_for_adaptive(self) -> None:
-        """记录一次 429，用于自适应并发降级。"""
-        with self._max_workers_adjust_lock:
-            self._consecutive_429_count += 1
-
-    def _record_429_success_for_adaptive(self) -> None:
-        """记录一次无 429 间隔，用于自适应并发恢复。"""
-        with self._max_workers_adjust_lock:
-            if self._consecutive_429_count > 0:
-                self._consecutive_429_count = 0
-
     def refresh_accounts(
         self,
         access_tokens: list[str],
         progress_id: str | None = None,
         defer_invalid_removal: bool = True,
-        priority_level: str | None = None,
     ) -> dict[str, Any]:
         access_tokens = list(dict.fromkeys(token for token in access_tokens if token))
         if not access_tokens:
@@ -2286,12 +2162,7 @@ class AccountService:
 
         refreshed = 0
         errors = []
-        base_workers = {
-            self.P0: 10,
-            self.P1: 5,
-            self.P2: 2,
-        }.get(priority_level, 10)
-        max_workers = min(self._adaptive_max_workers(base_workers), len(access_tokens))
+        max_workers = min(10, len(access_tokens))
 
         if progress_id:
             self.init_refresh_progress(progress_id, len(access_tokens))
@@ -2311,11 +2182,6 @@ class AccountService:
                     raise
                 except Exception as exc:
                     error_str = str(exc)
-                    # 检测 429 用于自适应并发降级
-                    if "429" in error_str or "rate_limit" in error_str.lower():
-                        self._record_429_for_adaptive()
-                    else:
-                        self._record_429_success_for_adaptive()
                     # TLS/代理连接错误是网络问题，不计入账号失败
                     from services.image_failure import is_tls_connection_error
                     if not is_tls_connection_error(error_str):
