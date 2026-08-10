@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.24.0 - 2026-08-11 (事件总线 Pub/Sub 增强)
+
+**EventBusV2 增强：**
++ [新增] `services/event_bus.py` — EventType 枚举（26 个事件类型，含账号/调度/熔断/系统/代理/备份/配置）
++ [新增] `services/event_bus.py` — Event.source/severity 增强字段，subscribe_all 通配符订阅
++ [新增] `services/event_bus.py` — 异步消费者（asyncio.Queue + 后台协程），publish_async 入队/publish_sync 同步入队
++ [新增] `services/event_bus.py` — 事件统计（发布计数/severity 分布/handler 耗时/死信计数/消费者深度）
++ [新增] `services/prometheus_metrics.py` — 4 个事件指标：c2api_events_published_total / c2api_events_consumer_processed_total / c2api_events_dead_letter_total / c2api_events_handler_duration_seconds
++ [新增] `services/event_bus_init.py` — 注册新事件类型 ACCOUNT_BLOCKED/SCHEDULER_*/PROXY_*/SYSTEM_* 的订阅者
++ [新增] `api/app.py` — lifespan 启动/停止事件总线消费者后台任务
++ [测试] `test/test_event_bus.py` — 42 个测试覆盖 EventType 枚举/Event 增强/subscribe_all/消费者模式/事件统计/边界情况
++ [测试] `test/test_event_bus_events.py` — 4 个测试覆盖业务事件发布
+
 ## 2.17.0 - 2026-08-10 (看板 v3 深度升级)
 
 **看板升级：**

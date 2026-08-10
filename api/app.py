@@ -7,12 +7,14 @@ from threading import Event
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from api import accounts, ai, dashboard, image_tasks, keys, kookeey, logs, providers, proxy_pool, system, tracing
 from api.errors import install_exception_handlers
 from api.rate_limit import RateLimitMiddleware
-from api.support import resolve_web_asset, start_limited_account_watcher, start_proactive_probe
+from api.support import resolve_web_asset, start_limited_account_watcher, start_proactive_probe, WEB_DIST_DIR
 from services.backup_service import backup_service
 from services.config import config
 from services.image_service import start_image_cleanup_scheduler
@@ -155,6 +157,9 @@ def create_app() -> FastAPI:
                 response.headers["X-Request-ID"] = req_id
                 response.headers["X-Response-Time-Ms"] = str(elapsed_ms)
 
+    # GZip 压缩：对 >500 字节的响应启用 gzip，加速静态资源传输
+    app.add_middleware(GZipMiddleware, minimum_size=500)
+
     # S-R15：注册限流中间件（此前 RateLimitMiddleware 定义了但从未接线，
     # rate_limit_rpm 配置形同虚设）。0 表示关闭；基于 BaseHTTPMiddleware，
     # 需在 CORS 之前注册成最外层。
@@ -195,13 +200,15 @@ def create_app() -> FastAPI:
     app.include_router(logs.create_router())
     app.include_router(tracing.create_router())
 
+    # _next/static CSS/JS → StaticFiles，直接走底层 ASGI 不走中间件栈
+    _static_dir = WEB_DIST_DIR / "_next" / "static"
+    if _static_dir.exists():
+        app.mount("/_next/static", StaticFiles(directory=str(_static_dir), check_dir=False), name="next_static")
+
     @app.api_route("/{full_path:path}", methods=["GET", "HEAD"], include_in_schema=False)
     async def serve_web(full_path: str):
         # 修复：浏览器缓存的旧 RSC 数据可能引用已不存在的旧 chunk URL，
         # 导致 _next//_next/static/chunks/xxx.js 双斜杠 404 路径阻塞页面。
-        # 剥离多余 _next/ 前缀，回源到正确路径。
-        # 注意：_next/ 与其他路径之间是单斜杠 /，但 URL 中双斜杠 // 被 FastAPI
-        # 路由保留，所以 full_path 可以包含 _next//_next/
         if full_path.startswith("_next//_next/"):
             full_path = "_next/" + full_path[len("_next//_next/"):]
             asset = resolve_web_asset(full_path)
@@ -212,19 +219,14 @@ def create_app() -> FastAPI:
         asset = resolve_web_asset(full_path)
         if asset is not None:
             headers: dict[str, str] = {}
-            # _next/static 文件是内容哈希文件名，可永久缓存
-            if full_path.startswith("_next/static/"):
-                headers["Cache-Control"] = "public, max-age=31536000, immutable"
-            # RSC 负载（__next.*.txt）禁止浏览器缓存，否则旧 RSC 数据
-            # 会引用已不存在的旧 chunk URL，导致 404 阻塞页面切换
-            elif "__next." in full_path.split("/")[-1] and full_path.endswith(".txt"):
+            # RSC 负载（__next.*.txt）禁止浏览器缓存
+            if "__next." in full_path.split("/")[-1] and full_path.endswith(".txt"):
                 headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
             return FileResponse(asset, headers=headers)
-        # 缺失的 _next/static 文件直接 404，不返回 index.html
-        # 否则浏览器会收到 HTML 却当作 JS 执行，产生语法错误
+        # 缺失的 _next/static 文件直接 404
         if full_path.strip("/").startswith("_next/"):
             raise HTTPException(status_code=404, detail="Not Found")
-        # SPA fallback：非 _next/* 路径返回 index.html
+        # SPA fallback
         fallback = resolve_web_asset("")
         if fallback is None:
             raise HTTPException(status_code=404, detail="Not Found")
