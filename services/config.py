@@ -426,6 +426,7 @@ class ConfigStore:
         ("progress_ttl_seconds", (1, 86400)),
         ("alert_webhook_timeout", (1, 300)),
         ("proactive_probe_interval_minute", (5, 1440)),
+        ("audit_retention_days", (1, 3650)),
     )
     _BOOL_FIELDS: tuple[str, ...] = (
         "sqlite_wal_mode",
@@ -436,6 +437,8 @@ class ConfigStore:
     )
     _FLOAT_FIELDS: tuple[str, ...] = (
         "metrics_sample_rate",
+        "traces_sample_rate",
+        "traces_slow_threshold_ms",
     )
     _DICT_FIELDS: tuple[str, ...] = (
         "provider_weights",
@@ -961,6 +964,10 @@ class ConfigStore:
         return value if value in {"auto", "standard", "extended", "max"} else "auto"
 
     @property
+    def audit_retention_days(self) -> int:
+        return int(self.data.get("audit_retention_days", 90))
+
+    @property
     def images_dir(self) -> Path:
         path = DATA_DIR / "images"
         path.mkdir(parents=True, exist_ok=True)
@@ -1133,6 +1140,17 @@ class ConfigStore:
 
     def get_chat_completion_cache_settings(self) -> dict[str, object]:
         return _normalize_chat_completion_cache_settings(self.data.get("chat_completion_cache"))
+
+    def get_quota_management(self) -> dict[str, object]:
+        self._try_reload()
+        raw = self.data.get("quota_management")
+        if not isinstance(raw, dict):
+            return {"enabled": False, "default_quota": {}, "overage_action": "reject"}
+        return {
+            "enabled": bool(raw.get("enabled", False)),
+            "default_quota": raw.get("default_quota") if isinstance(raw.get("default_quota"), dict) else {},
+            "overage_action": str(raw.get("overage_action") or "reject"),
+        }
 
     def get_storage_backend(self) -> StorageBackend:
         """获取存储后端实例（单例）"""

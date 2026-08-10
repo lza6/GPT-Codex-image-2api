@@ -107,6 +107,25 @@ def sanitize_cpa_pool(pool: dict | None) -> dict | None:
     return {key: value for key, value in pool.items() if key != "secret_key"}
 
 
+def check_api_quota(identity: dict[str, object], api_type: str = "request") -> None:
+    """检查配额并记录用量，超出时返回 429。
+
+    admin 角色跳过检查，配额检查失败不阻断主流程。
+    """
+    if identity.get("role") == "admin":
+        return
+    try:
+        from services.quota_service import quota_service
+        allowed, reason = quota_service.check_quota(identity, api_type=api_type)
+        if not allowed:
+            raise HTTPException(status_code=429, detail={"error": reason})
+        quota_service.record_usage(identity, api_type=api_type)
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+
+
 def sanitize_cpa_pools(pools: list[dict]) -> list[dict]:
     return [sanitized for pool in pools if (sanitized := sanitize_cpa_pool(pool)) is not None]
 

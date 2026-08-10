@@ -4,6 +4,9 @@
 """
 
 from __future__ import annotations
+import time
+_ts = str(int(time.time() * 1000))
+
 
 import pytest
 from fastapi.testclient import TestClient
@@ -23,7 +26,7 @@ def _auth_header() -> dict[str, str]:
 
 def test_create_key(client: TestClient) -> None:
     resp = client.post("/api/auth/keys", json={
-        "name": "test key",
+        "name": f"test-key-{_ts}",
         "role": "user",
         "quota": {"daily_requests": 100, "reset_cycle": "daily"},
     }, headers=_auth_header())
@@ -31,7 +34,7 @@ def test_create_key(client: TestClient) -> None:
     data = resp.json()
     assert "item" in data
     assert "key" in data
-    assert data["item"]["name"] == "test key"
+    assert data["item"]["name"] == f"test-key-{_ts}"
     assert data["item"]["quota"]["daily_requests"] == 100
 
 
@@ -45,7 +48,7 @@ def test_list_keys(client: TestClient) -> None:
 
 
 def test_update_key(client: TestClient) -> None:
-    resp = client.post("/api/auth/keys", json={"name": "upd", "role": "user"}, headers=_auth_header())
+    resp = client.post("/api/auth/keys", json={"name": f"upd-{_ts}", "role": "user"}, headers=_auth_header())
     item = resp.json()["item"]
     key_id = item["id"]
     resp = client.post(f"/api/auth/keys/{key_id}", json={"enabled": False}, headers=_auth_header())
@@ -54,7 +57,7 @@ def test_update_key(client: TestClient) -> None:
 
 
 def test_delete_key(client: TestClient) -> None:
-    resp = client.post("/api/auth/keys", json={"name": "del", "role": "user"}, headers=_auth_header())
+    resp = client.post("/api/auth/keys", json={"name": f"del-{_ts}", "role": "user"}, headers=_auth_header())
     key_id = resp.json()["item"]["id"]
     resp = client.delete(f"/api/auth/keys/{key_id}", headers=_auth_header())
     assert resp.status_code == 200, resp.text
@@ -64,7 +67,7 @@ def test_delete_key(client: TestClient) -> None:
 
 
 def test_revoke_key(client: TestClient) -> None:
-    resp = client.post("/api/auth/keys", json={"name": "rev", "role": "user"}, headers=_auth_header())
+    resp = client.post("/api/auth/keys", json={"name": f"rev-{_ts}", "role": "user"}, headers=_auth_header())
     key_id = resp.json()["item"]["id"]
     resp = client.post(f"/api/auth/keys/{key_id}/revoke", headers=_auth_header())
     assert resp.status_code == 200, resp.text
@@ -78,7 +81,7 @@ def test_create_key_unauthorized(client: TestClient) -> None:
 
 def test_create_key_expires_at(client: TestClient) -> None:
     resp = client.post("/api/auth/keys", json={
-        "name": "exp",
+        "name": f"exp-{_ts}",
         "role": "user",
         "expires_at": "2027-06-15",
     }, headers=_auth_header())

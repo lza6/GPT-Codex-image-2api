@@ -26,6 +26,18 @@ _AUDIT_RETENTION_DAYS = 90
 _AUTO_CLEAN_MAX_ENTRIES = 20000
 _AUTO_CLEAN_KEEP = 12000
 
+_SENSITIVE_ACTIONS: tuple[str, ...] = (
+    "delete", "revoke", "config", "update",
+    "/api/accounts/delete", "/api/auth/keys/delete",
+    "/api/system/config", "/api/system/log-level",
+    "/api/backup/delete", "/api/proxy/runtime",
+)
+
+
+def _is_sensitive_action(action: str) -> bool:
+    lowered = action.lower()
+    return any(s in lowered for s in _SENSITIVE_ACTIONS)
+
 
 class AuditService:
     def __init__(self, path: Path):
@@ -103,6 +115,19 @@ class AuditService:
         with self._write_lock:
             with target.open("a", encoding="utf-8") as fh:
                 fh.write(self._serialize_item(item) + "\n")
+        # 敏感操作告警（失败不阻断）
+        if _is_sensitive_action(str(item.get("action"))):
+            try:
+                from services.alert_service import send_alert
+                send_alert("sensitive_audit_action", {
+                    "action": str(item.get("action")),
+                    "operator": str(item.get("operator")),
+                    "result": str(item.get("result")),
+                    "resource": str(item.get("resource")),
+                    "ts": str(item.get("ts")),
+                })
+            except Exception:  # noqa: BLE001
+                pass
         # 指标：管理动作计数（多 worker 下 prometheus_client 自动聚合）
         try:
             from services.prometheus_metrics import record_audit_action
@@ -211,7 +236,8 @@ class AuditService:
         """
         try:
             with self._write_lock:
-                cutoff = (datetime.now() - timedelta(days=_AUDIT_RETENTION_DAYS)).strftime("%Y-%m-%d")
+                from services.config import config
+                cutoff = (datetime.now() - timedelta(days=config.audit_retention_days)).strftime("%Y-%m-%d")
                 for path in self._daily_files():
                     day = self._day_from_name(path.name)
                     if day and day < cutoff:

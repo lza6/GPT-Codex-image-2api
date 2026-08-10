@@ -9,7 +9,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
-from api import accounts, ai, dashboard, image_tasks, keys, kookeey, providers, proxy_pool, system, tracing
+from api import accounts, ai, dashboard, image_tasks, keys, kookeey, providers, proxy_pool, system
 from api.errors import install_exception_handlers
 from api.rate_limit import RateLimitMiddleware
 from api.support import resolve_web_asset, start_limited_account_watcher, start_proactive_probe
@@ -173,6 +173,16 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    # 注册请求追踪中间件（6.1 TracedMiddleware）
+    try:
+        from services.tracing import TracedMiddleware
+        app.add_middleware(
+            TracedMiddleware,
+            sample_rate=config.traces_sample_rate,
+            slow_threshold_ms=config.traces_slow_threshold_ms,
+        )
+    except Exception:
+        pass
     app.include_router(ai.create_router())
     app.include_router(accounts.create_router())
     app.include_router(keys.create_router())
@@ -182,7 +192,7 @@ def create_app() -> FastAPI:
     app.include_router(proxy_pool.create_router())
     app.include_router(kookeey.create_router())
     app.include_router(providers.create_router())
-    app.include_router(tracing.create_router())
+    
 
     @app.api_route("/{full_path:path}", methods=["GET", "HEAD"], include_in_schema=False)
     async def serve_web(full_path: str):

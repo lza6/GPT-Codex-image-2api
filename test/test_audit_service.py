@@ -351,3 +351,13 @@ class TestAuditEndpoint:
         first = body["items"][0]
         for key in ("ts", "action", "result", "operator"):
             assert key in first, f"审计条目缺字段 {key}"
+
+
+def test_sensitive_action_triggers_alert() -> None:
+    """敏感操作触发告警（不阻塞 record 主流程）。"""
+    from services.audit_service import _SENSITIVE_ACTIONS, _is_sensitive_action
+    assert _is_sensitive_action("delete key")
+    assert _is_sensitive_action("/api/auth/keys/delete")
+    assert _is_sensitive_action("update config")
+    assert not _is_sensitive_action("get list")
+    assert not _is_sensitive_action("read audit")
