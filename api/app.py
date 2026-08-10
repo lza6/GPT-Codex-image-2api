@@ -9,7 +9,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
-from api import accounts, ai, dashboard, image_tasks, kookeey, providers, proxy_pool, system
+from api import accounts, ai, dashboard, image_tasks, keys, kookeey, providers, proxy_pool, system, tracing
 from api.errors import install_exception_handlers
 from api.rate_limit import RateLimitMiddleware
 from api.support import resolve_web_asset, start_limited_account_watcher, start_proactive_probe
@@ -40,6 +40,14 @@ def create_app() -> FastAPI:
             pass
 
         stop_event = Event()
+        # 配置追踪器（从 config 读取慢请求阈值和缓冲区大小）
+        try:
+            tracer.slow_threshold_ms = config.trace_slow_threshold_ms
+            buffer_size = config.trace_buffer_size
+            import collections
+            tracer._buffer = collections.deque(maxlen=buffer_size)
+        except Exception:  # noqa: BLE001
+            pass
         thread = start_limited_account_watcher(stop_event)
         cleanup_thread = start_image_cleanup_scheduler(stop_event)
         probe_thread = start_proactive_probe(stop_event)
@@ -167,12 +175,14 @@ def create_app() -> FastAPI:
     )
     app.include_router(ai.create_router())
     app.include_router(accounts.create_router())
+    app.include_router(keys.create_router())
     app.include_router(image_tasks.create_router())
     app.include_router(system.create_router(app_version))
     app.include_router(dashboard.create_router())
     app.include_router(proxy_pool.create_router())
     app.include_router(kookeey.create_router())
     app.include_router(providers.create_router())
+    app.include_router(tracing.create_router())
 
     @app.api_route("/{full_path:path}", methods=["GET", "HEAD"], include_in_schema=False)
     async def serve_web(full_path: str):
