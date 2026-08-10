@@ -437,6 +437,8 @@ class ConfigStore:
     )
     _FLOAT_FIELDS: tuple[str, ...] = (
         "metrics_sample_rate",
+        "traces_sample_rate",
+        "traces_slow_threshold_ms",
     )
     _DICT_FIELDS: tuple[str, ...] = (
         "provider_weights",

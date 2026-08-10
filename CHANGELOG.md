@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.17.0 - 2026-08-10 (看板 v3 深度升级)
+
+**看板升级：**
++ [新增] `web/src/components/dashboard/kpi-bar.tsx` — 顶部 KPI 自动滚动条（motion 数字滚动动画）
++ [新增] `web/src/components/dashboard/provider-radar.tsx` — Provider 多维雷达对比图（recharts RadarChart + 趋势折线图）
++ [新增] `web/src/components/dashboard/health-heatmap.tsx` — 账号健康热力图（CSS Grid 颜色编码）
++ [新增] `web/src/components/dashboard/event-stream.tsx` — 实时事件流（类型过滤 + 点击详情 + motion 动画）
++ [新增] `web/src/app/dashboard/page.tsx` — 集成 KpiBar/ProviderRadarChart/HealthHeatmap/EventStream 四个新组件
++ [新增] `api/dashboard.py` `GET /api/dashboard/events` — 看板事件端点
++ [新增] `services/event_bus.py` — 环形缓冲区记录最近 100 条事件 + `get_recent_events()` 查询方法
++ [新增] `web/src/lib/api.ts` — `DashboardEvent` / `DashboardEventsResponse` 类型 + `fetchDashboardEvents()` 函数
++ [新增] `web/src/app/globals.css` — CSS 变量体系补充（间距/阴影/动画时长/ease）
++ [变更] `api/dashboard.py` SSE `_build_stream_payload` 新增 events 字段实时推送
++ [变更] `web/src/app/dashboard/page.tsx` SSE 事件处理新增 `payload.events` 实时更新
+
 ## 2.20.0 - 2026-08-10 (查询优化闭环)
 
 **2.3 查询优化：**

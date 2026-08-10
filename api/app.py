@@ -173,6 +173,16 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    # 注册请求追踪中间件（6.1 TracedMiddleware）
+    try:
+        from services.tracing import TracedMiddleware
+        app.add_middleware(
+            TracedMiddleware,
+            sample_rate=config.traces_sample_rate,
+            slow_threshold_ms=config.traces_slow_threshold_ms,
+        )
+    except Exception:
+        pass
     app.include_router(ai.create_router())
     app.include_router(accounts.create_router())
     app.include_router(keys.create_router())

@@ -1,4 +1,5 @@
-"""6.1-6.3：完整请求追踪系统。
+import pathlib
+content = r'''"""6.1-6.3：完整请求追踪系统。
 
 功能：
 - Span（TraceSpan）dataclass：name/start/end/duration_ms/status/error/attributes
@@ -261,3 +262,6 @@ class TracedMiddleware:
                 if ctx.span.duration_ms > self.slow_threshold_ms:
                     ctx.span.status = "slow"
         set_trace_id("")
+'''
+pathlib.Path('services/tracing.py').write_text(content, encoding='utf-8')
+print(f'Written {len(content)} bytes, {content.count(chr(10))} lines')

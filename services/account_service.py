@@ -393,6 +393,7 @@ class AccountService:
         normalized["last_invalid_at"] = normalized.get("last_invalid_at") or None
         normalized["last_refresh_error"] = normalized.get("last_refresh_error") or None
         normalized["last_refresh_error_at"] = normalized.get("last_refresh_error_at") or None
+        normalized["last_refresh_error_detail"] = normalized.get("last_refresh_error_detail") or None
         normalized["last_token_refresh_at"] = normalized.get("last_token_refresh_at") or None
         normalized["last_token_refresh_error"] = normalized.get("last_token_refresh_error") or None
         normalized["last_token_refresh_error_at"] = normalized.get("last_token_refresh_error_at") or None
@@ -575,6 +576,7 @@ class AccountService:
             next_item["last_invalid_at"] = None
             next_item["last_refresh_error"] = None
             next_item["last_refresh_error_at"] = None
+            next_item["last_refresh_error_detail"] = None
 
             account = self._normalize_account(next_item)
             if account is None:
@@ -1437,7 +1439,18 @@ class AccountService:
         except Exception:
             pass
         if not config.auto_remove_invalid_accounts:
-            self.update_account(access_token, {"status": "异常", "quota": 0}, quiet=quiet)
+            # 读取当前 invalid_count 递增，确保 list_abnormal_tokens_for_recover 能发现
+            cur = self.get_account(access_token) or {}
+            cur_invalid_count = int(cur.get("invalid_count") or 0)
+            cur_detail = cur.get("last_refresh_error_detail") or None
+            self.update_account(access_token, {
+                "status": "异常", "quota": 0,
+                "invalid_count": cur_invalid_count + 1,
+                "last_invalid_at": datetime.now(UTC).isoformat(),
+                "last_refresh_error": str(event or "invalid access token"),
+                "last_refresh_error_at": datetime.now(UTC).isoformat(),
+                "last_refresh_error_detail": cur_detail,
+            }, quiet=quiet)
             # 通过事件总线发布账号失效事件
             try:
                 from services.event_bus import ACCOUNT_INVALID, Event, event_bus
@@ -1512,6 +1525,12 @@ class AccountService:
                 account["tier"] = tier
                 account["score"] = self._account_dispatch_score(account, tier)
                 result.append(account)
+                # 注入 Prometheus 账号数量指标
+                try:
+                    from services.prometheus_metrics import record_accounts_count
+                    record_accounts_count(account.get("provider", "chatgpt"), account.get("status", "正常"))
+                except Exception:
+                    pass
             return result
 
     def list_groups(self) -> list[dict[str, Any]]:
@@ -1874,6 +1893,7 @@ class AccountService:
             next_item["last_invalid_at"] = None
             next_item["last_refresh_error"] = None
             next_item["last_refresh_error_at"] = None
+            next_item["last_refresh_error_detail"] = None
             account = self._normalize_account(next_item)
             if account is not None:
                 self._accounts[access_token] = account
@@ -1921,6 +1941,7 @@ class AccountService:
             next_item["last_invalid_at"] = now.isoformat()
             next_item["last_refresh_error"] = str(error or "invalid access token")
             next_item["last_refresh_error_at"] = now.isoformat()
+            next_item["last_refresh_error_detail"] = str(error or "invalid access token")
             account = self._normalize_account(next_item)
             if account is not None:
                 self._accounts[access_token] = account
