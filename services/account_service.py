@@ -1408,7 +1408,16 @@ class AccountService:
         except Exception:
             pass
         if not config.auto_remove_invalid_accounts:
-            self.update_account(access_token, {"status": "异常", "quota": 0}, quiet=quiet)
+            # 读取当前 invalid_count 递增，确保 list_abnormal_tokens_for_recover 能发现
+            cur = self.get_account(access_token) or {}
+            cur_invalid_count = int(cur.get("invalid_count") or 0)
+            self.update_account(access_token, {
+                "status": "异常", "quota": 0,
+                "invalid_count": cur_invalid_count + 1,
+                "last_invalid_at": datetime.now(UTC).isoformat(),
+                "last_refresh_error": str(event or "invalid access token"),
+                "last_refresh_error_at": datetime.now(UTC).isoformat(),
+            }, quiet=quiet)
             # 通过事件总线发布账号失效事件
             try:
                 from services.event_bus import ACCOUNT_INVALID, Event, event_bus
