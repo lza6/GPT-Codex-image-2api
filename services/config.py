@@ -1134,6 +1134,17 @@ class ConfigStore:
     def get_chat_completion_cache_settings(self) -> dict[str, object]:
         return _normalize_chat_completion_cache_settings(self.data.get("chat_completion_cache"))
 
+    def get_quota_management(self) -> dict[str, object]:
+        self._try_reload()
+        raw = self.data.get("quota_management")
+        if not isinstance(raw, dict):
+            return {"enabled": False, "default_quota": {}, "overage_action": "reject"}
+        return {
+            "enabled": bool(raw.get("enabled", False)),
+            "default_quota": raw.get("default_quota") if isinstance(raw.get("default_quota"), dict) else {},
+            "overage_action": str(raw.get("overage_action") or "reject"),
+        }
+
     def get_storage_backend(self) -> StorageBackend:
         """获取存储后端实例（单例）"""
         if self._storage_backend is None:
