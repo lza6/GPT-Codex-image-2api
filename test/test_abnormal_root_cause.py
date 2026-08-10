@@ -46,8 +46,7 @@ class TestAbnormalRootCause:
         raw_err = "InvalidAccessTokenError: 401 token_revoked by upstream"
         svc._record_invalid_token_seen(token, "fetch_remote_info", raw_err, defer_invalid_removal=False)
         # 关闭自动移除，走标记异常分支
-        monkeypatch.setitem(svc._accounts[token], "auto_remove_invalid_accounts", False)
-        monkeypatch.setattr("services.account_service.config.data", {**svc._accounts[token], "auto_remove_invalid_accounts": False})
+        monkeypatch.setattr("services.account_service.config.data", {"auto_remove_invalid_accounts": False, **svc.get_account(token) or {}})
         # 模拟 fetch_remote_info 后续 remove_invalid_token(event-only)
         svc.remove_invalid_token(token, "fetch_remote_info:invalid_access_token", quiet=True)
         acct = svc.get_account(token)
