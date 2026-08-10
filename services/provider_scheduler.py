@@ -86,20 +86,50 @@ class ProviderScheduler:
 
     def _record_provider_failure(self, provider: str) -> None:
         """记录 provider 级连续失败，达到阈值熔断该 provider。"""
+        prev_state = "closed"
         with self._provider_lock:
             cb = self._provider_breakers.get(provider)
             if cb is None:
                 cb = {"count": 0, "state": "closed", "opened_at": 0.0}
+            prev_state = cb["state"]
             cb["count"] = cb.get("count", 0) + 1
             if cb["count"] >= self._PROVIDER_CB_THRESHOLD:
                 cb["state"] = "open"
                 cb["opened_at"] = time.monotonic()
             self._provider_breakers[provider] = cb
+        # 状态变化时发布事件
+        if prev_state != cb["state"]:
+            try:
+                from services.event_bus import PROVIDER_HEALTH_CHANGED, Event, event_bus
+                event_bus.publish(Event(PROVIDER_HEALTH_CHANGED, {
+                    "provider": provider,
+                    "from_state": prev_state,
+                    "to_state": cb["state"],
+                    "reason": "circuit_breaker_open" if cb["state"] == "open" else "failure_count_increase",
+                }))
+            except Exception:
+                pass
 
     def _record_provider_success(self, provider: str) -> None:
         """成功清零 provider 熔断器。"""
+        prev_state = "unknown"
         with self._provider_lock:
+            cb = self._provider_breakers.get(provider)
+            if cb:
+                prev_state = cb["state"]
             self._provider_breakers.pop(provider, None)
+        # 从熔断状态恢复时发布事件
+        if prev_state in ("open", "half_open"):
+            try:
+                from services.event_bus import PROVIDER_HEALTH_CHANGED, Event, event_bus
+                event_bus.publish(Event(PROVIDER_HEALTH_CHANGED, {
+                    "provider": provider,
+                    "from_state": prev_state,
+                    "to_state": "closed",
+                    "reason": "success_recovery",
+                }))
+            except Exception:
+                pass
 
     def _provider_allow_request(self, provider: str) -> bool:
         """检查该 provider 是否允许请求（未熔断）。"""

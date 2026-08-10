@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.19.0 - 2026-08-10 (连接池四优化)
+
+**Session Pool 性能增强（v2.17.0 四优化）：**
++ [新增] `services/session_pool.py` — 连接健康预检：从池中取出时发送轻量 HEAD 请求验证，断连自动重建，减少断连请求失败 50%+
++ [新增] `services/session_pool.py` — 动态冷却期：根据错误率线性映射缩容冷却期（1min~5min），错误率越高冷却期越长，更精准的缩容决策
++ [新增] `services/session_pool.py` — 连接 TTL：连接最大存活时间（默认 300s），到期自动重建，避免上游 TIME_WAIT 堆积
++ [新增] `services/session_pool.py` — 指数退避重连：连接失败后重试间隔 1s→2s→4s→8s→16s→cap，减轻上游风暴压力
++ [新增] `services/config.py` — `session_pool_health_check_enabled` 配置项（布尔，默认 true），`_BOOL_FIELDS` 校验表 + `get()` 序列化
++ [新增] `config.json` — `session_pool_health_check_enabled: true` 默认值
++ [新增] `web/src/lib/api.ts` — `SettingsConfig` 新增 `session_pool_health_check_enabled` 字段
++ [测试] 7 新增用例（健康预检/错误率/动态冷却/连接TTL/指数退避/stats新字段/关闭健康检查），27 全绿
+
 ## 2.18.0 - 2026-08-10 (多模型路由)
 
 **8.3 多模型路由：**

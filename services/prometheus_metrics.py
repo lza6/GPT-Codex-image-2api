@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import os
+import re
 
 from prometheus_client import (
     CONTENT_TYPE_LATEST,
@@ -111,8 +112,31 @@ chatgpt2api_lifetime_risk = Gauge(
 )
 
 
+_PATH_CARDINALITY_PATTERNS = (
+    # 数字 ID → {id}（如 /api/accounts/refresh/progress/12345）
+    (re.compile(r"/\d{5,}"), "/{id}"),
+    # UUID 或 16-32 位 hex → {id}
+    (re.compile(r"/[0-9a-f]{16,32}"), "/{id}"),
+    (re.compile(r"/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"), "/{id}"),
+    # 长随机串（sha256-like）→ {id}
+    (re.compile(r"/[A-Za-z0-9_-]{24,}"), "/{id}"),
+)
+
+
+def _normalize_path(path: str) -> str:
+    """归一化动态路径，减少 Prometheus label 基数膨胀。
+
+    将 /api/accounts/refresh/progress/12345 等动态路径归一化为
+    /api/accounts/refresh/progress/{id}，避免每个唯一 ID 产生新 label 组合。
+    """
+    for pattern, replacement in _PATH_CARDINALITY_PATTERNS:
+        path = pattern.sub(replacement, path)
+    return path
+
+
 def record_http_request(path: str, method: str, status: int, duration_seconds: float) -> None:
-    """记录 HTTP 请求指标。"""
+    """记录 HTTP 请求指标（path 自动归一化，防高基数 label 膨胀）。"""
+    path = _normalize_path(path)
     http_requests_total.labels(path=path, method=method, status=str(status)).inc()
     http_request_duration_seconds.labels(path=path).observe(duration_seconds)
 

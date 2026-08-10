@@ -72,7 +72,7 @@ def test_session_pool_close_all_closes_sessions():
     """D15：close_all 关闭所有池化 Session 并清空。"""
     from services.session_pool import SessionPool
 
-    pool = SessionPool(ttl_seconds=300, max_entries=10)
+    pool = SessionPool(ttl_seconds=300, max_entries=10, health_check_enabled=False)
     pool.get(account={"access_token": "t1"}, impersonate="chrome", verify=True, fp_key="fp1")
     pool.get(account={"access_token": "t2"}, impersonate="chrome", verify=True, fp_key="fp2")
     assert pool.stats()["pooled_sessions"] == 2

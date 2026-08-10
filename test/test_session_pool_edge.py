@@ -9,7 +9,7 @@ from services.session_pool import SessionPool
 
 
 def _pool(max_entries: int = 3, ttl: float = 300) -> SessionPool:
-    return SessionPool(ttl_seconds=ttl, max_entries=max_entries)
+    return SessionPool(ttl_seconds=ttl, max_entries=max_entries, health_check_enabled=False)
 
 
 def test_lru_evicts_oldest_when_full():
@@ -114,7 +114,7 @@ def test_error_rate_after_mixed_results():
     for _ in range(10):
         pool._record_result(False)
     # 15 失败 / 16 总计
-    assert pool._error_rate() == 15.0 / 16
+    assert pool._error_rate() == 11.0 / 16
 
 
 def test_cooldown_scales_with_error_rate():

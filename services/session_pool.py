@@ -179,6 +179,17 @@ class SessionPool:
                         cached[0].close()
                     except Exception:
                         pass
+        # 发布会话降级事件
+        try:
+            from services.event_bus import SESSION_DEGRADED, Event, event_bus
+            event_bus.publish(Event(SESSION_DEGRADED, {
+                "pool_size": len(self._sessions),
+                "max_entries": self._max_entries,
+                "consecutive_errors": self._consecutive_errors,
+                "removed_count": remove_count,
+            }))
+        except Exception:
+            pass
 
     def get(self, account: dict | None = None, impersonate: str = "chrome110", verify: bool = True, fp_key: str = "") -> requests.Session:
         """获取（或创建并缓存）一个 Session。

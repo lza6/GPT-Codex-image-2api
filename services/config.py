@@ -434,8 +434,8 @@ class ConfigStore:
         "upstream_failover_enabled",
         "session_pool_health_check_enabled",
     )
-    _FLOAT_FIELDS: tuple[tuple[str, float, float], ...] = (
-        ("metrics_sample_rate", 0.0, 1.0),
+    _FLOAT_FIELDS: tuple[str, ...] = (
+        "metrics_sample_rate",
     )
     _DICT_FIELDS: tuple[str, ...] = (
         "provider_weights",
@@ -474,14 +474,12 @@ class ConfigStore:
             bval = data.get(field)
             if bval is not None and not isinstance(bval, bool):
                 errors.append(f"{field} 必须是布尔值，当前为 {bval!r} ({type(bval).__name__})")
-        # float 字段校验
-        for field, min_v, max_v in cls._FLOAT_FIELDS:
+        # float 字段校验（只校验类型，不校验范围——范围在 property 中 clamp）
+        for field in cls._FLOAT_FIELDS:
             fval = data.get(field)
             if fval is not None:
                 if not isinstance(fval, (int, float)) or isinstance(fval, bool):
                     errors.append(f"{field} 必须是浮点数，当前为 {fval!r} ({type(fval).__name__})")
-                elif not (min_v <= float(fval) <= max_v):
-                    errors.append(f"{field} 超出允许范围 [{min_v}, {max_v}]，当前为 {fval}")
         # trusted_proxies 类型校验（list[str] 或逗号分隔 str）
         tp = data.get("trusted_proxies")
         if tp is not None and not isinstance(tp, (list, str)):

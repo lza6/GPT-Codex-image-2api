@@ -28,11 +28,14 @@ import {
 import { toast } from "sonner";
 import { copyText } from "@/lib/clipboard";
 import { toastError, toastSuccess, extractErrorMessage } from "@/lib/toast-helper";
+import { setCache, getCache, hasCache } from "@/lib/offline-cache";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Skeleton, SkeletonCards, SkeletonTable } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/empty-state";
 import {
   Dialog,
   DialogContent,
@@ -377,14 +380,32 @@ function AccountsPageContent() {
       setIsLoading(true);
     }
     try {
+      // 离线缓存：先尝试读取缓存
+      const cached = getCache<Account[]>("accounts");
+      if (cached && !navigator.onLine) {
+        setAccounts(cached);
+        return;
+      }
+
       const data = await fetchAccounts(providerFilter !== "all" ? providerFilter : undefined);
       setAccounts(data.items);
+      // 写入缓存
+      setCache("accounts", data.items);
       setSelectedIds((prev) => prev.filter((id) => data.items.some((item) => item.access_token === id)));
       // 熔断状态合并到账号列表响应
       if (data.breakers) {
         setCircuitBreakers(data.breakers);
       }
     } catch (error) {
+      // 网络错误时尝试读缓存
+      if (!navigator.onLine) {
+        const cached = getCache<Account[]>("accounts");
+        if (cached) {
+          setAccounts(cached);
+          toast.info("网络不可用，正在显示缓存数据");
+          return;
+        }
+      }
       toastError(error, "加载账户失败");
     } finally {
       if (!silent) {
@@ -1695,17 +1716,14 @@ function AccountsPageContent() {
         </div>
 
         {isLoading && accounts.length === 0 ? (
-          <Card className="rounded-2xl border-white/80 bg-white/90 shadow-sm">
-            <CardContent className="flex flex-col items-center justify-center gap-3 px-6 py-14 text-center">
-              <div className="rounded-xl bg-stone-100 p-3 text-stone-500">
-                <LoaderCircle className="size-5 animate-spin" />
-              </div>
-              <div className="space-y-1">
-                <p className="text-sm font-medium text-stone-700">正在加载账户</p>
-                <p className="text-sm text-stone-500">从后端同步账号列表和状态。</p>
-              </div>
-            </CardContent>
-          </Card>
+          <div className="space-y-4">
+            <SkeletonCards count={6} className="h-24 rounded-2xl" />
+            <Card className="rounded-2xl border-white/80 bg-white/90 shadow-sm">
+              <CardContent className="p-4">
+                <SkeletonTable rows={8} cols={8} />
+              </CardContent>
+            </Card>
+          </div>
         ) : null}
 
         <Card
@@ -1854,8 +1872,66 @@ function AccountsPageContent() {
 
             {/* 虚拟滚动表格区域 */}
             <div className="overflow-x-auto">
-              {/* 表头 */}
-              <div className="flex min-w-[1000px] border-b border-stone-100 text-[11px] text-stone-400 uppercase tracking-[0.18em]">
+              {/* 移动端卡片列表（<768px） */}
+              <div className="divide-y divide-stone-100 sm:hidden">
+                {currentRows.map((account) => {
+                  const StatusIcon = statusMeta[account.status]?.icon ?? CheckCircle2;
+                  const badgeVariant = statusMeta[account.status]?.badge ?? "secondary";
+                  return (
+                    <div
+                      key={account.access_token}
+                      className="flex cursor-pointer items-center gap-3 px-4 py-3 transition hover:bg-stone-50"
+                      onClick={() => handleRowClick(account)}
+                    >
+                      <Checkbox
+                        checked={selectedIds.includes(account.access_token)}
+                        onCheckedChange={(checked) => {
+                          const event = { shiftKey: false, ctrlKey: false, metaKey: false } as React.MouseEvent;
+                          handleToggleSelect(account.access_token, Boolean(checked), event);
+                        }}
+                      />
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="truncate text-sm font-medium text-stone-900">
+                            {account.email || account.access_token.slice(0, 16) + "..."}
+                          </span>
+                          <Badge variant={badgeVariant} className="shrink-0 rounded-md px-1.5 py-0 text-[10px]">
+                            <StatusIcon className="mr-0.5 inline-block size-2.5" />
+                            {account.status}
+                          </Badge>
+                        </div>
+                        <div className="flex items-center gap-3 text-xs text-stone-400">
+                          <span>{displayAccountType(account)}</span>
+                          <span>额度 {formatQuota(account)}</span>
+                          {account.tier && (
+                            <span className={cn(
+                              "rounded px-1 py-0.5 font-medium",
+                              account.tier === "healthy" ? "text-emerald-600" : account.tier === "warm" ? "text-orange-500" : "text-rose-500",
+                            )}>
+                              {account.tier === "healthy" ? "健康" : account.tier === "warm" ? "温存" : "风险"}
+                            </span>
+                          )}
+                          {account.label && (
+                            <span className="rounded bg-stone-100 px-1.5 py-0.5 text-stone-500">
+                              {account.label}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+                {!isLoading && currentRows.length === 0 && (
+                  <div className="px-4 py-10 text-center text-sm text-stone-400">
+                    没有匹配的账户
+                  </div>
+                )}
+              </div>
+
+              {/* 桌面端表格（>=768px） */}
+              <div className="hidden sm:block">
+                {/* 表头 */}
+                <div className="flex min-w-[1000px] border-b border-stone-100 text-[11px] text-stone-400 uppercase tracking-[0.18em]">
                 <div className="flex w-12 shrink-0 items-center px-4 py-3">
                   <Checkbox
                     checked={allCurrentSelected}
@@ -1966,15 +2042,53 @@ function AccountsPageContent() {
                     </div>
 
                     {!isLoading && currentRows.length === 0 ? (
-                      <div className="flex flex-col items-center justify-center gap-3 px-6 py-14 text-center">
-                        <div className="rounded-xl bg-stone-100 p-3 text-stone-500">
-                          <Search className="size-5" />
+                      <>
+                        {/* 桌面端空状态 */}
+                        <div className="hidden sm:block">
+                          <EmptyState
+                            icon={<Search className="size-6" />}
+                            title={
+                              query
+                                ? `没有匹配「${query}」的账户`
+                                : statusFilter !== "all"
+                                  ? `没有「${statusFilter}」状态的账户`
+                                  : typeFilter !== "all"
+                                    ? `没有「${typeFilter}」类型的账户`
+                                    : tagFilter !== "all"
+                                      ? `没有「${tagFilter}」标签的账户`
+                                      : "没有匹配的账户"
+                            }
+                            description={
+                              query
+                                ? "尝试其他搜索关键字或清除筛选条件。"
+                                : "调整筛选条件或搜索关键字后重试。"
+                            }
+                            action={
+                              (query || statusFilter !== "all" || typeFilter !== "all" || tagFilter !== "all" || providerFilter !== "all" || tierFilter !== "all")
+                                ? {
+                                    label: "清除筛选",
+                                    onClick: () => {
+                                      setQuery("");
+                                      setStatusFilter("all");
+                                      setTypeFilter("all");
+                                      setTagFilter("all");
+                                      setProviderFilter("all");
+                                      setTierFilter("all");
+                                    },
+                                  }
+                                : undefined
+                            }
+                          />
                         </div>
-                        <div className="space-y-1">
-                          <p className="text-sm font-medium text-stone-700">没有匹配的账户</p>
-                          <p className="text-sm text-stone-500">调整筛选条件或搜索关键字后重试。</p>
+                        {/* 移动端空状态 */}
+                        <div className="sm:hidden">
+                          <EmptyState
+                            icon={<Search className="size-6" />}
+                            title="没有匹配的账户"
+                            description="调整筛选条件或搜索关键字后重试。"
+                          />
                         </div>
-                      </div>
+                      </>
                     ) : null}
                   </>
                 )}

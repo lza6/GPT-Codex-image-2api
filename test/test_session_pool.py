@@ -19,7 +19,7 @@ def _new_pool(ttl: float = 300.0, max_entries: int = 200):
     import sys
     sys.path.insert(0, str(ROOT_DIR))
     from services.session_pool import SessionPool
-    return SessionPool(ttl_seconds=ttl, max_entries=max_entries)
+    return SessionPool(ttl_seconds=ttl, max_entries=max_entries, health_check_enabled=False)
 
 
 def _fake_account(token: str, proxy_url: str = "") -> dict:
@@ -109,7 +109,7 @@ class SessionPoolCoreTests(unittest.TestCase):
             s = pool.get(account=_fake_account("tok-a"))
             pool.release(s)
             # release 后连接池仍持有该 session（未被关闭移除）
-            self.assertIn(s, [sess for sess, _ in pool._sessions.values()],
+            self.assertIn(s, [sess for sess, _, _ in pool._sessions.values()],
                           "release 不得移除/关闭池化 Session")
 
 
@@ -127,7 +127,8 @@ class BackendPoolingWiringTests(unittest.TestCase):
         token = "pool-wiring-test-token"
         account = {"access_token": token, "email": "pool@x.com"}
         with patch("services.openai_backend_api.account_service") as acct, \
-             patch("services.session_pool.proxy_settings") as ps:
+             patch("services.session_pool.proxy_settings") as ps, \
+             patch("services.session_pool.SessionPool._health_check", return_value=True):
             acct.get_account.return_value = account
             ps.get_profile.return_value = type("P", (), {"proxy_url": ""})()
             ps.build_session_kwargs.return_value = {}

@@ -19,6 +19,7 @@
  * }
  * ```
  */
+import * as React from "react";
 import { toast } from "sonner";
 
 /**
@@ -131,16 +132,16 @@ export function progressToast(
 
   const render = () => {
     toast(
-      <div className="flex flex-col gap-2">
-        <span className="text-sm text-stone-700 dark:text-stone-200">{message}</span>
-        <div className="h-1.5 w-full overflow-hidden rounded-full bg-stone-100 dark:bg-stone-700">
-          <div
-            className="h-full rounded-full bg-stone-950 transition-all duration-300 ease-out dark:bg-white"
-            style={{ width: `${Math.min(100, currentProgress)}%` }}
-          />
-        </div>
-        <span className="text-xs text-stone-400">{Math.round(currentProgress)}%</span>
-      </div>,
+      React.createElement("div", { className: "flex flex-col gap-2" },
+        React.createElement("span", { className: "text-sm text-stone-700 dark:text-stone-200" }, message),
+        React.createElement("div", { className: "h-1.5 w-full overflow-hidden rounded-full bg-stone-100 dark:bg-stone-700" },
+          React.createElement("div", {
+            className: "h-full rounded-full bg-stone-950 transition-all duration-300 ease-out dark:bg-white",
+            style: { width: `${Math.min(100, currentProgress)}%` },
+          }),
+        ),
+        React.createElement("span", { className: "text-xs text-stone-400" }, `${Math.round(currentProgress)}%`),
+      ),
       { id, duration: Infinity },
     );
   };

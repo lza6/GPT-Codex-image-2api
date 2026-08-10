@@ -1924,6 +1924,19 @@ class AccountService:
                 if next_item["quota"] == 0:
                     next_item["status"] = "限流"
                     next_item["restore_at"] = next_item.get("restore_at") or None
+                elif 0 < next_item["quota"] < 5:
+                    # 配额低预警（配额 > 0 且 < 5）
+                    try:
+                        from services.event_bus import ACCOUNT_QUOTA_LOW, Event, event_bus
+                        event_bus.publish(Event(ACCOUNT_QUOTA_LOW, {
+                            "token_suffix": str(access_token)[-8:],
+                            "remaining_quota": next_item["quota"],
+                            "threshold": 5,
+                        }))
+                    except Exception:
+                        pass
+                    if next_item.get("status") == "限流":
+                        next_item["status"] = "正常"
                 elif next_item.get("status") == "限流":
                     next_item["status"] = "正常"
             else:
