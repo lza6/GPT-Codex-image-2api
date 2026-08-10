@@ -426,6 +426,7 @@ class ConfigStore:
         ("progress_ttl_seconds", (1, 86400)),
         ("alert_webhook_timeout", (1, 300)),
         ("proactive_probe_interval_minute", (5, 1440)),
+        ("audit_retention_days", (1, 3650)),
     )
     _BOOL_FIELDS: tuple[str, ...] = (
         "sqlite_wal_mode",
@@ -959,6 +960,10 @@ class ConfigStore:
     def default_thinking_effort(self) -> str:
         value = str(self.data.get("default_thinking_effort") or "auto").strip().lower()
         return value if value in {"auto", "standard", "extended", "max"} else "auto"
+
+    @property
+    def audit_retention_days(self) -> int:
+        return int(self.data.get("audit_retention_days", 90))
 
     @property
     def images_dir(self) -> Path:
