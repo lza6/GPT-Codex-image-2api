@@ -1013,6 +1013,26 @@ class ConfigStore:
             return 1.0
 
     @property
+    def trace_slow_threshold_ms(self) -> float:
+        try:
+            return max(0.0, float(
+                os.getenv("CHATGPT2API_TRACE_SLOW_THRESHOLD_MS")
+                or self.data.get("trace_slow_threshold_ms", 5000.0)
+            ))
+        except (TypeError, ValueError):
+            return 5000.0
+
+    @property
+    def trace_buffer_size(self) -> int:
+        try:
+            return max(10, int(
+                os.getenv("CHATGPT2API_TRACE_BUFFER_SIZE")
+                or self.data.get("trace_buffer_size", 10000)
+            ))
+        except (TypeError, ValueError):
+            return 10000
+
+    @property
     def app_version(self) -> str:
         try:
             value = VERSION_FILE.read_text(encoding="utf-8").strip()
@@ -1050,6 +1070,8 @@ class ConfigStore:
         data["upstream_failover_enabled"] = self.upstream_failover_enabled
         data["session_pool_health_check_enabled"] = self.session_pool_health_check_enabled
         data["metrics_sample_rate"] = self.metrics_sample_rate
+        data["trace_slow_threshold_ms"] = self.trace_slow_threshold_ms
+        data["trace_buffer_size"] = self.trace_buffer_size
         data["provider_weights"] = self.provider_weights
         data["provider_rate_limit_rpm"] = self.provider_rate_limit_rpm
         data["model_upstream_map"] = self.model_upstream_map

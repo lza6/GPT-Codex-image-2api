@@ -147,11 +147,33 @@ def start_limited_account_watcher(stop_event: Event) -> Thread:
     # v2.9.0：异常账号自动恢复是 watcher 第二职责，独立更长间隔
     abnormal_recover_seconds = config.abnormal_auto_recover_interval_minutes * 60
     last_abnormal_recover_ts: float = 0.0
+    last_p1_ts: float = 0.0
+    last_p2_ts: float = 0.0
 
     def worker() -> None:
-        nonlocal last_abnormal_recover_ts
+        nonlocal last_abnormal_recover_ts, last_p1_ts, last_p2_ts
         while not stop_event.is_set():
             try:
+                # 三级优先级刷新（P0紧急/P1常规/P2低优）
+                import time as _time_mod
+                now_for_priority = _time_mod.time()
+                try:
+                    prioritized = account_service._prioritize_refresh_tokens()
+                    if prioritized.get("p0"):
+                        account_service.refresh_accounts(prioritized["p0"], priority_level="p0")
+                    if now_for_priority - last_p1_ts >= 300 and prioritized.get("p1"):
+                        last_p1_ts = now_for_priority
+                        account_service.refresh_accounts(prioritized["p1"], priority_level="p1")
+                    if now_for_priority - last_p2_ts >= 1800 and prioritized.get("p2"):
+                        last_p2_ts = now_for_priority
+                        p2_tokens = prioritized["p2"]
+                        for i in range(0, len(p2_tokens), 50):
+                            batch = p2_tokens[i:i + 50]
+                            if batch:
+                                account_service.refresh_accounts(batch, priority_level="p2")
+                except Exception as prio_exc:
+                    logger.warning({"event": "priority_refresh_failed", "error": str(prio_exc)})
+
                 limited_tokens = account_service.list_limited_tokens()
                 # v2.9.0：限流账号若 quota=0 且 restore_at 在未来（未到期），跳过刷新避免浪费上游额度
                 # 只刷限流但 quota>0（说明限流但还有额度，可能刚解限）或 restore_at 已过期的账号
@@ -228,7 +250,7 @@ def start_limited_account_watcher(stop_event: Event) -> Thread:
             except Exception as exc:  # noqa: BLE001
                 # S-R7：后台线程异常改走 logger（原 print 不进 server.log，bat 下无迹可寻）
                 logger.warning({"event": "account_watcher_failed", "error": str(exc)})
-            stop_event.wait(interval_seconds)
+            stop_event.wait(60)
 
     thread = Thread(target=worker, name="account-watcher", daemon=True)
     thread.start()

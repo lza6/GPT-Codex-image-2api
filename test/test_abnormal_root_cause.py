@@ -46,7 +46,8 @@ class TestAbnormalRootCause:
         raw_err = "InvalidAccessTokenError: 401 token_revoked by upstream"
         svc._record_invalid_token_seen(token, "fetch_remote_info", raw_err, defer_invalid_removal=False)
         # 关闭自动移除，走标记异常分支
-        monkeypatch.setattr("services.account_service.config.auto_remove_invalid_accounts", False)
+        monkeypatch.setitem(svc._accounts[token], "auto_remove_invalid_accounts", False)
+        monkeypatch.setattr("services.account_service.config.data", {**svc._accounts[token], "auto_remove_invalid_accounts": False})
         # 模拟 fetch_remote_info 后续 remove_invalid_token(event-only)
         svc.remove_invalid_token(token, "fetch_remote_info:invalid_access_token", quiet=True)
         acct = svc.get_account(token)
@@ -60,7 +61,7 @@ class TestAbnormalRootCause:
     def test_remove_invalid_token_without_prior_detail_falls_back_to_event(self, tmp_path, monkeypatch):
         """无前置 _record_invalid_token_seen 时，detail 回退到 event（向后兼容旧数据）。"""
         svc, token = _make_svc(tmp_path)
-        monkeypatch.setattr("services.account_service.config.auto_remove_invalid_accounts", False)
+        monkeypatch.setattr("services.account_service.config.data", {"auto_remove_invalid_accounts": False, **svc.get_account(token) or {}})
         svc.remove_invalid_token(token, "evict_stale", quiet=True)
         acct = svc.get_account(token)
         assert acct is not None

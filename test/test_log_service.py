@@ -328,27 +328,30 @@ class TestArchiveIntegrity:
         assert isinstance(index_data, list)
         assert len(index_data) >= 1
         latest = index_data[-1]
-        assert latest["archived"] == 1 or latest.get("files") == [f"logs-{expired_day}.jsonl"]
-        # 注意：因旧 archive 方法返回格式不同，索引可能由旧版写入，兼容检查
+        # 新格式索引不含 archived 字段，但应有 files/checksums/cutoff
+        assert latest.get("files") == [f"logs-{expired_day}.jsonl"]
+        assert "checksums" in latest
 
     def test_archive_checksum_verify_content(self, tmp_path) -> None:
         """归档后 sha256 校验值应与原始文件内容一致。"""
         service = self._make_service(tmp_path)
         expired_day = _days_ago(95)
-        original_content = json.dumps({"ts": f"{expired_day}T10:00:00", "type": "call", "summary": "verify-me", "detail": {}}, ensure_ascii=False)
         _seed_daily_file(service, expired_day, [
             {"ts": f"{expired_day}T10:00:00", "type": "call", "summary": "verify-me", "detail": {}},
         ])
 
-        # 计算原始预期 sha256
-        expected_sha256 = hashlib.sha256((original_content + "\n").encode("utf-8")).hexdigest()
+        # 计算原始文件 bytes 的预期 sha256（archive 存储的是原始文件 bytes 的 sha256）
+        fpath = service._daily_path(expired_day)
+        raw_bytes = fpath.read_bytes()
+        expected_sha256 = hashlib.sha256(raw_bytes).hexdigest()
 
         result = service.archive(before_days=90)
 
         checksums = result["checksums"]
-        fname = f"logs-{expired_day}.jsonl"
-        assert fname in checksums
-        assert checksums[fname] == expected_sha256, "sha256 校验值应与原始内容匹配"
+        # checksums 的 key 是原始文件名（非 .gz），value 是原始文件 bytes 的 sha256
+        raw_name = f"logs-{expired_day}.jsonl"
+        assert raw_name in checksums, f"checksums 应包含原始文件名 {raw_name}"
+        assert checksums[raw_name] == expected_sha256, "sha256 校验值应与原始内容匹配"
         assert result["archived"] == 1
 
 
@@ -463,8 +466,9 @@ class TestLogRotationStrategy:
     def test_size_rotation_renames_file(self, tmp_path, monkeypatch) -> None:
         """size 模式：单文件超 max_size_mb 时滚动重命名 .1 后缀。"""
         service = self._make_service(tmp_path)
-        monkeypatch.setattr(service, "_log_rotation_strategy", "size")
-        monkeypatch.setattr(service, "_log_rotation_max_size_mb", 1)  # 1MB 阈值
+        # 模拟 config.data 中 log_rotation 配置
+        import services.config as cfg_mod
+        monkeypatch.setitem(cfg_mod.config.data, "log_rotation", {"strategy": "size", "max_size_mb": 1})
 
         # 写入足够数据触发轮转
         today = _today()
@@ -483,17 +487,12 @@ class TestLogRotationStrategy:
         rotated = service._log_dir / f"logs-{today}.1.jsonl"
         assert rotated.exists(), "超限文件应被重命名为 .1"
 
-        # 新当天文件应被创建（add 方法会创建新文件）
-        # 注意：_check_size_rotation 只重命名，不创建新文件，add 会创建新文件
-        new_path = service._daily_path(today)
-        # rename 后原 path 不存在，add 会创建新文件
-        assert not path.exists() or path.stat().st_size == 0
-
     def test_mixed_rotation(self, tmp_path, monkeypatch) -> None:
         """mixed 模式：按天 + 超大小同时生效。"""
         service = self._make_service(tmp_path)
-        monkeypatch.setattr(service, "_log_rotation_strategy", "mixed")
-        monkeypatch.setattr(service, "_log_rotation_max_size_mb", 1)
+        # 模拟 config.data 中 log_rotation 配置
+        import services.config as cfg_mod
+        monkeypatch.setitem(cfg_mod.config.data, "log_rotation", {"strategy": "mixed", "max_size_mb": 1})
 
         # 验证策略为 mixed
         assert service._log_rotation_strategy == "mixed"

@@ -63,6 +63,7 @@ class AccountService:
         self._refresh_progress_lock = Lock()
         self._relogin_progress: dict[str, dict] = {}
         self._relogin_progress_lock = Lock()
+        self._consecutive_429_count = 0
         # 熔断器注册表引用（默认全局单例；测试可注入独立注册表验证生命周期清理 D4）
         self._breaker_registry = circuit_breaker_registry
         # prune 节流：距上次清理 <60s 跳过（防 SSE 高频轮询 get 路径 O(n) 全扫退化，红队 R5）
@@ -2196,11 +2197,57 @@ class AccountService:
         with self._relogin_progress_lock:
             self._relogin_progress.pop(progress_id, None)
 
+    def _prioritize_refresh_tokens(self) -> dict[str, list[str]]:
+        """将账号 token 分为三级优先级：
+        P0: 紧急（熔断/异常/access_token即将过期<30分钟）
+        P1: 常规（即将过期30min~24h）
+        P2: 低优（健康账号）
+        """
+        p0: list[str] = []
+        p1: list[str] = []
+        p2: list[str] = []
+        for token in self.list_all_access_tokens():
+            acct = self.get_account(token)
+            if not acct:
+                continue
+            status = str(acct.get("status") or "").strip()
+            if status in ("异常", "限流"):
+                p0.append(token)
+                continue
+            try:
+                remaining = _token_expires_in(token)
+                if remaining is not None:
+                    if remaining < 1800:
+                        p0.append(token)
+                        continue
+                    elif remaining < 86400:
+                        p1.append(token)
+                        continue
+            except Exception:
+                pass
+            p2.append(token)
+        return {"p0": p0, "p1": p1, "p2": p2}
+
+    def _adaptive_max_workers(self, base: int = 10) -> int:
+        """根据连续 429 计数动态调整并发数。"""
+        count = getattr(self, "_consecutive_429_count", 0)
+        if count >= 3:
+            return max(2, base // (2 ** (count - 2)))
+        return base
+
+    def _record_429_for_adaptive(self) -> None:
+        self._consecutive_429_count = getattr(self, "_consecutive_429_count", 0) + 1
+
+    def _record_429_success_for_adaptive(self) -> None:
+        if getattr(self, "_consecutive_429_count", 0) > 0:
+            self._consecutive_429_count = 0
+
     def refresh_accounts(
         self,
         access_tokens: list[str],
         progress_id: str | None = None,
         defer_invalid_removal: bool = True,
+        priority_level: str | None = None,
     ) -> dict[str, Any]:
         access_tokens = list(dict.fromkeys(token for token in access_tokens if token))
         if not access_tokens:
@@ -2212,7 +2259,8 @@ class AccountService:
 
         refreshed = 0
         errors = []
-        max_workers = min(10, len(access_tokens))
+        base_workers = {"p0": 10, "p1": 5, "p2": 2}.get(priority_level or "", 10)
+        max_workers = min(self._adaptive_max_workers(base_workers), len(access_tokens))
 
         if progress_id:
             self.init_refresh_progress(progress_id, len(access_tokens))
@@ -2232,6 +2280,10 @@ class AccountService:
                     raise
                 except Exception as exc:
                     error_str = str(exc)
+                    if "429" in error_str or "rate limit" in error_str.lower():
+                        self._record_429_for_adaptive()
+                    else:
+                        self._record_429_success_for_adaptive()
                     # TLS/代理连接错误是网络问题，不计入账号失败
                     from services.image_failure import is_tls_connection_error
                     if not is_tls_connection_error(error_str):

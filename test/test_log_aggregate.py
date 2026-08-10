@@ -14,7 +14,7 @@
 from __future__ import annotations
 
 import json
-import zipfile
+import gzip
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -258,18 +258,24 @@ class TestLogAggregate:
         # 今天文件保留
         today_path = service._daily_path(today)
         assert today_path.exists(), "保留期内文件不应被删除"
-        # zip 文件存在
+        # 归档目录存在
         archive_path = Path(result["archive_path"])
-        assert archive_path.exists(), "归档 zip 文件应存在"
+        assert archive_path.exists(), "归档目录应存在"
+        assert archive_path.is_dir()
 
-        # 验证 zip 内容
-        with zipfile.ZipFile(archive_path, "r") as zf:
-            names = zf.namelist()
-            assert len(names) == 1
-            assert f"logs-{expired_day}.jsonl" in names[0]
+        # 验证 gzip 内容
+        gz_path = archive_path / f"logs-{expired_day}.jsonl.gz"
+        assert gz_path.exists()
+        import gzip
+        content = gzip.decompress(gz_path.read_bytes()).decode("utf-8")
+        assert "old" in content
+
+        # 验证校验清单
+        checksum_path = archive_path / "checksums.sha256"
+        assert checksum_path.exists()
 
     def test_archive_no_expired_files(self, tmp_path) -> None:
-        """无过期文件时 archive 应静默创建空 zip。"""
+        """无过期文件时 archive 应静默返回空结果。"""
         service = self._make_service(tmp_path)
         today = _today()
         _seed_daily_file(service, today, [
@@ -280,8 +286,7 @@ class TestLogAggregate:
 
         assert result["archived"] == 0
         assert result["files"] == []
-        archive_path = Path(result["archive_path"])
-        assert archive_path.exists(), "空 zip 也应创建"
+        # 无过期文件时 archive_path 为空字符串
         # 今天文件应保留
         assert service._daily_path(today).exists()
 
