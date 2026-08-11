@@ -442,9 +442,11 @@ class ConfigStore:
         "auto_heal_enabled",
         "openapi_enabled",
         "config_watch_enabled",
+        "scheduler_adaptive_enabled",
     )
     _FLOAT_FIELDS: tuple[str, ...] = (
         "metrics_sample_rate",
+        "scheduler_adaptive_interval_seconds",
         "traces_sample_rate",
         "traces_slow_threshold_ms",
     )
@@ -616,6 +618,25 @@ class ConfigStore:
             ))
         except (TypeError, ValueError):
             return 300.0
+
+    @property
+    def scheduler_adaptive_enabled(self) -> bool:
+        """自适应调度器开关（默认 false）。"""
+        value = os.getenv("CHATGPT2API_SCHEDULER_ADAPTIVE_ENABLED") or self.data.get("scheduler_adaptive_enabled")
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+        return bool(value)
+
+    @property
+    def scheduler_adaptive_interval_seconds(self) -> float:
+        """自适应调度器检查间隔（秒，默认 30，最小 5）。"""
+        try:
+            return max(5.0, float(
+                os.getenv("CHATGPT2API_SCHEDULER_ADAPTIVE_INTERVAL")
+                or self.data.get("scheduler_adaptive_interval_seconds", 30)
+            ))
+        except (TypeError, ValueError):
+            return 30.0
 
     @property
     def rate_limit_rpm(self) -> int:
@@ -1302,9 +1323,10 @@ class ConfigStore:
             "overage_action": str(raw.get("overage_action") or "reject"),
         }
 
-    def get_storage_backend(self) -> StorageBackend:
+    def get_storage_backend(self) -> "StorageBackend":
         """获取存储后端实例（单例）"""
         if self._storage_backend is None:
+            from services.storage.base import StorageBackend
             from services.storage.factory import create_storage_backend
             self._storage_backend = create_storage_backend(DATA_DIR)
         return self._storage_backend

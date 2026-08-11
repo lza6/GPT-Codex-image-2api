@@ -9,6 +9,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
+from fastapi.security import HTTPBearer
 from fastapi.staticfiles import StaticFiles
 
 from api import accounts, ai, dashboard, image_tasks, keys, kookeey, logs, providers, proxy_pool, system, tracing
@@ -90,10 +91,24 @@ def create_app() -> FastAPI:
             audit_service.maybe_cleanup()
         except Exception:  # noqa: BLE001 - 审计清理失败不阻断启动
             pass
+
+        # 3.2.3：配置热加载（config_watch_enabled 控制开关，默认开启）
+        config_watcher_thread = None
+        try:
+            if config.config_watch_enabled:
+                from services.config_watcher import ConfigWatcher
+                config_watcher = ConfigWatcher(config, poll_interval=5.0)
+                config_watcher.start(stop_event)
+                config_watcher_thread = config_watcher
+        except Exception:  # noqa: BLE001 - 配置热加载启动失败不阻断
+            pass
+
         try:
             yield
         finally:
             stop_event.set()
+            if config_watcher_thread is not None:
+                config_watcher_thread.stop()
             thread.join(timeout=5)
             cleanup_thread.join(timeout=5)
             if probe_thread is not None:
@@ -111,7 +126,82 @@ def create_app() -> FastAPI:
 
             session_pool.close_all()
 
-    app = FastAPI(title="chatgpt2api", version=app_version, lifespan=lifespan)
+    bearer_scheme = HTTPBearer(auto_error=False)
+    app = FastAPI(
+        title="chatgpt2api",
+        description="ChatGPT 官网能力的逆向封装服务。提供 OpenAI 兼容的图片生成/编辑 API + 号池管理 + 智能调度 + 运维看板。\n\n"
+        "## 鉴权方式\n\n"
+        "所有管理 API 和 AI API 均使用 Bearer Token 鉴权：\n"
+        "```\n"
+        "Authorization: Bearer <auth-key>\n"
+        "```\n\n"
+        "## 特性\n\n"
+        "- OpenAI 兼容的 `/v1/*` 端点（chat/completions、images/generations、images/edits、responses、messages）\n"
+        "- 账号池管理（CRUD、刷新、批量操作、分组）\n"
+        "- 智能调度（轮询/剩余配额/加权随机/最少负载/预测/亲和性）\n"
+        "- 上游熔断器（状态机 + 分级重试）\n"
+        "- 代理池管理（HTTP/SOCKS5 代理调度）\n"
+        "- 运维看板（调度/熔断/用量/延迟/寿命预测/容量规划）\n"
+        "- 图片异步生成（任务提交 + 轮询 + 续轮询）\n"
+        "- kookeey 住宅代理集成（每号独立出口 IP）\n"
+        "- 审计日志 + Prometheus 指标 + 事件追踪",
+        version=app_version,
+        lifespan=lifespan,
+        contact={
+            "name": "chatgpt2api",
+            "url": "https://github.com/your-org/chatgpt2api",
+        },
+        license_info={
+            "name": "MIT",
+            "url": "https://opensource.org/licenses/MIT",
+        },
+        servers=[
+            {"url": "/", "description": "当前服务"},
+        ],
+        openapi_tags=[
+            {"name": "AI", "description": "OpenAI 兼容 AI 接口 (chat/completions, images, responses, messages, models)"},
+            {"name": "Accounts", "description": "账号池管理 (CRUD, 刷新, 批量操作, 分组)"},
+            {"name": "Dashboard", "description": "运维看板 (调度/熔断/用量/延迟/寿命预测/容量/Provider)"},
+            {"name": "Image Tasks", "description": "图片异步任务 (提交/轮询/编辑)"},
+            {"name": "System", "description": "系统管理 (设置, 日志, 图片, 备份, 健康检查)"},
+            {"name": "Auth Keys", "description": "API Key 管理 (CRUD, 撤销, 用量查询)"},
+            {"name": "Proxy Pool", "description": "代理池管理 (HTTP/SOCKS5 代理)"},
+            {"name": "Kookeey", "description": "kookeey 住宅代理集成 (流量/出口 IP)"},
+            {"name": "Providers", "description": "提供商管理 (注册列表/状态)"},
+            {"name": "Audit", "description": "审计日志查询与导出"},
+            {"name": "logs", "description": "日志查询与下载"},
+            {"name": "tracing", "description": "请求追踪 (慢查询分析)"},
+        ],
+        docs_url=(config.openapi_docs_url if hasattr(config, "openapi_enabled") and config.openapi_enabled else None),
+        redoc_url=(config.openapi_redoc_url if hasattr(config, "openapi_enabled") and config.openapi_enabled else None),
+        openapi_url=(config.openapi_openapi_url if hasattr(config, "openapi_enabled") and config.openapi_enabled else None),
+    )
+    # 注入 OpenAPI security scheme（bearer token 全局认证）
+    from fastapi.openapi.utils import get_openapi
+
+    def custom_openapi():
+        if app.openapi_schema:
+            return app.openapi_schema
+        openapi_schema = get_openapi(
+            title=app.title,
+            version=app.version,
+            openapi_version=app.openapi_version,
+            description=app.description,
+            terms_of_service=app.terms_of_service,
+            contact=app.contact,
+            license_info=app.license_info,
+            routes=app.routes,
+            tags=app.openapi_tags,
+            servers=app.servers,
+        )
+        openapi_schema["components"]["securitySchemes"] = {
+            "BearerAuth": {"type": "http", "scheme": "bearer"}
+        }
+        openapi_schema["security"] = [{"BearerAuth": []}]
+        app.openapi_schema = openapi_schema
+        return app.openapi_schema
+
+    app.openapi = custom_openapi
     install_exception_handlers(app)
 
     @app.middleware("http")
@@ -200,33 +290,21 @@ def create_app() -> FastAPI:
     app.include_router(logs.create_router())
     app.include_router(tracing.create_router())
 
-    # _next/static CSS/JS → StaticFiles，直接走底层 ASGI 不走中间件栈
+    # _next/static 挂载 StaticFiles，走底层 ASGI 不经过中间件栈
     _static_dir = WEB_DIST_DIR / "_next" / "static"
     if _static_dir.exists():
         app.mount("/_next/static", StaticFiles(directory=str(_static_dir), check_dir=False), name="next_static")
 
     @app.api_route("/{full_path:path}", methods=["GET", "HEAD"], include_in_schema=False)
     async def serve_web(full_path: str):
-        # 修复：浏览器缓存的旧 RSC 数据可能引用已不存在的旧 chunk URL，
-        # 导致 _next//_next/static/chunks/xxx.js 双斜杠 404 路径阻塞页面。
-        if full_path.startswith("_next//_next/"):
-            full_path = "_next/" + full_path[len("_next//_next/"):]
-            asset = resolve_web_asset(full_path)
-            if asset is not None:
-                return FileResponse(asset, headers={
-                    "Cache-Control": "no-cache, no-store, must-revalidate",
-                })
         asset = resolve_web_asset(full_path)
         if asset is not None:
             headers: dict[str, str] = {}
-            # RSC 负载（__next.*.txt）禁止浏览器缓存
             if "__next." in full_path.split("/")[-1] and full_path.endswith(".txt"):
                 headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
             return FileResponse(asset, headers=headers)
-        # 缺失的 _next/static 文件直接 404
         if full_path.strip("/").startswith("_next/"):
             raise HTTPException(status_code=404, detail="Not Found")
-        # SPA fallback
         fallback = resolve_web_asset("")
         if fallback is None:
             raise HTTPException(status_code=404, detail="Not Found")

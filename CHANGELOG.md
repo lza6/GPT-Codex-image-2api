@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.26.0 - 2026-08-11 (3.2.3 配置热加载)
+
+**3.2.3 配置热加载：**
++ [新增] `services/config_watcher.py` — ConfigWatcher 类：轮询检测 config.json 的 mtime 变化，触发 ConfigStore 热加载并发布 CONFIG_CHANGED 事件
++ [新增] `services/config_watcher.py` — 支持 reload_callback 注入，默认回调 ConfigStore._try_reload
++ [新增] `services/config.py` — `config_watch_enabled` 配置项（bool，默认 true），`_BOOL_FIELDS` 校验，`get()` 序列化，环境变量 `CHATGPT2API_CONFIG_WATCH_ENABLED` 覆盖
++ [新增] `api/app.py` — lifespan 启动 ConfigWatcher（config_watch_enabled 控制），stop_event 优雅停止
++ [新增] `services/event_bus_init.py` — 订阅 CONFIG_CHANGED 事件，记录日志
++ [变更] `config.json` — 新增 `config_watch_enabled: true`
++ [变更] `services/config.py` — 移除模块级 `from services.storage.base import StorageBackend`，改为惰性导入，消除循环依赖
++ [前端] `web/src/lib/api.ts` — SettingsConfig 新增 `config_watch_enabled` 字段
++ [前端] `web/src/app/settings/store.ts` — normalizeConfig 新增 `config_watch_enabled` 归一化
++ [测试] `test/test_config_watcher.py` — 7 个测试覆盖文件变更检测/事件通知/轮询间隔/停止/幂等start/坏路径/连续变更
++ [测试] 913 passed / 0 failed, 33 deselected
+
 ## 2.25.0 - 2026-08-11 (智能诊断引擎 + 自动修复 2.0)
 
 **4.2.2 智能诊断引擎：**

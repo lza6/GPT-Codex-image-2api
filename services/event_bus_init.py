@@ -17,6 +17,7 @@ from services.event_bus import (
     CIRCUIT_CLOSED,
     CIRCUIT_HALF_OPEN,
     CIRCUIT_OPEN,
+    CONFIG_CHANGED,
     IMAGE_TASK_COMPLETED,
     SESSION_DEGRADED,
     Event,
@@ -72,6 +73,18 @@ def _image_task_completed_wrapper(event: Event) -> None:
     record_image_task_completed()
 
 
+def _config_changed_wrapper(event: Event) -> None:
+    """配置变更事件：记录日志。"""
+    data = event.data
+    mtime = data.get("mtime", "unknown")
+    log_service.add(
+        LOG_TYPE_ACCOUNT,
+        "config_changed",
+        {"event": "config_changed", "mtime": mtime, "reloaded_at": data.get("reloaded_at")},
+    )
+    logger.info("配置已变更（mtime: %s）", mtime)
+
+
 _registered = False
 
 
@@ -106,6 +119,9 @@ def register_subscribers() -> None:
 
     # 会话降级 → 告警
     event_bus.subscribe(SESSION_DEGRADED, sync_handler=_alert_wrapper)
+
+    # 配置变更 → 日志
+    event_bus.subscribe(CONFIG_CHANGED, sync_handler=_config_changed_wrapper)
 
     # PROVIDER_HEALTH_CHANGED：由提供方通过 dashboard SSE 推送，无需事件总线
 
