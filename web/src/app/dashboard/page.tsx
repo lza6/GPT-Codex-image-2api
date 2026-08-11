@@ -323,7 +323,7 @@ function DashboardContent() {
           <h1 className="text-2xl font-semibold text-stone-900">运维看板</h1>
           <p className="text-sm text-stone-500">调度健康度 · 资源占用 · 用量统计</p>
         </div>
-        <AsyncButton variant="outline" size="sm" action={() => load()} icon={<RefreshCw className="h-4 w-4" />}>
+        <AsyncButton variant="outline" size="sm" action={() => load()} loadingText="刷新中" icon={<RefreshCw className="h-4 w-4" />}>
           刷新
         </AsyncButton>
       </div>
