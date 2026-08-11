@@ -90,6 +90,7 @@ import {
 import { useAuthGuard } from "@/lib/use-auth-guard";
 import { cn } from "@/lib/utils";
 import { useKeyboard } from "@/hooks/use-keyboard";
+import { useScrollMemory } from "@/hooks/use-scroll-memory";
 
 // 批量操作增强：队列面板 / 结果弹窗 / 历史弹窗 + batch-queue store + 通知
 import { BatchQueuePanel } from "@/components/batch-queue-panel";
@@ -109,7 +110,13 @@ import { addNotification, addOperationResult } from "@/store/notifications";
 
 import { AccountImportDialog } from "./components/account-import-dialog";
 import { AccountTableRow } from "./components/accounts-table-row";
-import { TrashDialog } from "@/components/trash-dialog";
+import dynamic from "next/dynamic";
+
+// V-01：回收站弹窗懒加载（内部 recharts 图表不进账号页首屏）
+const TrashDialog = dynamic(() => import("@/components/trash-dialog").then((m) => m.TrashDialog), {
+  ssr: false,
+  loading: () => null,
+});
 
 // 键盘快捷键：全局导航
 const NAV_SHORTCUTS = [
@@ -404,9 +411,10 @@ function AccountsPageContent() {
   const [detailPanelOpen, setDetailPanelOpen] = useState(false);
   const [trashOpen, setTrashOpen] = useState(false);
 
-  // 虚拟滚动
-  const parentRef = useRef<HTMLDivElement>(null);
+  // 虚拟滚动（滚动位置记忆：sessionStorage）
+  const { ref: parentRef, getSavedOffset } = useScrollMemory<HTMLDivElement>("accounts-list-scroll");
   const [useVirtualScroll, setUseVirtualScroll] = useState(true);
+  const accountScrollRestoredRef = useRef(false);
 
   // Shift+Click 范围选择
   const lastClickedIndexRef = useRef<number | null>(null);
@@ -567,6 +575,15 @@ function AccountsPageContent() {
     overscan: 10,
     enabled: useVirtualScroll && filteredAccounts.length > 0,
   });
+
+  // V-03：数据就绪后恢复上次滚动位置（sessionStorage 记忆，仅首次）
+  useEffect(() => {
+    const savedOffset = getSavedOffset();
+    if (!accountScrollRestoredRef.current && savedOffset > 0 && !isLoading && useVirtualScroll && filteredAccounts.length > 0 && parentRef.current) {
+      accountScrollRestoredRef.current = true;
+      virtualizer.scrollToOffset(savedOffset);
+    }
+  }, [getSavedOffset, isLoading, useVirtualScroll, filteredAccounts.length, virtualizer, parentRef]);
 
   const summary = useMemo(() => {
     const total = accounts.length;
@@ -2576,8 +2593,8 @@ function AccountsPageContent() {
         </SheetContent>
       </Sheet>
 
-      {/* 回收站 */}
-      <TrashDialog open={trashOpen} onOpenChange={setTrashOpen} />
+      {/* 回收站（懒加载：仅在打开时挂载，recharts 不进首屏） */}
+      {trashOpen ? <TrashDialog open onOpenChange={setTrashOpen} /> : null}
 
       {/* 批量操作结果弹窗 */}
       <BatchResultDialog

@@ -37,7 +37,25 @@ import {
 import { useAuthGuard } from "@/lib/use-auth-guard";
 import { Skeleton, SkeletonCards } from "@/components/ui/skeleton";
 import { getStoredAuthKey } from "@/store/auth";
-import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from "recharts";
+import dynamic from "next/dynamic";
+
+// V-01：recharts 重量级图表按需懒加载，避免进入看板首屏主 chunk（~115KB gzip）
+const ForecastLineChart = dynamic(
+  () => import("@/components/dashboard/dashboard-charts").then((m) => m.ForecastLineChart),
+  { ssr: false, loading: () => <div className="h-20" /> },
+);
+const CapacityLineChart = dynamic(
+  () => import("@/components/dashboard/dashboard-charts").then((m) => m.CapacityLineChart),
+  { ssr: false, loading: () => <div className="h-24" /> },
+);
+const ModeCompareChart = dynamic(
+  () => import("@/components/dashboard/dashboard-charts").then((m) => m.ModeCompareChart),
+  { ssr: false, loading: () => <div className="h-56" /> },
+);
+const UsageDistributionChart = dynamic(
+  () => import("@/components/dashboard/dashboard-charts").then((m) => m.UsageDistributionChart),
+  { ssr: false, loading: () => <div className="h-64" /> },
+);
 
 const TIER_LABELS: Record<SchedulerTier, string> = {
   healthy: "健康",
@@ -351,15 +369,7 @@ function DashboardContent() {
           </div>
           {forecast.daily_series.length > 0 && (
             <div className="mt-3 h-20">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={forecast.daily_series} margin={{ top: 4, right: 8, left: 8, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={(v: string) => v.slice(5)} />
-                  <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
-                  <Tooltip />
-                  <Line type="monotone" dataKey="calls" stroke={forecast.should_alert ? "#d97706" : "#059669"} strokeWidth={2} dot={false} />
-                </LineChart>
-              </ResponsiveContainer>
+              <ForecastLineChart series={forecast.daily_series} shouldAlert={forecast.should_alert} />
             </div>
           )}
         </div>
@@ -549,15 +559,7 @@ function DashboardContent() {
               </div>
               {capacity.series.length > 0 && (
                 <div className="mt-4 h-24">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={capacity.series} margin={{ top: 4, right: 8, left: 8, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                      <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={(v: string) => v.slice(5)} />
-                      <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
-                      <Tooltip />
-                      <Line type="monotone" dataKey="calls" stroke="#1e293b" strokeWidth={2} dot={false} />
-                    </LineChart>
-                  </ResponsiveContainer>
+                  <CapacityLineChart series={capacity.series} />
                 </div>
               )}
             </>
@@ -658,15 +660,7 @@ function DashboardContent() {
           <CardContent>
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               <div className="h-56">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={scheduler?.mode_stats} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                    <XAxis dataKey="mode" tick={{ fontSize: 10 }} />
-                    <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
-                    <Tooltip />
-                    <Bar dataKey="picks" name="命中数" fill="#0f766e" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+                <ModeCompareChart data={scheduler?.mode_stats} />
               </div>
               <div className="overflow-x-auto">
                 <Table>
@@ -809,16 +803,7 @@ function DashboardContent() {
           {usage ? (
             <>
               <div className="mb-4 h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={Object.entries(usage.by_summary).map(([name, count]) => ({ name, count }))}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                    <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-                    <YAxis tick={{ fontSize: 12 }} />
-                    <Tooltip />
-                    <Legend />
-                    <Bar dataKey="count" name="调用次数" fill="#1e293b" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+                <UsageDistributionChart data={Object.entries(usage.by_summary).map(([name, count]) => ({ name, count }))} />
               </div>
               <div className="flex flex-wrap gap-2">
                 <Badge variant="secondary" className="rounded-full">成功 {usage.success_24h} 次</Badge>

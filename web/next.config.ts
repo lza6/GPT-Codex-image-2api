@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { NextConfig } from 'next'
+import withBundleAnalyzer from '@next/bundle-analyzer'
 import { parseChangelog } from './src/lib/release'
 
 const projectRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -37,4 +38,9 @@ const nextConfig: NextConfig = {
     },
 }
 
-export default nextConfig
+// 可选 bundle 分析：ANALYZE=true npm run build → .next/analyze/ 下生成报告
+const withBundleAnalyzerConfig = withBundleAnalyzer({
+    enabled: process.env.ANALYZE === 'true',
+})
+
+export default withBundleAnalyzerConfig(nextConfig)

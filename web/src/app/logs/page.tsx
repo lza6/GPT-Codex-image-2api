@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronLeft, ChevronRight, ImageIcon, LoaderCircle, RefreshCw, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { toastError, toastSuccess } from "@/lib/toast-helper";
@@ -19,6 +20,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { deleteSystemLogs, exportAuditCsv, fetchAuditLogs, fetchSystemLogs, type AuditLog, type SystemLog } from "@/lib/api";
 import { useAuthGuard } from "@/lib/use-auth-guard";
+import { useScrollMemory } from "@/hooks/use-scroll-memory";
 
 const LogType = {
   Call: "call",
@@ -256,6 +258,79 @@ function AuditSection() {
   );
 }
 
+// V-03：日志虚拟行（div 版，替代原 TableRow，配合 useVirtualizer 定位）
+interface LogRowProps {
+  item: SystemLog;
+  isCallLog: boolean;
+  selected: boolean;
+  onToggleSelect: (checked: boolean) => void;
+  onOpenDetail: (item: SystemLog) => void;
+  onOpenImage: (item: SystemLog, index: number) => void;
+  onDelete: (item: SystemLog) => void;
+}
+
+function LogRow({ item, isCallLog, selected, onToggleSelect, onOpenDetail, onOpenImage, onDelete }: LogRowProps) {
+  const urls = getUrls(item);
+  return (
+    <div className="flex min-h-[52px] border-b border-stone-100 text-sm text-stone-600 transition-colors hover:bg-stone-50/70">
+      <div className="flex w-12 shrink-0 items-center justify-center px-4">
+        <Checkbox checked={selected} onCheckedChange={(c) => onToggleSelect(Boolean(c))} />
+      </div>
+      <div className="flex w-40 shrink-0 items-center px-4 text-xs whitespace-nowrap">{item.time}</div>
+      <div className="flex w-24 shrink-0 items-center px-4">
+        <Badge variant="secondary" className="rounded-md">{typeLabels[item.type] || item.type}</Badge>
+      </div>
+      {isCallLog ? <div className="flex w-28 shrink-0 items-center px-4">{getDetailText(item, "key_name")}</div> : null}
+      {isCallLog ? <div className="flex w-24 shrink-0 items-center px-4">{formatDuration(item)}</div> : null}
+      {isCallLog ? (
+        <div className="flex w-20 shrink-0 items-center px-4">
+          <Badge variant={item.detail?.status === "failed" ? "danger" : "success"} className="rounded-md">
+            {getStatus(item)}
+          </Badge>
+        </div>
+      ) : null}
+      {isCallLog ? (
+        <div className="flex w-36 shrink-0 items-center px-4">
+          {urls.length ? (
+            <div className="flex items-center gap-1.5">
+              {urls.slice(0, 3).map((url, imageIndex) => (
+                <button
+                  key={`${url}-${imageIndex}`}
+                  type="button"
+                  className="relative size-9 overflow-hidden rounded-lg border border-stone-200 bg-stone-100"
+                  onClick={() => onOpenImage(item, imageIndex)}
+                  title="预览图片"
+                >
+                  <ImageThumbnail src={url} thumbnailSrc={getImageThumbnailUrl(url)} className="h-full w-full" />
+                </button>
+              ))}
+              {urls.length > 3 ? <span className="text-xs text-stone-400">+{urls.length - 3}</span> : null}
+            </div>
+          ) : (
+            <span className="inline-flex items-center gap-1 text-xs text-stone-400">
+              <ImageIcon className="size-3.5" />
+              -
+            </span>
+          )}
+        </div>
+      ) : null}
+      <div className="flex min-w-0 flex-1 items-center px-4">
+        <span className="truncate text-stone-500">{item.summary || "-"}</span>
+      </div>
+      <div className="flex w-40 shrink-0 items-center px-4">
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" className="h-8 rounded-lg px-3 text-stone-600" onClick={() => onOpenDetail(item)}>
+            查看详情
+          </Button>
+          <Button variant="ghost" className="h-8 rounded-lg px-3 text-rose-600 hover:bg-rose-50 hover:text-rose-700" onClick={() => onDelete(item)}>
+            删除
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function LogsContent() {
   const [items, setItems] = useState<SystemLog[]>([]);
   const [type, setType] = useState<string>(LogType.Call);
@@ -266,7 +341,6 @@ function LogsContent() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [lightboxOpen, setLightboxOpen] = useState(false);
-  const [page, setPage] = useState(1);
   const [isLoading, setIsLoading] = useState(true);
   const [isDeleting, setIsDeleting] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -275,6 +349,9 @@ function LogsContent() {
   const [levelFilter, setLevelFilter] = useState<string>("all");
   const [autoScroll, setAutoScroll] = useState(false);
   const [view, setView] = useState<"logs" | "audit">("logs");
+  // V-03：日志列表虚拟滚动（滚动位置记忆 sessionStorage）
+  const { ref: logsListRef, getSavedOffset: getLogsSavedOffset } = useScrollMemory<HTMLDivElement>("logs-list-scroll");
+  const logsScrollRestoredRef = useRef(false);
   const detailUrls = getUrls(detailLog);
   const detailImages = detailUrls.map((url, index) => ({
     id: `${index}`,
@@ -302,13 +379,28 @@ function LogsContent() {
       return true;
     });
   }, [items, searchQuery, levelFilter]);
-  const pageSize = 10;
-  const pageCount = Math.max(1, Math.ceil(filteredItems.length / pageSize));
-  const safePage = Math.min(page, pageCount);
-  const currentRows = filteredItems.slice((safePage - 1) * pageSize, safePage * pageSize);
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
-  const currentPageSelected = currentRows.length > 0 && currentRows.every((item) => selectedSet.has(item.id));
+  // V-03：虚拟列表一次展示全部筛选结果，「本页全选」即全选筛选结果
+  const currentPageSelected = filteredItems.length > 0 && filteredItems.every((item) => selectedSet.has(item.id));
   const allSelected = items.length > 0 && items.every((item) => selectedSet.has(item.id));
+
+  // V-03：日志列表虚拟化实例（父容器固定高度 + overflow scroll，行高自适应测量）
+  const logsVirtualizer = useVirtualizer({
+    count: filteredItems.length,
+    getScrollElement: () => logsListRef.current,
+    estimateSize: () => 52,
+    overscan: 10,
+    enabled: filteredItems.length > 0,
+  });
+
+  // 数据就绪后恢复上次滚动位置（sessionStorage 记忆，仅首次）
+  useEffect(() => {
+    const savedOffset = getLogsSavedOffset();
+    if (!logsScrollRestoredRef.current && savedOffset > 0 && !isLoading && filteredItems.length > 0 && logsListRef.current) {
+      logsScrollRestoredRef.current = true;
+      logsVirtualizer.scrollToOffset(savedOffset);
+    }
+  }, [getLogsSavedOffset, isLoading, filteredItems.length, logsVirtualizer, logsListRef]);
 
   const loadLogs = async () => {
     setIsLoading(true);
@@ -323,7 +415,6 @@ function LogsContent() {
       });
       setItems(data.items);
       setSelectedIds((current) => current.filter((id) => data.items.some((item) => item.id === id)));
-      setPage(1);
     } catch (error) {
       toastError(error, "加载日志失败");
     } finally {
@@ -386,7 +477,7 @@ function LogsContent() {
 
   return (
     <section className="space-y-5">
-      <Tabs value={view} onValueChange={(v) => { setView(v as "logs" | "audit"); setPage(1); }}>
+      <Tabs value={view} onValueChange={(v) => { setView(v as "logs" | "audit"); }}>
         <TabsList className="h-10 rounded-xl border border-stone-200 bg-white">
           <TabsTrigger value="logs" className="rounded-lg px-4">业务日志</TabsTrigger>
           <TabsTrigger value="audit" className="rounded-lg px-4">审计日志</TabsTrigger>
@@ -406,7 +497,7 @@ function LogsContent() {
               <SelectItem value={LogType.Account}>账号管理日志</SelectItem>
             </SelectContent>
           </Select>
-          <Select value={levelFilter} onValueChange={(v) => { setLevelFilter(v); setPage(1); }}>
+          <Select value={levelFilter} onValueChange={(v) => { setLevelFilter(v); }}>
             <SelectTrigger className="h-10 w-[120px] rounded-xl border-stone-200 bg-white"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">全部级别</SelectItem>
@@ -418,7 +509,7 @@ function LogsContent() {
             <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-stone-400" />
             <Input
               value={searchQuery}
-              onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
+              onChange={(e) => { setSearchQuery(e.target.value); }}
               placeholder="搜索内容 / request_id"
               className="h-10 rounded-xl border-stone-200 bg-white pl-10"
             />
@@ -426,7 +517,7 @@ function LogsContent() {
           <div className="relative min-w-[200px]">
             <Input
               value={accountEmail}
-              onChange={(e) => { setAccountEmail(e.target.value); setPage(1); }}
+              onChange={(e) => { setAccountEmail(e.target.value); }}
               placeholder="按账号邮箱 / 末8位过滤"
               className="h-10 rounded-xl border-stone-200 bg-white"
             />
@@ -452,7 +543,7 @@ function LogsContent() {
             <div className="flex flex-wrap items-center gap-3 text-sm text-stone-600">
               <span>共 {items.length} 条</span>
               <label className="flex items-center gap-2">
-                <Checkbox checked={currentPageSelected} onCheckedChange={(checked) => toggleIds(currentRows.map((item) => item.id), Boolean(checked))} />
+                <Checkbox checked={currentPageSelected} onCheckedChange={(checked) => toggleIds(filteredItems.map((item) => item.id), Boolean(checked))} />
                 本页全选
               </label>
               <label className="flex items-center gap-2">
@@ -475,90 +566,50 @@ function LogsContent() {
               </Button>
             </div>
           </div>
-          <div className="overflow-x-auto">
-            <Table className="min-w-[900px]">
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-12"></TableHead>
-                  <TableHead>时间</TableHead>
-                  <TableHead>类型</TableHead>
-                  {isCallLog ? <TableHead>令牌名称</TableHead> : null}
-                  {isCallLog ? <TableHead>调用耗时</TableHead> : null}
-                  {isCallLog ? <TableHead>状态</TableHead> : null}
-                  {isCallLog ? <TableHead className="w-36">图片</TableHead> : null}
-                  <TableHead>简述</TableHead>
-                  <TableHead className="w-40">操作</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {currentRows.map((item) => {
-                  const urls = getUrls(item);
+          {/* V-03：日志列表虚拟化（父容器 h-[70vh] + overflow scroll，sticky 表头，行高自适应测量） */}
+          <div ref={logsListRef} className="h-[70vh] min-w-0 overflow-auto">
+            <div className="min-w-[900px]">
+              <div className="sticky top-0 z-10 flex border-b border-stone-100 bg-white text-[11px] tracking-[0.18em] text-stone-400 uppercase">
+                <div className="flex w-12 shrink-0 items-center px-4 py-3"></div>
+                <div className="flex w-40 shrink-0 items-center px-4 py-3">时间</div>
+                <div className="flex w-24 shrink-0 items-center px-4 py-3">类型</div>
+                {isCallLog ? <div className="flex w-28 shrink-0 items-center px-4 py-3">令牌名称</div> : null}
+                {isCallLog ? <div className="flex w-24 shrink-0 items-center px-4 py-3">调用耗时</div> : null}
+                {isCallLog ? <div className="flex w-20 shrink-0 items-center px-4 py-3">状态</div> : null}
+                {isCallLog ? <div className="flex w-36 shrink-0 items-center px-4 py-3">图片</div> : null}
+                <div className="flex min-w-0 flex-1 items-center px-4 py-3">简述</div>
+                <div className="flex w-40 shrink-0 items-center px-4 py-3">操作</div>
+              </div>
+              <div className="relative" style={{ height: `${logsVirtualizer.getTotalSize()}px` }}>
+                {logsVirtualizer.getVirtualItems().map((virtualItem) => {
+                  const item = filteredItems[virtualItem.index];
+                  if (!item) return null;
                   return (
-                    <TableRow key={item.id} className="text-stone-600">
-                      <TableCell>
-                        <Checkbox checked={selectedSet.has(item.id)} onCheckedChange={(checked) => toggleIds([item.id], Boolean(checked))} />
-                      </TableCell>
-                      <TableCell className="whitespace-nowrap">{item.time}</TableCell>
-                      <TableCell><Badge variant="secondary" className="rounded-md">{typeLabels[item.type] || item.type}</Badge></TableCell>
-                      {isCallLog ? <TableCell>{getDetailText(item, "key_name")}</TableCell> : null}
-                      {isCallLog ? <TableCell>{formatDuration(item)}</TableCell> : null}
-                      {isCallLog ? (
-                        <TableCell>
-                          <Badge variant={item.detail?.status === "failed" ? "danger" : "success"} className="rounded-md">
-                            {getStatus(item)}
-                          </Badge>
-                        </TableCell>
-                      ) : null}
-                      {isCallLog ? (
-                        <TableCell>
-                          {urls.length ? (
-                            <div className="flex items-center gap-1.5">
-                              {urls.slice(0, 3).map((url, imageIndex) => (
-                                <button
-                                  key={`${url}-${imageIndex}`}
-                                  type="button"
-                                  className="relative size-9 overflow-hidden rounded-lg border border-stone-200 bg-stone-100"
-                                  onClick={() => openLogImage(item, imageIndex)}
-                                  title="预览图片"
-                                >
-                                  <ImageThumbnail src={url} thumbnailSrc={getImageThumbnailUrl(url)} className="h-full w-full" />
-                                </button>
-                              ))}
-                              {urls.length > 3 ? <span className="text-xs text-stone-400">+{urls.length - 3}</span> : null}
-                            </div>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 text-xs text-stone-400">
-                              <ImageIcon className="size-3.5" />
-                              -
-                            </span>
-                          )}
-                        </TableCell>
-                      ) : null}
-                      <TableCell className="max-w-[420px] truncate text-stone-500">{item.summary || "-"}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1">
-                          <Button variant="ghost" className="h-8 rounded-lg px-3 text-stone-600" onClick={() => openDetail(item)}>
-                            查看详情
-                          </Button>
-                          <Button variant="ghost" className="h-8 rounded-lg px-3 text-rose-600 hover:bg-rose-50 hover:text-rose-700" onClick={() => setDeletingItems([item])}>
-                            删除
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
+                    <div
+                      key={virtualItem.key}
+                      data-index={virtualItem.index}
+                      ref={logsVirtualizer.measureElement}
+                      className="absolute top-0 left-0 right-0"
+                      style={{ transform: `translateY(${virtualItem.start}px)` }}
+                    >
+                      <LogRow
+                        item={item}
+                        isCallLog={isCallLog}
+                        selected={selectedSet.has(item.id)}
+                        onToggleSelect={(checked) => toggleIds([item.id], checked)}
+                        onOpenDetail={openDetail}
+                        onOpenImage={openLogImage}
+                        onDelete={(log) => setDeletingItems([log])}
+                      />
+                    </div>
                   );
                 })}
-              </TableBody>
-            </Table>
+              </div>
+            </div>
           </div>
           <div className="flex items-center justify-end gap-2 border-t border-stone-100 px-4 py-3 text-sm text-stone-500">
-            <span>第 {safePage} / {pageCount} 页，共 {items.length} 条</span>
-            <Button variant="outline" size="icon" className="size-9 rounded-lg border-stone-200 bg-white" disabled={safePage <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>
-              <ChevronLeft className="size-4" />
-            </Button>
-            <Button variant="outline" size="icon" className="size-9 rounded-lg border-stone-200 bg-white" disabled={safePage >= pageCount} onClick={() => setPage((value) => Math.min(pageCount, value + 1))}>
-              <ChevronRight className="size-4" />
-            </Button>
+            <span>共 {filteredItems.length} 条</span>
+            <span className="text-stone-400">虚拟列表一次展示全部筛选结果</span>
           </div>
           {!isLoading && items.length === 0 ? <div className="px-6 py-14 text-center text-sm text-stone-500">没有找到日志</div> : null}
         </CardContent>

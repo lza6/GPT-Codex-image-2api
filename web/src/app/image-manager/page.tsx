@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CalendarDays, ChevronLeft, ChevronRight, Copy, Download, ImageIcon, LoaderCircle, Maximize2, Plus, RefreshCw, Search, Tag, Trash2, X } from "lucide-react";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import { CalendarDays, Copy, Download, ImageIcon, LoaderCircle, Maximize2, Plus, RefreshCw, Search, Tag, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { toastError, toastSuccess } from "@/lib/toast-helper";
 import { copyText } from "@/lib/clipboard";
@@ -18,6 +19,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Skeleton } from "@/components/ui/skeleton";
 import { compressAllImages, deleteImageTag, deleteManagedImages, deleteToTarget, downloadImages, downloadSingleImage, fetchImageStorage, fetchImageTags, fetchManagedImages, setImageTags, type ImageStorageStats, type ManagedImage } from "@/lib/api";
 import { useAuthGuard } from "@/lib/use-auth-guard";
+import { useScrollMemory } from "@/hooks/use-scroll-memory";
 
 const LONG_PRESS_MS = 800;
 const IMAGE_MANAGER_CHECKBOX_CLASS = "border-stone-300 bg-white/80 dark:border-white/35 dark:bg-white/5 data-[state=checked]:border-stone-950 dark:data-[state=checked]:border-white";
@@ -66,7 +68,6 @@ function ImageManagerContent() {
   const [endDate, setEndDate] = useState("");
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [lightboxOpen, setLightboxOpen] = useState(false);
-  const [page, setPage] = useState(1);
   const [isLoading, setIsLoading] = useState(true);
   const [deleteStartDate, setDeleteStartDate] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<ManagedImage | null>(null);
@@ -108,14 +109,58 @@ function ImageManagerContent() {
     sizeLabel: formatSize(item.size),
     dimensions: item.width && item.height ? `${item.width} x ${item.height}` : undefined,
   }));
-  const pageSize = 12;
-  const pageCount = Math.max(1, Math.ceil(filteredItems.length / pageSize));
-  const safePage = Math.min(page, pageCount);
-  const currentRows = filteredItems.slice((safePage - 1) * pageSize, safePage * pageSize);
   const selectedSet = useMemo(() => new Set(selectedPaths), [selectedPaths]);
   const selectedCount = deleteMode === "filtered" ? items.length : deleteMode === "byDate" ? 0 : selectedPaths.length;
-  const currentPageSelected = currentRows.length > 0 && currentRows.every((item) => selectedSet.has(imageKey(item)));
+  // V-03：虚拟网格一次展示全部筛选结果，「本页全选」即全选筛选结果
+  const currentPageSelected = filteredItems.length > 0 && filteredItems.every((item) => selectedSet.has(imageKey(item)));
   const allSelected = filteredItems.length > 0 && filteredItems.every((item) => selectedSet.has(imageKey(item)));
+
+  // V-03：图片网格虚拟化（按容器宽度分组为行，父容器固定高度 + overflow scroll，行高自适应测量）
+  const { ref: gridScrollRef, getSavedOffset: getGridSavedOffset } = useScrollMemory<HTMLDivElement>("image-manager-scroll");
+  const gridScrollRestoredRef = useRef(false);
+  const [columns, setColumns] = useState(4);
+
+  useEffect(() => {
+    const el = gridScrollRef.current;
+    if (!el) return;
+    const update = () => {
+      const w = el.clientWidth;
+      if (w >= 1200) setColumns(4);
+      else if (w >= 900) setColumns(3);
+      else if (w >= 600) setColumns(2);
+      else setColumns(1);
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [gridScrollRef]);
+
+  const gridRows = useMemo(() => {
+    if (columns <= 0) return [];
+    const rows: ManagedImage[][] = [];
+    for (let i = 0; i < filteredItems.length; i += columns) {
+      rows.push(filteredItems.slice(i, i + columns));
+    }
+    return rows;
+  }, [filteredItems, columns]);
+
+  const gridVirtualizer = useVirtualizer({
+    count: gridRows.length,
+    getScrollElement: () => gridScrollRef.current,
+    estimateSize: () => (columns > 0 ? Math.floor(1200 / columns) + 130 : 320),
+    overscan: 3,
+    enabled: gridRows.length > 0,
+  });
+
+  // 数据就绪后恢复上次滚动位置（sessionStorage 记忆，仅首次）
+  useEffect(() => {
+    const savedOffset = getGridSavedOffset();
+    if (!gridScrollRestoredRef.current && savedOffset > 0 && !isLoading && gridRows.length > 0 && gridScrollRef.current) {
+      gridScrollRestoredRef.current = true;
+      gridVirtualizer.scrollToOffset(savedOffset);
+    }
+  }, [getGridSavedOffset, isLoading, gridRows.length, gridVirtualizer, gridScrollRef]);
 
   const loadImages = async () => {
     setIsLoading(true);
@@ -127,7 +172,6 @@ function ImageManagerContent() {
       setItems(data.items);
       setAllTags(tagsData.tags);
       setSelectedPaths((current) => current.filter((path) => data.items.some((item) => imageKey(item) === path)));
-      setPage(1);
     } catch (error) {
       toastError(error, "加载图片失败");
     } finally {
@@ -191,7 +235,6 @@ function ImageManagerContent() {
 
   const toggleFilterTag = (tag: string) => {
     setSelectedTags((prev) => prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]);
-    setPage(1);
   };
 
   const [pressingTag, setPressingTag] = useState<string | null>(null);
@@ -492,7 +535,7 @@ function ImageManagerContent() {
               共 {filteredItems.length} 张
               {selectedTags.length > 0 ? <span className="text-stone-400">（筛选自 {items.length} 张）</span> : null}
               <label className="flex items-center gap-2">
-                <Checkbox className={IMAGE_MANAGER_CHECKBOX_CLASS} checked={currentPageSelected} onCheckedChange={(checked) => togglePaths(currentRows.map(imageKey), Boolean(checked))} />
+                <Checkbox className={IMAGE_MANAGER_CHECKBOX_CLASS} checked={currentPageSelected} onCheckedChange={(checked) => togglePaths(filteredItems.map(imageKey), Boolean(checked))} />
                 本页全选
               </label>
               <label className="flex items-center gap-2">
@@ -519,20 +562,37 @@ function ImageManagerContent() {
               </Button>
             </div>
           </div>
-          <div className="grid gap-0 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {isLoading && currentRows.length === 0
-              ? Array.from({ length: 8 }).map((_, i) => (
+          {/* V-03：图片网格虚拟化（父容器固定高度 + overflow scroll，按容器宽度分组为行） */}
+          <div ref={gridScrollRef} className="h-[70vh] overflow-y-auto">
+            {isLoading && items.length === 0 ? (
+              <div className="grid gap-0 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                {Array.from({ length: 8 }).map((_, i) => (
                   <div key={i} className="border-r border-b border-stone-100 p-4">
                     <div className="relative">
                       <Skeleton className="aspect-square w-full" />
                       <Skeleton className="mt-2 h-4 w-3/4" />
                     </div>
                   </div>
-                ))
-              : currentRows.map((item) => {
-              const imageIndex = filteredItems.findIndex((row) => row.url === item.url);
-              return (
-              <div key={item.rel} className="group border-r border-b border-stone-100 p-4 transition hover:bg-stone-50 dark:hover:bg-white/5">
+                ))}
+              </div>
+            ) : (
+              <div className="relative" style={{ height: `${gridVirtualizer.getTotalSize()}px` }}>
+                {gridVirtualizer.getVirtualItems().map((virtualRow) => {
+                  const rowItems = gridRows[virtualRow.index];
+                  if (!rowItems) return null;
+                  return (
+                    <div
+                      key={virtualRow.key}
+                      data-index={virtualRow.index}
+                      ref={gridVirtualizer.measureElement}
+                      className="absolute top-0 left-0 right-0"
+                      style={{ transform: `translateY(${virtualRow.start}px)` }}
+                    >
+                      <div className="flex">
+                        {rowItems.map((item) => {
+                          const imageIndex = filteredItems.findIndex((row) => row.url === item.url);
+                          return (
+                            <div key={item.rel} className="group min-w-0 flex-1 border-r border-b border-stone-100 p-4 transition hover:bg-stone-50 dark:hover:bg-white/5">
                 <div className="relative">
                   <button
                     type="button"
@@ -673,18 +733,23 @@ function ImageManagerContent() {
                     </Popover>
                   </div>
                 </div>
+                            </div>
+                          );
+                        })}
+                        {/* 补齐末行空白，保持卡片等宽 */}
+                        {Array.from({ length: Math.max(0, columns - rowItems.length) }).map((_, i) => (
+                          <div key={`filler-${i}`} className="min-w-0 flex-1 border-r border-b border-stone-100" />
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-            );
-            })}
+            )}
           </div>
           <div className="flex items-center justify-end gap-2 border-t border-stone-100 px-4 py-3 text-sm text-stone-500">
-            <span>第 {safePage} / {pageCount} 页，共 {filteredItems.length} 张</span>
-            <Button variant="outline" size="icon" className="size-9 rounded-lg border-stone-200 bg-white" disabled={safePage <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>
-              <ChevronLeft className="size-4" />
-            </Button>
-            <Button variant="outline" size="icon" className="size-9 rounded-lg border-stone-200 bg-white" disabled={safePage >= pageCount} onClick={() => setPage((value) => Math.min(pageCount, value + 1))}>
-              <ChevronRight className="size-4" />
-            </Button>
+            <span>共 {filteredItems.length} 张</span>
+            <span className="text-stone-400">虚拟网格一次展示全部筛选结果</span>
           </div>
           {!isLoading && filteredItems.length === 0 ? <div className="px-6 py-14 text-center text-sm text-stone-500">没有找到图片</div> : null}
         </CardContent>
