@@ -131,6 +131,11 @@
     "webdav_username": "",
     "webdav_password": "",
     "webdav_root_path": "chatgpt2api/images",
+    "r2_account_id": "",
+    "r2_access_key_id": "",
+    "r2_secret_access_key": "",
+    "r2_bucket": "",
+    "r2_prefix": "images",
     "public_base_url": ""
   },
   "image_min_free_mb": 500,

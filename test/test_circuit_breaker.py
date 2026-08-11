@@ -211,3 +211,19 @@ class TestHalfOpenPartialTransitions:
         b.record_success()
         b.record_success()  # 达 half_open_max_calls → CLOSED
         assert b.allow_request()
+
+
+def test_default_recovery_timeout_is_30():
+    """熔断超时默认值精确断言（变异探针锚点）。"""
+    from services.circuit_breaker import CircuitBreaker
+    b = CircuitBreaker()
+    assert b.recovery_timeout == 30.0
+    assert b.recovery_timeout != 60.0
+
+
+def test_default_half_open_max_calls_is_3():
+    """半开恢复次数默认值精确断言（变异探针锚点）。"""
+    from services.circuit_breaker import CircuitBreaker
+    b = CircuitBreaker()
+    assert b.half_open_max_calls == 3
+    assert b.half_open_max_calls != 4

@@ -97,5 +97,26 @@ class StreamRetryBudgetTests(unittest.TestCase):
                          "流式开始后绝不重试（防重复扣费/出图）")
 
 
+class DefaultValueBoundaryTests(unittest.TestCase):
+    """重试预算默认值精确断言（变异探针锚点，防逃逸）。"""
+
+    def test_idempotent_get_max_retries_default_is_2(self):
+        from services.retry_budget import IDEMPOTENT_GET_MAX_RETRIES
+        self.assertEqual(IDEMPOTENT_GET_MAX_RETRIES, 2)
+        self.assertNotEqual(IDEMPOTENT_GET_MAX_RETRIES, 3)
+
+    def test_pre_stream_switch_max_retries_default_is_1(self):
+        from services.retry_budget import PRE_STREAM_SWITCH_MAX_RETRIES
+        self.assertEqual(PRE_STREAM_SWITCH_MAX_RETRIES, 1)
+
+    def test_backoff_base_delay_default_is_half_second(self):
+        import inspect
+
+        from services.retry_budget import retry_idempotent_get
+        sig = inspect.signature(retry_idempotent_get)
+        self.assertEqual(sig.parameters["base_delay"].default, 0.5)
+        self.assertNotEqual(sig.parameters["base_delay"].default, 1.0)
+
+
 if __name__ == "__main__":
     unittest.main()

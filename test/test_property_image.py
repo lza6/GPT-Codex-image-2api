@@ -4,46 +4,15 @@
 - classify_image_exception: 异常类型/状态码/错误文本的组合映射
 - should_record_circuit_failure: 各失败码是否应记熔断
 
-注意：utils.helper 有模块级循环依赖（utils.helper → services.proxy_service
-→ services.config → services.storage → services.config），因此本文件
-在导入 services.image_failure 之前 mock 了 utils.helper，避免
-classify_image_exception 函数体内的延迟导入触发循环依赖崩溃。
+注：早期版本用 sys.modules 模块级 mock utils.helper 规避循环依赖，
+但那会污染同进程所有其他测试（utils.helper 被替换为空壳）。
+utils.helper 的循环依赖已修复（可正常 import），故此处直接真实导入。
 """
-# ruff: noqa: E402 — mock 必须在模块级导入之前注册
 
 from __future__ import annotations
 
-import sys
-import types  # fmt: skip
 from typing import Any
 
-
-# ── 在 services.image_failure 导入前，mock utils.helper ──
-# 原 utils.helper 有循环依赖导致模块级 import 失败。classify_image_exception
-# 函数体内有 `from utils.helper import UpstreamHTTPError as _UpstreamHTTPError`，
-# 仅用于 isinstance 检查。我们提供一个轻量 mock 让该导入成功。
-# 注意：运行此文件后，同进程内其他测试若真正需要 utils.helper 其他功能，
-# 不应与此文件同进程运行，或需在 conftest 中处理。
-class _MockUpstreamHTTPError(RuntimeError):
-    """替代 utils.helper.UpstreamHTTPError 的轻量 mock，仅含 classify_image_exception
-    需要的字段（status_code, body）。"""
-
-    def __init__(
-        self, context: str = "", status_code: int = 0, body: Any = None, retry_after: int | None = None
-    ) -> None:
-        self.context = context
-        self.status_code = status_code
-        self.body = body
-        self.retry_after = retry_after
-        super().__init__()
-
-
-_mock_helper = types.ModuleType("utils.helper")
-_mock_helper.UpstreamHTTPError = _MockUpstreamHTTPError
-sys.modules["utils.helper"] = _mock_helper
-
-
-# ── 正常导入 ──
 import pytest  # noqa: E402
 from hypothesis import assume, given  # noqa: E402, I001
 from hypothesis.strategies import (  # noqa: E402, I001
@@ -52,6 +21,7 @@ from hypothesis.strategies import (  # noqa: E402, I001
     text,
 )
 
+from utils.helper import UpstreamHTTPError as _RealUpstreamHTTPError
 from services.image_failure import (  # noqa: E402, I001
     FAILURE_CODE_ALIASES,
     FAILURE_POLICIES,
@@ -94,8 +64,8 @@ _all_input_codes = _all_failure_keys + list(FAILURE_CODE_ALIASES.keys())
 
 
 def _upstream(status_code: int, body: Any = None) -> Any:
-    """创建 mock UpstreamHTTPError 实例（无需导入 utils.helper）。"""
-    return _MockUpstreamHTTPError("test", status_code, body)
+    """创建真实 UpstreamHTTPError 实例（classify_image_exception 用 type name 匹配）。"""
+    return _RealUpstreamHTTPError("test", status_code, body)
 
 
 # ============================================================

@@ -99,3 +99,13 @@ def test_web_search_tool_closes_backend(monkeypatch):
     result = web_search_tool.run_web_search("query")
     assert result["answer"] == "ok"
     assert closed["flag"], "backend.close() 未被调用——连接泄漏"
+
+
+def test_poll_timeout_retries_bounded():
+    """轮询超时重试有上限且不为 5（变异探针锚点：函数局部常量）。"""
+    import inspect
+
+    from services.protocol import conversation as conv_mod
+
+    src = inspect.getsource(conv_mod)
+    assert "MAX_POLL_TIMEOUT_RETRIES = 4" in src, "轮询超时重试上限应为 4"

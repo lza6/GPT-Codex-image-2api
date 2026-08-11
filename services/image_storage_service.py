@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import io
 import json
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from threading import Lock
-from urllib.parse import quote, urlparse
+from urllib.parse import quote, urlencode, urlparse
 
 from curl_cffi import requests
 from fastapi import HTTPException
@@ -20,6 +21,18 @@ from utils.log import logger
 IMAGE_INDEX_FILE = DATA_DIR / "image_index.json"
 IMAGE_INDEX_LOCK = Lock()
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
+
+
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
+def _sha256_hex(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
+
+
+def _hmac_sha256(key: bytes, message: str) -> bytes:
+    return hmac.new(key, message.encode("utf-8"), hashlib.sha256).digest()
 
 
 class ImageStorageError(RuntimeError):
@@ -165,6 +178,191 @@ class WebDAVClient:
             self.session.close()
 
 
+class R2Client:
+    """Cloudflare R2 客户端（S3 兼容 API，AWS SigV4 签名，纯 Python 无 boto3）。
+
+    参考 chatgpt2api1/services/backup_service.py 的 CloudflareR2Client 实现。
+    endpoint 固定为 https://<account_id>.r2.cloudflarestorage.com
+    支持：连接测试 / 上传字节 / 读取 / 删除 / 列对象（ListObjectsV2 解析）。
+    """
+
+    def __init__(self, settings: dict[str, object]) -> None:
+        self.account_id = _clean(settings.get("r2_account_id"))
+        self.access_key_id = _clean(settings.get("r2_access_key_id"))
+        self.secret_access_key = _clean(settings.get("r2_secret_access_key"))
+        self.bucket = _clean(settings.get("r2_bucket"))
+        self.prefix = _clean(settings.get("r2_prefix")) or "images"
+        self.session = requests.Session(impersonate="chrome", verify=True)
+
+    def validate(self) -> None:
+        missing = []
+        if not self.account_id:
+            missing.append("r2_account_id")
+        if not self.access_key_id:
+            missing.append("r2_access_key_id")
+        if not self.secret_access_key:
+            missing.append("r2_secret_access_key")
+        if not self.bucket:
+            missing.append("r2_bucket")
+        if missing:
+            raise ImageStorageError(f"R2 配置不完整：缺少 {'、'.join(missing)}")
+
+    @property
+    def endpoint(self) -> str:
+        return f"https://{self.account_id}.r2.cloudflarestorage.com"
+
+    def object_key(self, rel: str) -> str:
+        safe = _safe_relative_path(rel)
+        return f"{self.prefix.rstrip('/')}/{safe}"
+
+    def _aws_v4_headers(
+        self,
+        method: str,
+        path: str,
+        *,
+        query: dict[str, str] | None = None,
+        body: bytes = b"",
+        extra_headers: dict[str, str] | None = None,
+    ) -> tuple[str, dict[str, str]]:
+        now = _utc_now()
+        amz_date = now.strftime("%Y%m%dT%H%M%SZ")
+        date_stamp = now.strftime("%Y%m%d")
+        encoded_query = urlencode(sorted((query or {}).items()))
+        payload_hash = _sha256_hex(body)
+        host = f"{self.account_id}.r2.cloudflarestorage.com"
+        headers = {
+            "host": host,
+            "x-amz-content-sha256": payload_hash,
+            "x-amz-date": amz_date,
+        }
+        if extra_headers:
+            for key, value in extra_headers.items():
+                headers[key.lower()] = value.strip()
+        sorted_items = sorted((key.lower(), " ".join(str(value).strip().split())) for key, value in headers.items())
+        canonical_headers = "".join(f"{key}:{value}\n" for key, value in sorted_items)
+        signed_headers = ";".join(key for key, _ in sorted_items)
+        canonical_request = "\n".join([
+            method.upper(),
+            path,
+            encoded_query,
+            canonical_headers,
+            signed_headers,
+            payload_hash,
+        ])
+        credential_scope = f"{date_stamp}/auto/s3/aws4_request"
+        string_to_sign = "\n".join([
+            "AWS4-HMAC-SHA256",
+            amz_date,
+            credential_scope,
+            _sha256_hex(canonical_request.encode("utf-8")),
+        ])
+        k_date = _hmac_sha256(("AWS4" + self.secret_access_key).encode("utf-8"), date_stamp)
+        k_region = hmac.new(k_date, b"auto", hashlib.sha256).digest()
+        k_service = hmac.new(k_region, b"s3", hashlib.sha256).digest()
+        k_signing = hmac.new(k_service, b"aws4_request", hashlib.sha256).digest()
+        signature = hmac.new(k_signing, string_to_sign.encode("utf-8"), hashlib.sha256).hexdigest()
+        authorization = (
+            "AWS4-HMAC-SHA256 "
+            f"Credential={self.access_key_id}/{credential_scope}, "
+            f"SignedHeaders={signed_headers}, "
+            f"Signature={signature}"
+        )
+        request_headers = {key: value for key, value in headers.items()}
+        request_headers["authorization"] = authorization
+        return encoded_query, request_headers
+
+    def _request(
+        self,
+        method: str,
+        rel: str = "",
+        *,
+        query: dict[str, str] | None = None,
+        body: bytes = b"",
+        extra_headers: dict[str, str] | None = None,
+        timeout: float = 60.0,
+    ):
+        object_path = f"/{self.bucket}"
+        if rel:
+            object_path += f"/{quote(self.object_key(rel), safe='/')}"
+        encoded_query, headers = self._aws_v4_headers(method, object_path, query=query, body=body, extra_headers=extra_headers)
+        url = f"{self.endpoint}{object_path}"
+        if encoded_query:
+            url += f"?{encoded_query}"
+        return self.session.request(method.upper(), url, headers=headers, data=body, timeout=timeout)
+
+    def test_connection(self) -> dict[str, object]:
+        self.validate()
+        response = self._request("GET", query={"list-type": "2", "max-keys": "1"}, timeout=30.0)
+        if response.status_code >= 400:
+            raise ImageStorageError(f"连接 R2 失败：HTTP {response.status_code}")
+        return {"ok": True, "status": int(response.status_code)}
+
+    def put(self, rel: str, payload: bytes, content_type: str = "image/png") -> dict[str, object]:
+        self.validate()
+        headers = {"content-type": content_type}
+        response = self._request("PUT", rel, body=payload, extra_headers=headers)
+        if response.status_code >= 400:
+            raise ImageStorageError(f"R2 上传失败：HTTP {response.status_code}")
+        return {"key": self.object_key(rel), "etag": str(response.headers.get("etag") or "").strip('"')}
+
+    def get(self, rel: str) -> bytes:
+        self.validate()
+        response = self._request("GET", rel, timeout=90.0)
+        if response.status_code == 404:
+            raise ImageStorageError(f"R2 对象不存在：{rel}")
+        if response.status_code >= 400:
+            raise ImageStorageError(f"R2 读取失败：HTTP {response.status_code}")
+        return bytes(response.content)
+
+    def delete(self, rel: str) -> bool:
+        self.validate()
+        response = self._request("DELETE", rel, timeout=30.0)
+        if response.status_code == 404:
+            return False
+        if response.status_code >= 400:
+            raise ImageStorageError(f"R2 删除失败：HTTP {response.status_code}")
+        return True
+
+    def exists(self, rel: str) -> bool:
+        self.validate()
+        response = self._request("HEAD", rel, timeout=30.0)
+        return response.status_code == 200
+
+    def list_objects(self) -> list[dict[str, object]]:
+        self.validate()
+        items: list[dict[str, object]] = []
+        continuation = ""
+        while True:
+            query = {"list-type": "2", "prefix": f"{self.prefix.rstrip('/')}/", "max-keys": "1000"}
+            if continuation:
+                query["continuation-token"] = continuation
+            response = self._request("GET", query=query, timeout=30.0)
+            if response.status_code >= 400:
+                raise ImageStorageError(f"R2 列对象失败：HTTP {response.status_code}")
+            text = response.text
+            for block in text.split("<Contents>")[1:]:
+                key = _clean(block.split("<Key>", 1)[1].split("</Key>", 1)[0]) if "<Key>" in block else ""
+                if not key:
+                    continue
+                size_text = _clean(block.split("<Size>", 1)[1].split("</Size>", 1)[0]) if "<Size>" in block else "0"
+                updated = _clean(block.split("<LastModified>", 1)[1].split("</LastModified>", 1)[0]) if "<LastModified>" in block else ""
+                rel = key[len(self.prefix.rstrip("/")):].lstrip("/")
+                items.append({"rel": rel, "size": int(size_text or 0), "updated_at": updated})
+            if "<IsTruncated>true</IsTruncated>" not in text or "<NextContinuationToken>" not in text:
+                break
+            continuation = _clean(text.split("<NextContinuationToken>", 1)[1].split("</NextContinuationToken>", 1)[0])
+            if not continuation:
+                break
+        items.sort(key=lambda item: str(item.get("updated_at") or ""), reverse=True)
+        return items
+
+    def close(self) -> None:
+        try:
+            self.session.close()
+        except Exception:
+            pass
+
+
 class ImageStorageService:
     def __init__(self, index_file: Path = IMAGE_INDEX_FILE):
         self.index_file = index_file
@@ -178,6 +376,16 @@ class ImageStorageService:
 
     def mode(self) -> str:
         return _clean(self.settings().get("mode")) or "local"
+
+    def _r2_enabled(self) -> bool:
+        """R2 是否参与读写：mode 为 r2 / r2_local 时启用。"""
+        return self.mode() in {"r2", "r2_local"}
+
+    def _r2_primary(self) -> bool:
+        return self.mode() == "r2"
+
+    def _r2_client(self) -> R2Client:
+        return R2Client(self.settings())
 
     def _load_index(self) -> dict[str, dict[str, object]]:
         now = time.time()
@@ -210,6 +418,11 @@ class ImageStorageService:
         settings = self.settings()
         public_base_url = _clean(settings.get("public_base_url"))
         if public_base_url:
+            # R2 模式：public_base_url 指向 R2 公开访问域名（自定义域 / r2.dev 子域），
+            # 拼接 {prefix}/{rel} 得到永久直链，客户端可直接 <img src> 渲染，无防盗链。
+            if self._r2_enabled():
+                prefix = _clean(settings.get("r2_prefix")) or "images"
+                return f"{public_base_url.rstrip('/')}/{prefix.rstrip('/')}/{_safe_relative_path(rel)}"
             return f"{public_base_url.rstrip('/')}/{_safe_relative_path(rel)}"
         return f"{(base_url or config.base_url).rstrip('/')}/images/{_safe_relative_path(rel)}"
 
@@ -223,10 +436,11 @@ class ImageStorageService:
         config.cleanup_old_images()
         rel = self.make_relative_path(image_data)
         mode = self.mode()
-        if mode not in {"local", "webdav", "both"}:
+        if mode not in {"local", "webdav", "r2", "both", "r2_local"}:
             mode = "local"
         stored_local = False
         stored_webdav = False
+        stored_r2 = False
         remote_url = ""
 
         if mode in {"local", "both"}:
@@ -248,7 +462,31 @@ class ImageStorageService:
                     raise
                 stored_webdav = False
 
+        if mode in {"r2", "r2_local"}:
+            try:
+                r2_result = self._r2_client().put(rel, image_data)
+                remote_url = r2_result.get("key", "")
+                stored_r2 = True
+            except Exception as exc:  # noqa: BLE001
+                # r2_local：R2 上传失败降级为本地落盘，图仍可用；纯 r2 模式必须抛错
+                logger.warning({"event": "image_r2_upload_failed", "rel": rel, "error": str(exc)})
+                if mode == "r2":
+                    raise
+                path = _local_image_path(rel)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(image_data)
+                stored_local = True
+
         dimensions = _image_dimensions(image_data)
+        storage = "local"
+        if stored_r2 and stored_local:
+            storage = "r2_local"
+        elif stored_r2:
+            storage = "r2"
+        elif stored_local and stored_webdav:
+            storage = "both"
+        elif stored_webdav:
+            storage = "webdav"
         item = {
             "rel": rel,
             "path": rel,
@@ -256,9 +494,10 @@ class ImageStorageService:
             "date": "-".join(rel.split("/")[:3]),
             "size": len(image_data),
             "created_at": _now_iso(),
-            "storage": "both" if stored_local and stored_webdav else ("webdav" if stored_webdav else "local"),
+            "storage": storage,
             "local": stored_local,
             "webdav": stored_webdav,
+            "r2": stored_r2,
             "remote_url": remote_url,
         }
         if dimensions:
@@ -279,6 +518,8 @@ class ImageStorageService:
         item = self._load_clean_index().get(safe_rel, {})
         if item.get("webdav"):
             return WebDAVClient(self.settings()).get(safe_rel)
+        if self._r2_enabled() and item.get("r2"):
+            return self._r2_client().get(safe_rel)
         raise HTTPException(status_code=404, detail="image not found")
 
     def exists(self, rel: str) -> bool:
@@ -288,7 +529,14 @@ class ImageStorageService:
         if _local_image_path(safe_rel).is_file():
             return True
         item = self._load_clean_index().get(safe_rel, {})
-        return bool(item.get("webdav"))
+        if item.get("webdav"):
+            return True
+        if self._r2_enabled() and item.get("r2"):
+            try:
+                return self._r2_client().exists(safe_rel)
+            except Exception:
+                return True  # 索引标记存在，网络抖动不误判 404
+        return False
 
     def has_local(self, rel: str) -> bool:
         safe_rel = _safe_relative_path(rel)
@@ -332,11 +580,15 @@ class ImageStorageService:
                     continue
                 local = _local_image_path(rel).is_file()
                 webdav = bool(item.get("webdav"))
-                if not local and not webdav:
+                r2 = bool(item.get("r2")) and self._r2_enabled()
+                if not local and not webdav and not r2:
                     indexed.pop(rel, None)
                     changed = True
                     continue
-                storage = "both" if local and webdav else ("webdav" if webdav else "local")
+                if r2:
+                    storage = "r2_local" if local else "r2"
+                else:
+                    storage = "both" if local and webdav else ("webdav" if webdav else "local")
                 if item.get("local") != local or item.get("storage") != storage:
                     item = {
                         **item,
@@ -377,34 +629,57 @@ class ImageStorageService:
                 except ImageStorageError:
                     if not removed:
                         raise
+            if self._r2_enabled() and item.get("r2"):
+                try:
+                    removed = self._r2_client().delete(safe_rel) or removed
+                except ImageStorageError:
+                    if not removed:
+                        raise
             if safe_rel in items:
                 items.pop(safe_rel, None)
                 self._save_index(items)
         return removed
 
+    def test_r2(self) -> dict[str, object]:
+        """测试 R2 连通性（用于管理后台「图片存储设置」面板）。"""
+        if not self._r2_enabled():
+            return {"ok": False, "status": 0, "error": "R2 未启用（mode 需为 r2 或 r2_local）"}
+        try:
+            return self._r2_client().test_connection()
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "status": 0, "error": str(exc) or exc.__class__.__name__}
+
     def sync_all(self) -> dict[str, int]:
         settings = self.settings()
-        if self.mode() not in {"webdav", "both"}:
-            raise ImageStorageError("WebDAV 图片存储未启用")
+        target_webdav = self.mode() in {"webdav", "both"}
+        target_r2 = self.mode() in {"r2", "r2_local"}
+        if not target_webdav and not target_r2:
+            raise ImageStorageError("WebDAV/R2 图片存储未启用（mode 需为 webdav/both/r2/r2_local）")
         uploaded = 0
         skipped = 0
         failed = 0
         with self._index_lock:
             items = self._load_clean_index()
-            client = WebDAVClient(settings)
+            webdav_client = WebDAVClient(settings) if target_webdav else None
+            r2_client = self._r2_client() if target_r2 else None
             for path in sorted(config.images_dir.rglob("*")):
                 if not path.is_file() or not _is_image_rel(path.name):
                     continue
                 rel = path.relative_to(config.images_dir).as_posix()
                 item = items.get(rel, {})
-                if item.get("webdav"):
+                if (target_webdav and item.get("webdav")) and (target_r2 and item.get("r2")):
+                    skipped += 1
+                    continue
+                if target_webdav and item.get("webdav") and not target_r2:
+                    skipped += 1
+                    continue
+                if target_r2 and item.get("r2") and not target_webdav:
                     skipped += 1
                     continue
                 try:
                     payload = path.read_bytes()
-                    remote_url = client.put(rel, payload)
                     dimensions = _image_dimensions(payload)
-                    items[rel] = {
+                    new_item = {
                         **item,
                         "rel": rel,
                         "path": rel,
@@ -412,12 +687,25 @@ class ImageStorageService:
                         "date": "-".join(rel.split("/")[:3]) if len(rel.split("/")) >= 4 else datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d"),
                         "size": len(payload),
                         "created_at": str(item.get("created_at") or datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")),
-                        "storage": "both",
                         "local": True,
-                        "webdav": True,
-                        "remote_url": remote_url,
                         **({"width": dimensions[0], "height": dimensions[1]} if dimensions else {}),
                     }
+                    if target_webdav:
+                        remote_url = webdav_client.put(rel, payload)
+                        new_item["webdav"] = True
+                        new_item["remote_url"] = remote_url
+                    if target_r2:
+                        r2_client.put(rel, payload)
+                        new_item["r2"] = True
+                    if new_item.get("r2") and new_item.get("webdav"):
+                        new_item["storage"] = "both"
+                    elif new_item.get("r2"):
+                        new_item["storage"] = "r2"
+                    elif new_item.get("webdav"):
+                        new_item["storage"] = "webdav"
+                    else:
+                        new_item["storage"] = "local"
+                    items[rel] = new_item
                     uploaded += 1
                 except Exception:
                     failed += 1

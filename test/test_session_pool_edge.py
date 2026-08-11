@@ -89,6 +89,20 @@ def test_session_pool_default_max_entries_is_200_explicit():
     assert temp_pool._max_entries == 200, "池上限默认值漂移——可能被意外修改"
 
 
+def test_global_pool_max_entries_is_200():
+    """全局 session_pool 定义行上限必须是 200（变异探针锚点：定义行 200→201 应变红）。
+
+    注意：不能断言运行时 _max_entries（auto-scaling 会扩容到 300），
+    改用源码断言锚定定义行。
+    """
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parents[1].joinpath("services", "session_pool.py").read_text(encoding="utf-8")
+    assert "session_pool = SessionPool(ttl_seconds=300.0, max_entries=200, min_size=5)" in src, (
+        "全局池定义行漂移（非 max_entries=200）"
+    )
+
+
 # ── v2.17.0 新功能测试 ──────────────────────────────────────────────
 
 
@@ -176,3 +190,22 @@ def test_health_check_disabled_skips_check():
     s1 = pool.get(account={"access_token": "tok-nohc"}, fp_key="n")
     s2 = pool.get(account={"access_token": "tok-nohc"}, fp_key="n")
     assert s1 is s2, "关闭健康预检后应直接返回缓存的 session"
+
+
+def test_default_health_check_timeout_is_5_seconds():
+    """健康检查超时默认值精确断言（变异探针锚点）。"""
+    pool = SessionPool()
+    assert pool._health_check_timeout == 5.0
+    assert pool._health_check_timeout != 10.0
+
+
+def test_default_ttl_is_300_seconds():
+    """Session TTL 默认值精确断言（变异探针锚点）。"""
+    pool = SessionPool()
+    assert pool._ttl == 300.0
+
+
+def test_default_min_size_is_5():
+    """最小空闲连接默认值精确断言（变异探针锚点）。"""
+    pool = SessionPool()
+    assert pool._min_size == 5

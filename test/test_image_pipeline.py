@@ -103,3 +103,14 @@ class TestImagePipeline(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+def test_default_concurrency_is_5():
+    """图片管道并发限制默认值精确断言（变异探针锚点）。"""
+    from services.image_pipeline import DEFAULT_CONCURRENCY
+    assert DEFAULT_CONCURRENCY == 5
+
+
+def test_default_cache_ttl_is_3600():
+    """图片管道缓存 TTL 默认值精确断言（变异探针锚点）。"""
+    from services.image_pipeline import CACHE_TTL
+    assert CACHE_TTL == 3600

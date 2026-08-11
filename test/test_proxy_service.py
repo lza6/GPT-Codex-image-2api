@@ -413,3 +413,21 @@ class ProxyServiceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_default_proxy_test_timeout_is_15():
+    """代理测试超时默认值精确断言（变异探针锚点）。"""
+    from services.proxy_service import test_proxy
+    import inspect
+
+    sig = inspect.signature(test_proxy)
+    assert sig.parameters["timeout"].default == 15.0
+
+
+def test_default_flaresolverr_timeout_is_60():
+    """Flaresolverr 超时默认值精确断言（变异探针锚点）。"""
+    import inspect
+
+    from services.proxy_service import FlareSolverrClearanceProvider
+    sig = inspect.signature(FlareSolverrClearanceProvider.get_clearance)
+    assert sig.parameters["timeout_sec"].default == 60

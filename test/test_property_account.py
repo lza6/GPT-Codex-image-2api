@@ -206,15 +206,19 @@ class TestHealthTierProperties:
 
     @given(fail=count_strategy, success=count_strategy)
     def test_moderate_fail_rate_is_warm(self, fail: int, success: int) -> None:
-        """中等失败率（20%-50% 且 total>=3）→ warm。"""
+        """中等失败率（20%-50% 且 total>=3）→ warm。
+
+        用整数不等式与实现 `fail/total > 0.2` 完全对齐，
+        避免 hypothesis 浮点边界与实现浮点舍入不一致导致的偶发失败。
+        """
         assume(success > 0 and fail > 0)
         total = fail + success
         assume(total >= 3)
-        ratio = fail / total
-        assume(0.2 < ratio <= 0.5)
+        assume(fail * 5 > total)  # fail/total > 0.2 ⇔ 5*fail > total
+        assume(fail * 2 <= total)  # fail/total <= 0.5 ⇔ 2*fail <= total
         acc = _make_account(quota=100, success=success, fail=fail)
         tier = AccountService._account_health_tier_base(acc)
-        assert tier == "warm", f"ratio={ratio:.3f}, tier={tier}"
+        assert tier == "warm", f"fail={fail} total={total}, tier={tier}"
 
 
 # ============================================================

@@ -295,3 +295,20 @@ class TestProviderScheduler:
         assert s["quota_remaining"] == 10
         assert s["weight"] == 3
         assert s["breaker_state"] == "closed"
+
+def test_provider_default_cb_recovery_is_60():
+    """Provider 熔断冷却期默认值精确断言（变异探针锚点）。"""
+    from services.provider_scheduler import ProviderScheduler
+    assert ProviderScheduler._PROVIDER_CB_RECOVERY == 60.0
+
+
+def test_provider_default_cb_threshold_is_3():
+    """Provider 熔断阈值默认值精确断言（变异探针锚点）。"""
+    from services.provider_scheduler import ProviderScheduler
+    assert ProviderScheduler._PROVIDER_CB_THRESHOLD == 3
+
+
+def test_provider_default_rate_window_is_60():
+    """Provider 限流窗口默认值精确断言（变异探针锚点）。"""
+    from services.provider_scheduler import ProviderScheduler
+    assert ProviderScheduler._PROVIDER_RATE_WINDOW == 60.0
