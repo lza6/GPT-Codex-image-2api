@@ -64,6 +64,8 @@ class UsageAgg:
         self._recent: deque[dict[str, str]] = deque(maxlen=_RECENT_MAXLEN)
         # 每文件字节 offset（按天模式下 per-file；单文件模式下只有一个 key）
         self._file_offsets: dict[str, int] = {}
+        # 3.1.4：累计总量增量缓存（避免每次 totals 遍历 hourly）
+        self._cumulative_cache: dict[str, Any] | None = None
         self._load()
 
     def _discover_log_files(self) -> list[Path]:
@@ -142,7 +144,33 @@ class UsageAgg:
                             added += 1
                     self._file_offsets[path.name] = file.tell()
             self._prune()
-        return added
+            self._invalidate_cumulative_cache()
+            return added
+
+    def _invalidate_cumulative_cache(self) -> None:
+        """3.1.4：累计总量缓存失效——_apply 后增量重建。"""
+        self._cumulative_cache = None
+
+    def _incremental_apply_totals(self, summary: str, status: str) -> None:
+        """增量更新累计总量缓存（如果已存在）。"""
+        if self._cumulative_cache is None:
+            return
+        self._cumulative_cache["total_requests"] += 1
+        if status == "failed":
+            self._cumulative_cache["total_fail"] += 1
+        else:
+            self._cumulative_cache["total_success"] += 1
+        total = self._cumulative_cache["total_requests"]
+        succ = self._cumulative_cache["total_success"]
+        self._cumulative_cache["success_rate"] = round(succ / total, 4) if total else 0.0
+        by_type = self._cumulative_cache["by_type"]
+        summary_agg = by_type.setdefault(summary, {"success": 0, "fail": 0})
+        if status == "failed":
+            summary_agg["fail"] += 1
+        else:
+            summary_agg["success"] += 1
+        if any(tok in summary for tok in ("图", "image", "文生", "图生")):
+            self._cumulative_cache["image_calls_total"] += 1
 
     @staticmethod
     def _parse_line(raw_line: str) -> dict[str, Any] | None:
@@ -167,6 +195,8 @@ class UsageAgg:
         else:
             counter["success"] = counter["success"] + 1
         self._recent.append({"time": created, "summary": summary, "status": status})
+        # 3.1.4：增量更新累计总量缓存
+        self._incremental_apply_totals(summary, status)
 
     def _prune(self) -> None:
         cutoff = (datetime.datetime.now() - datetime.timedelta(days=WINDOW_DAYS)).strftime(_HOUR_KEY_FMT)
@@ -254,12 +284,14 @@ class UsageAgg:
     def totals(self) -> dict[str, Any]:
         """累计总量：总请求/成功/失败 + 按类型(summary)分布（全时段，不限 24h）。
 
-        供看板「总被请求多少次/成功多少次/图片累计多少次」卡片。
+        3.1.4：增加增量缓存——首次全量遍历后，后续 _apply 增量更新，避免重复遍历 _hourly。
         """
-        total_success = 0
-        total_fail = 0
-        by_summary: dict[str, dict[str, int]] = {}
         with self._lock:
+            if self._cumulative_cache is not None:
+                return dict(self._cumulative_cache)
+            total_success = 0
+            total_fail = 0
+            by_summary: dict[str, dict[str, int]] = {}
             for buckets in self._hourly.values():
                 for summary, counter in buckets.items():
                     total_success += counter["success"]
@@ -267,20 +299,22 @@ class UsageAgg:
                     agg = by_summary.setdefault(summary, {"success": 0, "fail": 0})
                     agg["success"] += counter["success"]
                     agg["fail"] += counter["fail"]
-        # 图片类调用合计（summary 含「图」的归并：文生图/图生图/图片编辑等）
-        image_calls = sum(
-            c["success"] + c["fail"]
-            for s, c in by_summary.items()
-            if any(tok in s for tok in ("图", "image", "文生", "图生"))
-        )
-        return {
-            "total_requests": total_success + total_fail,
-            "total_success": total_success,
-            "total_fail": total_fail,
-            "success_rate": round(total_success / (total_success + total_fail), 4) if (total_success + total_fail) else 0.0,
-            "image_calls_total": image_calls,
-            "by_type": by_summary,
-        }
+            # 图片类调用合计
+            image_calls = sum(
+                c["success"] + c["fail"]
+                for s, c in by_summary.items()
+                if any(tok in s for tok in ("图", "image", "文生", "图生"))
+            )
+            result = {
+                "total_requests": total_success + total_fail,
+                "total_success": total_success,
+                "total_fail": total_fail,
+                "success_rate": round(total_success / (total_success + total_fail), 4) if (total_success + total_fail) else 0.0,
+                "image_calls_total": image_calls,
+                "by_type": by_summary,
+            }
+            self._cumulative_cache = result
+            return dict(result)
 
 
 def _hour_key_to_ts(hour_key: str) -> float:

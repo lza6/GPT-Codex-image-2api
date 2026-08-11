@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Activity, AlertTriangle, Cpu, Database, HardDrive, ImageIcon, RefreshCw, Server, Timer, TrendingDown, Users } from "lucide-react";
+import { Activity, AlertTriangle, Cpu, Database, DollarSign, HardDrive, ImageIcon, RefreshCw, Server, Timer, TrendingDown, Users, Wifi } from "lucide-react";
 import { toast } from "sonner";
 import { toastError, toastSuccess } from "@/lib/toast-helper";
 import { Badge } from "@/components/ui/badge";
@@ -10,6 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
+  fetchCapacity,
+  fetchCostOverview,
   fetchImageStorage,
   fetchLatencySummary,
   fetchMetricsSummary,
@@ -17,6 +19,8 @@ import {
   fetchSchedulerDashboard,
   fetchUsageForecast,
   fetchUsageStats,
+  type CapacityStats,
+  type CostOverview,
   type ImageStorageStats,
   type LatencySummary,
   type MetricsSummary,
@@ -96,6 +100,8 @@ function DashboardContent() {
   const [forecast, setForecast] = useState<UsageForecast | null>(null);
   const [latency, setLatency] = useState<LatencySummary | null>(null);
   const [metrics, setMetrics] = useState<MetricsSummary | null>(null);
+  const [capacity, setCapacity] = useState<CapacityStats | null>(null);
+  const [cost, setCost] = useState<CostOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [tierFilter, setTierFilter] = useState<TierFilter>("all");
   const [usageHours, setUsageHours] = useState(24);
@@ -103,7 +109,7 @@ function DashboardContent() {
 
   const load = useCallback(async () => {
     try {
-      const [sched, opsData, usageData, latencyData, metricsData, forecastData, imgStorage] = await Promise.all([
+      const [sched, opsData, usageData, latencyData, metricsData, forecastData, imgStorage, capacityData, costData] = await Promise.all([
         fetchSchedulerDashboard(),
         fetchOpsOverview(),
         fetchUsageStats(usageHours),
@@ -111,6 +117,8 @@ function DashboardContent() {
         fetchMetricsSummary(),
         fetchUsageForecast(),
         fetchImageStorage(),
+        fetchCapacity(),
+        fetchCostOverview(),
       ]);
       setScheduler(sched);
       setOps(opsData);
@@ -119,6 +127,8 @@ function DashboardContent() {
       setMetrics(metricsData);
       setForecast(forecastData);
       setImageStorage(imgStorage);
+      setCapacity(capacityData);
+      setCost(costData);
     } catch (error) {
       toastError(error, "加载看板失败");
     } finally {
@@ -503,6 +513,78 @@ function DashboardContent() {
         <StatCard icon={Activity} label="错误率" value={`${((metrics?.error_rate ?? 0) * 100).toFixed(2)}%`} sub={`总错误 ${metrics?.total_errors ?? 0}`} />
         <StatCard icon={Timer} label="P95 延迟" value={`${metrics?.p95_latency_ms ?? 0} ms`} sub={`平均 ${metrics?.avg_latency_ms ?? 0} ms`} />
       </div>
+
+      {/* 5.1.1：容量规划 */}
+      <Card className="rounded-xl border-stone-200 bg-white">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">容量规划</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {capacity ? (
+            <>
+              <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+                <div>
+                  <p className="text-xs text-stone-500">日均请求</p>
+                  <p className="text-2xl font-semibold text-stone-900">{capacity.avg_daily_requests}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-stone-500">活跃账号</p>
+                  <p className="text-2xl font-semibold text-stone-900">{capacity.active_accounts}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-stone-500">单号日均</p>
+                  <p className="text-2xl font-semibold text-stone-900">{capacity.per_account_daily}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-stone-500">建议新增</p>
+                  <p className="text-2xl font-semibold text-stone-900">{capacity.suggested_new_accounts}</p>
+                  <p className="text-xs text-stone-400">增长率 {(capacity.growth_rate * 100).toFixed(1)}%</p>
+                </div>
+              </div>
+              {capacity.series.length > 0 && (
+                <div className="mt-4 h-24">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={capacity.series} margin={{ top: 4, right: 8, left: 8, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                      <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={(v: string) => v.slice(5)} />
+                      <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+                      <Tooltip />
+                      <Line type="monotone" dataKey="calls" stroke="#1e293b" strokeWidth={2} dot={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </>
+          ) : (
+            <p className="py-4 text-center text-sm text-stone-400">加载中...</p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* 5.1.2：成本优化 */}
+      {cost && (
+        <div className="space-y-4">
+          <h2 className="text-lg font-semibold text-stone-900">成本优化</h2>
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+            <StatCard icon={Activity} label="总调用量" value={String(cost.total_requests)} sub={`成功 ${cost.total_success} · 失败 ${cost.total_fail}`} />
+            <StatCard icon={Users} label="Provider 分布" value={String(cost.provider_distribution.length)} sub={cost.provider_distribution.map((p) => `${p.display_name} ${p.total_accounts}号`).join(" · ")} />
+            <StatCard icon={Wifi} label="kookeey 流量" value={
+              !cost.kookeey_traffic
+                ? "未配置"
+                : cost.kookeey_traffic.need_config
+                  ? "待配置"
+                  : cost.kookeey_traffic.error
+                    ? "获取失败"
+                    : `${cost.kookeey_traffic.balance_mb ?? "?"} MB`
+            } sub={
+              cost.kookeey_traffic && !cost.kookeey_traffic.need_config && !cost.kookeey_traffic.error
+                ? `今日 ${cost.kookeey_traffic.today_use_mb ?? 0} MB · 本月 ${cost.kookeey_traffic.month_use_mb ?? 0} MB`
+                : undefined
+            } />
+            <StatCard icon={DollarSign} label="调用类型" value={String(Object.keys(cost.by_type).length)} sub="按类型分布" />
+          </div>
+        </div>
+      )}
 
       {/* 使用中账号实时列表 */}
       {inUseAccounts.length > 0 && (

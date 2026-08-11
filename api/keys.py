@@ -48,7 +48,7 @@ def _build_admin_virtual_item() -> dict[str, Any]:
 
 
 def create_router() -> APIRouter:
-    router = APIRouter()
+    router = APIRouter(tags=["Auth Keys"])
 
     @router.get("/api/auth/keys")
     async def list_keys(authorization: str | None = Header(default=None)):

@@ -9,9 +9,11 @@ import zipfile
 from datetime import datetime
 from typing import Any, Literal
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Response
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import Response
+from fastapi.responses import Response as FastAPIResponse
+
+from api.response_cache import response_cache, apply_cache_headers
 from pydantic import BaseModel, Field
 
 from api.support import (
@@ -242,7 +244,7 @@ def _account_zip_bytes(items: list[dict[str, str]]) -> bytes:
 
 
 def create_router() -> APIRouter:
-    router = APIRouter()
+    router = APIRouter(tags=["Accounts"])
 
     @router.get("/api/auth/users")
     async def list_user_keys(authorization: str | None = Header(default=None)):
@@ -292,7 +294,11 @@ def create_router() -> APIRouter:
         return {"items": auth_service.list_keys(role="user")}
 
     @router.get("/api/accounts")
-    async def get_accounts(page: int = 0, page_size: int = 0, provider: str | None = None, authorization: str | None = Header(default=None)):
+    async def get_accounts(
+        page: int = 0, page_size: int = 0, provider: str | None = None,
+        authorization: str | None = Header(default=None), refresh: bool = False,
+        response: Response = None,
+    ):
         """账号列表。
 
         6.3：支持服务端分页（page 从 1 起，page_size>0 时启用；默认 0/0 = 全量返回，
@@ -302,6 +308,12 @@ def create_router() -> APIRouter:
         使用 5s 缓存避免频繁切换页面时重复全量加载 accounts.json。
         """
         require_admin(authorization)
+        if not refresh:
+            cached = response_cache.get("/api/accounts")
+            if cached is not None:
+                if response is not None:
+                    apply_cache_headers("/api/accounts", response)
+                return cached
         items = account_service.get_accounts_cached()
         # Phase B：按 provider 过滤（provider 为空/none 时不过滤，兼容旧调用方）
         if provider:
@@ -339,7 +351,11 @@ def create_router() -> APIRouter:
                     breakers[token[-8:]] = {"state": status.get("state"), "recover_in_seconds": status.get("recover_in_seconds", 0)}
         except Exception:
             breakers = {}
-        return {"items": items, "total": total, "breakers": breakers}
+        result = {"items": items, "total": total, "breakers": breakers}
+        response_cache.set("/api/accounts", result)
+        if response is not None:
+            apply_cache_headers("/api/accounts", response)
+        return result
 
     @router.post("/api/accounts")
     async def create_accounts(body: AccountCreateRequest, authorization: str | None = Header(default=None)):
@@ -391,7 +407,9 @@ def create_router() -> APIRouter:
         tokens = [str(token or "").strip() for token in body.tokens if str(token or "").strip()]
         if not tokens:
             raise HTTPException(status_code=400, detail={"error": "tokens is required"})
-        return account_service.delete_accounts(tokens)
+        result = account_service.delete_accounts(tokens)
+        response_cache.invalidate("/api/accounts")
+        return result
 
     @router.post("/api/accounts/refresh")
     async def refresh_accounts(body: AccountRefreshRequest, authorization: str | None = Header(default=None)):

@@ -47,6 +47,7 @@ SNAPSHOT_ENDPOINTS = [
     "/api/dashboard/usage",
     "/api/dashboard/usage-forecast",
     "/api/dashboard/capacity",
+    "/api/dashboard/cost",
     "/api/dashboard/latency",
     "/api/dashboard/metrics_summary",
     "/api/dashboard/circuit_breakers",

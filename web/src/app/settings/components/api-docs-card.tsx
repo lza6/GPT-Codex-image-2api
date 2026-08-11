@@ -2,9 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  BookOpen,
   ChevronDown,
   Copy,
+  ExternalLink,
   FileArchive,
+  FileJson,
   FileText,
   KeyRound,
   ListChecks,
@@ -516,6 +519,55 @@ export function ApiDocsCard() {
             <div className="text-xs text-stone-500">请求头</div>
             <div className="break-all font-mono text-xs text-stone-800">Authorization: Bearer {displayKey}</div>
           </div>
+        </div>
+
+        {/* OpenAPI 自动文档入口 */}
+        <div className="grid gap-3 md:grid-cols-3">
+          <a
+            href={new URL("/docs", serviceBaseUrl).href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-4 py-3 transition hover:border-stone-300 hover:shadow-sm"
+          >
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
+              <BookOpen className="size-4" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-stone-900">Swagger UI</div>
+              <div className="mt-0.5 truncate font-mono text-xs text-stone-400">/docs</div>
+            </div>
+            <ExternalLink className="ml-auto size-4 shrink-0 text-stone-300" />
+          </a>
+          <a
+            href={new URL("/redoc", serviceBaseUrl).href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-4 py-3 transition hover:border-stone-300 hover:shadow-sm"
+          >
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-sky-50 text-sky-600">
+              <FileText className="size-4" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-stone-900">Redoc</div>
+              <div className="mt-0.5 truncate font-mono text-xs text-stone-400">/redoc</div>
+            </div>
+            <ExternalLink className="ml-auto size-4 shrink-0 text-stone-300" />
+          </a>
+          <a
+            href={new URL("/openapi.json", serviceBaseUrl).href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-4 py-3 transition hover:border-stone-300 hover:shadow-sm"
+          >
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-600">
+              <FileJson className="size-4" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-stone-900">OpenAPI JSON</div>
+              <div className="mt-0.5 truncate font-mono text-xs text-stone-400">/openapi.json</div>
+            </div>
+            <ExternalLink className="ml-auto size-4 shrink-0 text-stone-300" />
+          </a>
         </div>
 
         <div className="space-y-2">

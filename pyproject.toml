@@ -36,6 +36,7 @@ markers = [
     "live: 需要真实上游 OpenAI 或活服务(localhost:23456)的测试，CI 默认排除，本地手动 pytest -m live 运行",
     "redis: 需要 Redis 的测试，CI 默认排除",
     "unit: 纯单元测试（不触网、不需活服务）",
+    "property: 属性基测试（hypothesis），可能随机生成大量输入",
 ]
 # 测试文件收集路径（live 测试仍放 test/ 下，用标记区分而非目录隔离）
 testpaths = ["test"]

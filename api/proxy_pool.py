@@ -32,7 +32,7 @@ class ProxyStrategyRequest(BaseModel):
 
 
 def create_router() -> APIRouter:
-    router = APIRouter()
+    router = APIRouter(tags=["Proxy Pool"])
 
     @router.get("/api/proxies")
     async def list_proxies(authorization: str | None = Header(default=None)):

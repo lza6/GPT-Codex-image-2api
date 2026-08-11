@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi import APIRouter, Header, HTTPException, Request, Response
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
+
+from api.response_cache import response_cache, apply_cache_headers
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.image_inputs import parse_image_edit_request, read_image_sources
@@ -77,13 +79,27 @@ async def filter_or_log(call: LoggedCall, text: str) -> None:
 
 
 def create_router() -> APIRouter:
-    router = APIRouter()
+    router = APIRouter(tags=["AI"])
 
     @router.get("/v1/models")
-    async def list_models(authorization: str | None = Header(default=None)):
+    async def list_models(
+        authorization: str | None = Header(default=None),
+        refresh: bool = False,
+        response: Response = None,
+    ):
         require_identity(authorization)
+        if not refresh:
+            cached = response_cache.get("/v1/models")
+            if cached is not None:
+                if response is not None:
+                    apply_cache_headers("/v1/models", response)
+                return cached
         try:
-            return await run_in_threadpool(openai_v1_models.list_models)
+            result = await run_in_threadpool(openai_v1_models.list_models)
+            response_cache.set("/v1/models", result)
+            if response is not None:
+                apply_cache_headers("/v1/models", response)
+            return result
         except Exception as exc:
             raise HTTPException(status_code=502, detail={"error": str(exc)}) from exc
 

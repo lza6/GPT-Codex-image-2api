@@ -230,5 +230,109 @@ class TestCompatibility(unittest.TestCase):
         self.assertGreater(len(tokens), 0)
 
 
+class TestAdaptiveScheduler(unittest.TestCase):
+    """自适应调度器：基于运行指标自动切换调度模式。"""
+
+    def setUp(self) -> None:
+        self.service = _make_service([
+            {"access_token": "token-a", "type": "Plus", "status": "正常", "quota": 10, "success": 50, "fail": 2},
+            {"access_token": "token-b", "type": "Plus", "status": "正常", "quota": 10, "success": 5, "fail": 0},
+            {"access_token": "token-c", "type": "Plus", "status": "正常", "quota": 10, "success": 0, "fail": 0},
+        ])
+        self.service._affinity_map = {"gpt-5": "token-a", "gpt-image-2": "token-b", "dall-e-3": "token-c", "gpt-4o": "token-a", "o1": "token-b"}
+        _set_scheduler_mode("weighted_random")
+
+    def tearDown(self) -> None:
+        _cleanup(self.service)
+
+    def test_high_load_selects_least_load(self) -> None:
+        """高并发（>100）应选择 least_load。"""
+        from services.adaptive_scheduler import adaptive_scheduler
+        adaptive_scheduler._stats["concurrent_requests"] = 150
+        adaptive_scheduler._stats["success_rate"] = 0.95
+        adaptive_scheduler._stats["model_diversity"] = 0.3
+        chosen = adaptive_scheduler.select_mode()
+        self.assertEqual(chosen, "least_load")
+
+    def test_low_success_rate_selects_predictive(self) -> None:
+        """低成功率（<0.8）应选择 predictive。"""
+        from services.adaptive_scheduler import adaptive_scheduler
+        adaptive_scheduler._stats["concurrent_requests"] = 10
+        adaptive_scheduler._stats["success_rate"] = 0.65
+        adaptive_scheduler._stats["model_diversity"] = 0.3
+        chosen = adaptive_scheduler.select_mode()
+        self.assertEqual(chosen, "predictive")
+
+    def test_high_diversity_selects_affinity(self) -> None:
+        """高模型多样性（>0.7）应选择 affinity。"""
+        from services.adaptive_scheduler import adaptive_scheduler
+        adaptive_scheduler._stats["concurrent_requests"] = 10
+        adaptive_scheduler._stats["success_rate"] = 0.95
+        adaptive_scheduler._stats["model_diversity"] = 0.8
+        chosen = adaptive_scheduler.select_mode()
+        self.assertEqual(chosen, "affinity")
+
+    def test_default_selects_weighted(self) -> None:
+        """默认场景应选择 weighted_random。"""
+        from services.adaptive_scheduler import adaptive_scheduler
+        adaptive_scheduler._stats["concurrent_requests"] = 10
+        adaptive_scheduler._stats["success_rate"] = 0.95
+        adaptive_scheduler._stats["model_diversity"] = 0.3
+        chosen = adaptive_scheduler.select_mode()
+        self.assertEqual(chosen, "weighted_random")
+
+    def test_tick_updates_current_mode(self) -> None:
+        """tick() 通过 collect_stats 收集实时指标后应更新 current_mode。"""
+        from services.adaptive_scheduler import adaptive_scheduler
+        # 直接通过服务状态模拟高并发：大量 in-flight
+        accts = self.service.list_accounts()
+        for acct in accts:
+            token = acct.get("access_token", "")
+            self.service._image_inflight[token] = 50
+        adaptive_scheduler._switched_at = 0.0  # 强制允许切换
+        mode = adaptive_scheduler.tick(self.service)
+        self.assertEqual(mode, "least_load")
+
+    def test_tick_high_load_respects_dwell(self) -> None:
+        """tick() 应遵守最短驻留时间。"""
+        from services.adaptive_scheduler import adaptive_scheduler
+        adaptive_scheduler._current_mode = "predictive"
+        adaptive_scheduler._switched_at = 9999999999.0  # 未来时间
+        adaptive_scheduler._stats["concurrent_requests"] = 150
+        mode = adaptive_scheduler.tick(self.service)
+        self.assertEqual(mode, "predictive")  # 不应切换
+
+    def test_collect_stats(self) -> None:
+        """collect_stats 应正确收集指标。"""
+        from services.adaptive_scheduler import adaptive_scheduler
+        stats = adaptive_scheduler.collect_stats(self.service)
+        self.assertIn("concurrent_requests", stats)
+        self.assertIn("success_rate", stats)
+        self.assertIn("model_diversity", stats)
+        self.assertGreaterEqual(stats["success_rate"], 0.0)
+
+    def test_get_history(self) -> None:
+        """get_history 应返回历史记录。"""
+        from services.adaptive_scheduler import adaptive_scheduler
+        adaptive_scheduler._record_switch("weighted_random", "least_load")
+        history = adaptive_scheduler.get_history(limit=5)
+        self.assertGreaterEqual(len(history), 1)
+        self.assertEqual(history[0]["from"], "weighted_random")
+        self.assertEqual(history[0]["to"], "least_load")
+
+    def test_get_status(self) -> None:
+        """get_status 应返回当前状态。"""
+        from services.adaptive_scheduler import adaptive_scheduler
+        status = adaptive_scheduler.get_status()
+        self.assertIn("current_mode", status)
+        self.assertIn("stats", status)
+        self.assertIn("history_count", status)
+
+    def test_adaptive_scheduler_imports(self) -> None:
+        """自适应调度器模块应可导入。"""
+        from services.adaptive_scheduler import adaptive_scheduler, AdaptiveScheduler
+        self.assertIsInstance(adaptive_scheduler, AdaptiveScheduler)
+
+
 if __name__ == "__main__":
     unittest.main()

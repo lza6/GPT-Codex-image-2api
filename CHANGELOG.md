@@ -1,6 +1,19 @@
 # Changelog
 
-## 2.26.0 - 2026-08-11 (3.2.3 配置热加载)
+## 2.27.0 - 2026-08-11 (4.1.2 自适应调度器)
+
+**4.1.2 自适应调度器：**
++ [新增] `services/adaptive_scheduler.py` — AdaptiveScheduler 类：基于运行指标（并发>100→least_load、成功率<0.8→predictive、模型多样性>0.7→affinity、默认→weighted_random）自动切换调度模式，含最短驻留时间守卫（120s）防抖动
++ [新增] `services/prometheus_metrics.py` — `chatgpt2api_scheduler_mode_switches_total{from_mode,to_mode}` 模式切换计数指标，`record_scheduler_mode_switch()` 函数
++ [新增] `services/config.py` — `scheduler_adaptive_enabled`（bool，默认 false）、`scheduler_adaptive_interval_seconds`（float，默认 30）配置项，含环境变量覆盖
++ [新增] `api/dashboard.py` — `GET /api/dashboard/adaptive_scheduler` 端点（自适应调度器状态+运行指标+切换历史），看板 SSE 含 `scheduler_adaptive_enabled` 字段
++ [新增] `services/account_service.py` — `_acquire_next_candidate_token` 接入自适应调度器，`effective_mode` 由 `AdaptiveScheduler.tick()` 驱动
++ [新增] `config.json` — 新增 `scheduler_adaptive_enabled: false`、`scheduler_adaptive_interval_seconds: 30`
++ [前端] `web/src/lib/api.ts` — SettingsConfig 和 OpsOverview 新增 `scheduler_adaptive_enabled`、`scheduler_adaptive_interval_seconds` 字段
++ [前端] `web/src/app/settings/store.ts` — normalizeConfig 新增归一化，`setSchedulerAdaptiveEnabled`、`setSchedulerAdaptiveIntervalSeconds` action
++ [前端] `web/src/app/settings/components/config-card.tsx` — 自适应调度器开关 UI（checkbox + 条件显示的检查间隔输入）
++ [测试] `test/test_scheduler_modes.py` — TestAdaptiveScheduler 10 个测试（模式选择/切换守卫/指标收集/历史记录/状态查询/模块导入/高负载/低成功率/高多样性/默认模式）
++ [测试] 28 passed / 0 failed in test_scheduler_modes.py
 
 **3.2.3 配置热加载：**
 + [新增] `services/config_watcher.py` — ConfigWatcher 类：轮询检测 config.json 的 mtime 变化，触发 ConfigStore 热加载并发布 CONFIG_CHANGED 事件

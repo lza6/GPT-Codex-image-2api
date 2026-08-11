@@ -37,7 +37,7 @@ async def filter_or_log(call: LoggedCall, text: str) -> None:
 
 
 def create_router() -> APIRouter:
-    router = APIRouter()
+    router = APIRouter(tags=["Image Tasks"])
 
     @router.get("/api/image-tasks")
     async def list_image_tasks(

@@ -26,7 +26,7 @@ class KookeeyExtractRequest(BaseModel):
 
 
 def create_router() -> APIRouter:
-    router = APIRouter()
+    router = APIRouter(tags=["Kookeey"])
 
     @router.get("/api/kookeey/config")
     async def get_kookeey_config(authorization: str | None = Header(default=None)):

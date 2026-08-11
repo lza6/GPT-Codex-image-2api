@@ -10,10 +10,11 @@ import shutil
 import time
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Header
+from fastapi import APIRouter, Header, Response
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import PlainTextResponse, StreamingResponse
 
+from api.response_cache import response_cache, apply_cache_headers
 from api.support import require_admin
 from services.account_service import AccountService, account_service
 from services.circuit_breaker import circuit_breaker_registry
@@ -126,6 +127,7 @@ def _collect_ops_overview() -> dict[str, object]:
         "disk_total_mb": round(disk.total / 1024 / 1024, 1),
         "storage": storage_stats(),
         "scheduler_mode": config.scheduler_mode,
+        "scheduler_adaptive_enabled": config.scheduler_adaptive_enabled,
         "refresh_account_interval_minute": config.refresh_account_interval_minute,
         "image_account_concurrency": config.image_account_concurrency,
         # D9：备份状态接看板（最近备份时间/状态/错误），SSE 实时可见
@@ -234,12 +236,22 @@ def _collect_capacity(windows_days: int = 7) -> dict[str, object]:
 
 
 def create_router() -> APIRouter:
-    router = APIRouter()
+    router = APIRouter(tags=["Dashboard"])
 
     @router.get("/api/dashboard/scheduler")
-    async def scheduler_dashboard(authorization: str | None = Header(default=None)):
+    async def scheduler_dashboard(
+        authorization: str | None = Header(default=None),
+        refresh: bool = False,
+        response: Response = None,
+    ):
         """调度看板：账号健康分布 + 实时并发 + 调度分排名。"""
         require_admin(authorization)
+        if not refresh:
+            cached = response_cache.get("/api/dashboard/scheduler")
+            if cached is not None:
+                if response is not None:
+                    apply_cache_headers("/api/dashboard/scheduler", response)
+                return cached
         accounts = account_service.list_accounts()
         health = _collect_account_health(accounts)
         # 更新 prometheus 账号池指标
@@ -301,7 +313,11 @@ def create_router() -> APIRouter:
             provider_stats = provider_scheduler.get_provider_stats(accounts)
         except Exception:
             pass
-        return {"health": health, "accounts": ranked, "provider_stats": provider_stats}
+        result = {"health": health, "accounts": ranked, "provider_stats": provider_stats}
+        response_cache.set("/api/dashboard/scheduler", result)
+        if response is not None:
+            apply_cache_headers("/api/dashboard/scheduler", response)
+        return result
 
     @router.get("/api/dashboard/circuit_breakers")
     async def circuit_breakers(authorization: str | None = Header(default=None)):
@@ -310,10 +326,24 @@ def create_router() -> APIRouter:
         return await run_in_threadpool(_collect_circuit_breaker_status)
 
     @router.get("/api/dashboard/ops")
-    async def ops_overview(authorization: str | None = Header(default=None)):
+    async def ops_overview(
+        authorization: str | None = Header(default=None),
+        refresh: bool = False,
+        response: Response = None,
+    ):
         """运维概览：CPU/内存/磁盘/账号池/日志统计。"""
         require_admin(authorization)
-        return await run_in_threadpool(_collect_ops_overview)
+        if not refresh:
+            cached = response_cache.get("/api/dashboard/ops")
+            if cached is not None:
+                if response is not None:
+                    apply_cache_headers("/api/dashboard/ops", response)
+                return cached
+        result = await run_in_threadpool(_collect_ops_overview)
+        response_cache.set("/api/dashboard/ops", result)
+        if response is not None:
+            apply_cache_headers("/api/dashboard/ops", response)
+        return result
 
     @router.get("/api/dashboard/usage")
     async def usage_stats(authorization: str | None = Header(default=None), hours: int = 24):
@@ -358,6 +388,14 @@ def create_router() -> APIRouter:
         require_admin(authorization)
         window = max(1, min(int(days), 90))
         return await run_in_threadpool(_collect_capacity, window)
+
+    @router.get("/api/dashboard/cost")
+    async def cost_overview(authorization: str | None = Header(default=None)):
+        """5.1.2：成本优化概览——全链路成本追踪（调用量/Provider 分布/代理流量）。"""
+        require_admin(authorization)
+        from services.cost_service import cost_service
+
+        return await run_in_threadpool(cost_service.get_cost_overview)
 
     @router.get("/api/dashboard/latency")
     async def latency_stats(authorization: str | None = Header(default=None)):
@@ -416,5 +454,19 @@ def create_router() -> APIRouter:
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
+
+    @router.get("/api/dashboard/adaptive_scheduler")
+    async def adaptive_scheduler_status(authorization: str | None = Header(default=None)):
+        """自适应调度器状态：当前模式/运行指标/切换历史。"""
+        require_admin(authorization)
+        try:
+            from services.adaptive_scheduler import adaptive_scheduler
+            return {
+                "enabled": config.scheduler_adaptive_enabled,
+                "status": adaptive_scheduler.get_status(),
+                "history": adaptive_scheduler.get_history(limit=10),
+            }
+        except Exception:
+            return {"enabled": False, "status": {}, "history": []}
 
     return router

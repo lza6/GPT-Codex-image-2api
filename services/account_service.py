@@ -48,6 +48,8 @@ class AccountService:
         "Chrome/145.0.0.0 Safari/537.36"
     )
     _ACCOUNT_LIST_CACHE_TTL: float = 5.0
+    # 3.1.4：脏标记节流——_save_accounts 最多每秒写一次，避免高频 mutation 重复全量写
+    _SAVE_DEBOUNCE_SECONDS: float = 1.0
 
     def __init__(self, storage_backend: StorageBackend, progress_ttl_seconds: float = 3600.0):
         self.storage = storage_backend
@@ -74,6 +76,9 @@ class AccountService:
         self._index = 0
         with self._lock:
             self._accounts = self._load_accounts()
+        # 3.1.4：脏标记 + 节流——避免连续 mutation 重复全量写存储
+        self._dirty = False
+        self._last_save_at = 0.0
         self._image_inflight: dict[str, int] = {}
         self._token_aliases: dict[str, str] = {}
         self._cumulative_total = self._load_cumulative_total()
@@ -158,8 +163,12 @@ class AccountService:
         }
 
     def _save_accounts(self) -> None:
+        if not self._dirty:
+            return
         self.storage.save_accounts(list(self._accounts.values()))
         self._invalidate_account_list_cache()
+        self._dirty = False
+        self._last_save_at = time.time()
 
     @staticmethod
     def _is_image_account_available(account: dict) -> bool:
@@ -485,6 +494,7 @@ class AccountService:
             account = self._normalize_account(next_item)
             if account is not None:
                 self._accounts[resolved] = account
+                self._dirty = True
                 self._save_accounts()
         log_service.add(
             LOG_TYPE_ACCOUNT,
@@ -603,6 +613,7 @@ class AccountService:
                 if old_inflight:
                     self._image_inflight[new_token] = int(self._image_inflight.get(new_token, 0)) + old_inflight
             self._accounts[new_token] = account
+            self._dirty = True
             self._save_accounts()
             self._image_slot_condition.notify_all()
 
@@ -1538,6 +1549,7 @@ class AccountService:
             if account is None:
                 return
             self._accounts[access_token] = account
+            self._dirty = True
             self._save_accounts()
 
     def remove_invalid_token(self, access_token: str, event: str, quiet: bool = False) -> bool:
@@ -1929,6 +1941,7 @@ class AccountService:
                 )
                 if account is not None:
                     self._accounts[access_token] = account
+                    self._dirty = True
             self._save_accounts()
             items = [dict(item) for item in self._accounts.values()]
             log_service.add(LOG_TYPE_ACCOUNT, f"新增 {added} 个账号，跳过 {skipped} 个",
@@ -1952,6 +1965,7 @@ class AccountService:
                 if old not in target_set and new not in target_set
             }
             if removed:
+                self._dirty = True
                 if self._accounts:
                     self._index %= len(self._accounts)
                 else:
@@ -1976,10 +1990,12 @@ class AccountService:
                 self._accounts.pop(access_token, None)
                 # D4：自动移除账号时清理熔断器（防注册表孤儿化）
                 self._breaker_registry.remove(access_token)
+                self._dirty = True
                 self._save_accounts()
                 log_service.add(LOG_TYPE_ACCOUNT, "自动移除限流账号", {"token": anonymize_token(access_token)})
                 return None
             self._accounts[access_token] = account
+            self._dirty = True
             self._save_accounts()
             if not quiet:
                 log_service.add(LOG_TYPE_ACCOUNT, "更新账号",
@@ -2088,6 +2104,7 @@ class AccountService:
             account = self._normalize_account(next_item)
             if account is not None:
                 self._accounts[access_token] = account
+                self._dirty = True
                 self._save_accounts()
 
     def _exponential_backoff_delay(self, account: dict) -> float | None:
@@ -2152,6 +2169,7 @@ class AccountService:
             account = self._normalize_account(next_item)
             if account is not None:
                 self._accounts[access_token] = account
+                self._dirty = True
                 self._save_accounts()
             # 重新计算健康评分（基于已更新的 fail/last_invalid_at 等字段）
             self._update_health_score(access_token)
@@ -2209,10 +2227,12 @@ class AccountService:
                 self._accounts.pop(access_token, None)
                 # D4：自动移除账号时清理熔断器（防注册表孤儿化）
                 self._breaker_registry.remove(access_token)
+                self._dirty = True
                 self._save_accounts()
                 log_service.add(LOG_TYPE_ACCOUNT, "自动移除限流账号", {"token": anonymize_token(access_token)})
                 return None
             self._accounts[access_token] = account
+            self._dirty = True
             self._save_accounts()
             # v2.9.0：挂钩 kookeey 单 IP 使用画像（按账号粘性 session 记请求数）
             try:

@@ -430,6 +430,63 @@ def create_router(app_version: str) -> APIRouter:
         require_admin(authorization)
         return await run_in_threadpool(delete_to_target, target_free_mb, dry_run)
 
+    @router.post("/api/system/diagnose")
+    async def run_diagnose(authorization: str | None = Header(default=None)):
+        require_admin(authorization)
+        from services.diagnostic_engine import diagnostic_engine
+        from services.audit_service import record_admin_access
+        try:
+            report = await diagnostic_engine.diagnose()
+            result = report.to_dict()
+            record_admin_access(action="/api/system/diagnose", result="success", identity=require_admin(authorization))
+            return result
+        except Exception as e:
+            record_admin_access(action="/api/system/diagnose", result="error", identity=require_admin(authorization))
+            raise HTTPException(status_code=500, detail={"error": str(e)}) from e
+
+    @router.get("/api/system/diagnose")
+    async def get_last_diagnose(authorization: str | None = Header(default=None)):
+        require_admin(authorization)
+        from services.diagnostic_engine import diagnostic_engine
+        report = diagnostic_engine.get_last_report()
+        return {"report": report, "last_time": diagnostic_engine.get_last_report_time()}
+
+    @router.get("/api/system/healing/history")
+    async def get_healing_history(limit: int = Query(default=100, ge=1, le=500), authorization: str | None = Header(default=None)):
+        require_admin(authorization)
+        from services.auto_healer import auto_healer
+        return {
+            "items": auto_healer.get_history(limit),
+            "stats": auto_healer.get_stats(),
+        }
+
+    @router.post("/api/system/healing/run")
+    async def run_healing(authorization: str | None = Header(default=None)):
+        require_admin(authorization)
+        from services.diagnostic_engine import diagnostic_engine
+        from services.auto_healer import auto_healer
+        from services.audit_service import record_admin_access
+        try:
+            report = await diagnostic_engine.diagnose()
+            results = await auto_healer.heal_all(report)
+            record_admin_access(action="/api/system/healing/run", result="success", identity=require_admin(authorization))
+            return {
+                "diagnose": report.to_dict(),
+                "healing": [r.to_dict() for r in results],
+            }
+        except Exception as e:
+            record_admin_access(action="/api/system/healing/run", result="error", identity=require_admin(authorization))
+            raise HTTPException(status_code=500, detail={"error": str(e)}) from e
+
+    @router.post("/api/system/healing/clear-history")
+    async def clear_healing_history(authorization: str | None = Header(default=None)):
+        require_admin(authorization)
+        from services.auto_healer import auto_healer
+        auto_healer.clear_history()
+        from services.audit_service import record_admin_access
+        record_admin_access(action="/api/system/healing/clear-history", result="success", identity=require_admin(authorization))
+        return {"ok": True}
+
     @router.get("/health", response_model=None)
     async def health_dashboard(format: str = Query(default="html")):
         from services.account_service import account_service as acct_svc
