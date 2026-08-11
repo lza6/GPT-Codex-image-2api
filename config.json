@@ -1,0 +1,177 @@
+{
+  "auth-key": "cg2api-8tbkFwuqBPLZ2cUuA12f8Ldvt2mkYNlO",
+  "refresh_account_interval_minute": 5,
+  "sqlite_wal_mode": true,
+  "sqlite_busy_timeout_ms": 5000,
+  "storage_async_enabled": false,
+  "progress_ttl_seconds": 3600,
+  "ssrf_allow_private_ips": true,
+  "trusted_proxies": [
+    "127.0.0.1",
+    "::1"
+  ],
+  "alert_webhook_url": "",
+  "alert_webhook_timeout": 10,
+  "alert_events": [
+    "circuit_breaker_open",
+    "circuit_breaker_closed",
+    "backup_failure",
+    "account_invalid",
+    "account_recovered",
+    "quota_exhausted",
+    "quota_forecast_depletion"
+  ],
+  "image_retention_days": 15,
+  "image_poll_timeout_secs": 600,
+  "auto_remove_rate_limited_accounts": false,
+  "auto_remove_invalid_accounts": false,
+  "auto_heal_enabled": true,
+  "auto_diagnose_interval_minutes": 60,
+  "log_levels": [
+    "debug",
+    "error",
+    "info",
+    "warning"
+  ],
+  "proxy": "",
+  "kookeey": {
+    "enabled": true,
+    "scheme": "http",
+    "gate_host": "gate.kookeey.info",
+    "gate_port": 1000,
+    "user_id": "1023701",
+    "security_username": "4a2c845a",
+    "security_password": "12843fee",
+    "country": "US",
+    "developer_token": "Mjg2NDQ2MDQ1OUBxcS5jb20xNzE4ODUxOTYzNDI1MjQ5",
+    "access_id": "1023701",
+    "proxy_enabled": false
+  },
+  "proxy_runtime": {
+    "enabled": false,
+    "egress_mode": "single_proxy",
+    "proxy_url": "http://privoxy:8118",
+    "resource_proxy_url": "",
+    "skip_ssl_verify": true,
+    "reset_session_status_codes": [
+      403
+    ],
+    "clearance": {
+      "enabled": true,
+      "mode": "flaresolverr",
+      "cf_cookies": "",
+      "cf_clearance": "",
+      "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36",
+      "browser": "chrome",
+      "flaresolverr_url": "http://flaresolverr:8191",
+      "timeout_sec": 60,
+      "refresh_interval": 3600,
+      "warm_up_on_start": true
+    }
+  },
+  "base_url": "",
+  "sensitive_words": [],
+  "global_system_prompt": "",
+  "default_upstream_model_name": "gpt-5-5",
+  "model_upstream_map": {},
+  "default_thinking_effort": "auto",
+  "ai_review": {
+    "enabled": false,
+    "base_url": "",
+    "api_key": "",
+    "model": "",
+    "prompt": ""
+  },
+  "backup": {
+    "enabled": false,
+    "provider": "cloudflare_r2",
+    "account_id": "admin",
+    "access_key_id": "",
+    "secret_access_key": "admin",
+    "bucket": "",
+    "prefix": "backups",
+    "interval_minutes": 1440,
+    "rotation_keep": 10,
+    "encrypt": false,
+    "passphrase": "",
+    "include": {
+      "config": true,
+      "cpa": true,
+      "sub2api": true,
+      "logs": true,
+      "image_tasks": true,
+      "accounts_snapshot": true,
+      "auth_keys_snapshot": true,
+      "images": false
+    }
+  },
+  "image_account_concurrency": 3,
+  "image_parallel_generation": true,
+  "scheduler_mode": "round_robin",
+  "scheduler_adaptive_enabled": false,
+  "scheduler_adaptive_interval_seconds": 30,
+  "scheduler_priority": {},
+  "session_pool_health_check_enabled": true,
+  "provider_weights": {
+    "chatgpt": 3
+  },
+  "provider_rate_limit_rpm": {},
+  "rate_limit_rpm": 0,
+  "rate_limit_per_ip_rpm": 0,
+  "workers": 1,
+  "metrics_sample_rate": 1.0,
+  "env": "development",
+  "cors_origins": "*",
+  "image_poll_interval_secs": 10,
+  "image_poll_initial_wait_secs": 10,
+  "image_storage": {
+    "enabled": false,
+    "mode": "local",
+    "webdav_url": "",
+    "webdav_username": "",
+    "webdav_password": "",
+    "webdav_root_path": "chatgpt2api/images",
+    "public_base_url": ""
+  },
+  "image_min_free_mb": 500,
+  "chat_completion_cache": {
+    "enabled": true,
+    "ttl_seconds": 60,
+    "max_entries": 256,
+    "dedupe_inflight": true,
+    "stream_cache": true,
+    "normalize_messages": true,
+    "drop_adjacent_duplicates": true,
+    "drop_assistant_history": false
+  },
+  "image_settle_enabled": false,
+  "image_check_before_hit_enabled": false,
+  "image_settle_secs": 2,
+  "auto_relogin_after_refresh": false,
+  "image_timeout_retry_secs": 30,
+  "third_party_apps": {
+    "infinite_canvas": {
+      "enabled": true,
+      "url": "https://canvas.best"
+    }
+  },
+  "image_remove_conversation_after_result": true,
+  "image_passthrough_enabled": true,
+  "quota_management": {
+    "enabled": false,
+    "default_quota": {
+      "daily_requests": null,
+      "daily_images": null,
+      "monthly_requests": null,
+      "monthly_images": null,
+      "reset_cycle": "none"
+    },
+    "overage_action": "reject"
+  },
+  "audit_retention_days": 90,
+  "config_watch_enabled": true,
+  "openapi_enabled": true,
+  "openapi_docs_url": "/docs",
+  "openapi_redoc_url": "/redoc",
+  "openapi_openapi_url": "/openapi.json"
+}
