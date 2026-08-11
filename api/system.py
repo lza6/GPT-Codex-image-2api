@@ -64,7 +64,7 @@ class BackupDeleteRequest(BaseModel):
 
 
 def create_router(app_version: str) -> APIRouter:
-    router = APIRouter()
+    router = APIRouter(tags=["System"])
 
     @router.post("/auth/login")
     async def login(authorization: str | None = Header(default=None)):
@@ -208,7 +208,7 @@ def create_router(app_version: str) -> APIRouter:
         require_admin(authorization)
         return apply_log_levels(body.levels)
 
-    @router.get("/api/audit")
+    @router.get("/api/audit", tags=["Audit"])
     async def get_audit(
         days: int | None = Query(default=None),
         limit: int = 200,
@@ -241,7 +241,7 @@ def create_router(app_version: str) -> APIRouter:
         )
         return {"items": items, "total": len(items)}
 
-    @router.get("/api/audit/export")
+    @router.get("/api/audit/export", tags=["Audit"])
     async def export_audit_csv(
         days: int | None = Query(default=None),
         result: str = "",

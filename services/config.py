@@ -12,7 +12,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-from services.storage.base import StorageBackend
+from services.storage.base import StorageBackend  # type: ignore[misc]
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 DATA_DIR = BASE_DIR / "data"
@@ -431,6 +431,7 @@ class ConfigStore:
         ("self_heal_retry_max_secs", (1, 86400)),
         ("self_heal_retry_max_attempts", (1, 100)),
         ("account_warmup_timeout_secs", (5, 3600)),
+        ("auto_diagnose_interval_minutes", (1, 1440)),
     )
     _BOOL_FIELDS: tuple[str, ...] = (
         "sqlite_wal_mode",
@@ -440,6 +441,9 @@ class ConfigStore:
         "session_pool_health_check_enabled",
         "self_heal_auto_replace_enabled",
         "account_warmup_enabled",
+        "auto_heal_enabled",
+        "openapi_enabled",
+        "config_watch_enabled",
     )
     _FLOAT_FIELDS: tuple[str, ...] = (
         "metrics_sample_rate",
@@ -659,6 +663,14 @@ class ConfigStore:
     @property
     def storage_backend_type(self) -> str:
         return str(os.getenv("STORAGE_BACKEND") or self.data.get("storage_backend") or "json").strip().lower()
+
+    @property
+    def storage_async_enabled(self) -> bool:
+        """异步存储后端开关（默认关闭，启用后数据库操作使用 sqlalchemy.ext.asyncio）。"""
+        value = os.getenv("STORAGE_ASYNC_ENABLED")
+        if value is not None:
+            return _normalize_bool(value, False)
+        return _normalize_bool(self.data.get("storage_async_enabled"), False)
 
     @property
     def sqlite_wal_mode(self) -> bool:
@@ -991,6 +1003,22 @@ class ConfigStore:
         return max(1, min(20, value))
 
     @property
+    def auto_heal_enabled(self) -> bool:
+        """自动修复引擎开关（默认开启）。"""
+        value = self.data.get("auto_heal_enabled", True)
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+        return bool(value)
+
+    @property
+    def auto_diagnose_interval_minutes(self) -> int:
+        """自动诊断间隔分钟数（默认 60）。"""
+        try:
+            return max(1, int(self.data.get("auto_diagnose_interval_minutes", 60)))
+        except (TypeError, ValueError):
+            return 60
+
+    @property
     def log_levels(self) -> list[str]:
         levels = self.data.get("log_levels")
         if not isinstance(levels, list):
@@ -1098,6 +1126,30 @@ class ConfigStore:
             return 10000
 
     @property
+    def openapi_enabled(self) -> bool:
+        return bool(self.data.get("openapi_enabled", True))
+
+    @property
+    def openapi_docs_url(self) -> str:
+        return str(self.data.get("openapi_docs_url", "/docs") or "").strip()
+
+    @property
+    def openapi_redoc_url(self) -> str:
+        return str(self.data.get("openapi_redoc_url", "/redoc") or "").strip()
+
+    @property
+    def openapi_openapi_url(self) -> str:
+        return str(self.data.get("openapi_openapi_url", "/openapi.json") or "").strip()
+
+    @property
+    def config_watch_enabled(self) -> bool:
+        """配置热加载开关（默认开启）。"""
+        value = os.getenv("CHATGPT2API_CONFIG_WATCH_ENABLED")
+        if value is not None:
+            return _normalize_bool(value, True)
+        return _normalize_bool(self.data.get("config_watch_enabled"), True)
+
+    @property
     def app_version(self) -> str:
         try:
             value = VERSION_FILE.read_text(encoding="utf-8").strip()
@@ -1137,6 +1189,8 @@ class ConfigStore:
         data["self_heal_auto_replace_enabled"] = self.self_heal_auto_replace_enabled
         data["account_warmup_enabled"] = self.account_warmup_enabled
         data["account_warmup_timeout_secs"] = self.account_warmup_timeout_secs
+        data["auto_heal_enabled"] = self.auto_heal_enabled
+        data["auto_diagnose_interval_minutes"] = self.auto_diagnose_interval_minutes
         data["redis_url"] = self.redis_url
         data["upstream_failover_enabled"] = self.upstream_failover_enabled
         data["session_pool_health_check_enabled"] = self.session_pool_health_check_enabled
@@ -1162,6 +1216,11 @@ class ConfigStore:
         data["image_storage"] = self.get_image_storage_settings()
         data["chat_completion_cache"] = self.get_chat_completion_cache_settings()
         data["proxy_runtime"] = self.get_public_proxy_runtime_settings()
+        data["openapi_enabled"] = self.openapi_enabled
+        data["openapi_docs_url"] = self.openapi_docs_url
+        data["openapi_redoc_url"] = self.openapi_redoc_url
+        data["openapi_openapi_url"] = self.openapi_openapi_url
+        data["config_watch_enabled"] = self.config_watch_enabled
         data.pop("auth-key", None)
         return data
 

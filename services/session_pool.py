@@ -20,8 +20,34 @@ from typing import Any
 from curl_cffi import requests
 
 from services.proxy_service import proxy_settings
+from services.session_cache import TieredSessionCache
 
 logger = logging.getLogger(__name__)
+
+
+# 全局三级缓存：L1 LRU(256) + TTL(300s) + L2 Redis + L3 存储层
+# 缓存 proxysettings.get_profile() 等存储层查询结果
+
+
+def _cache_metrics_callback(event: str, tier: int) -> None:
+    """缓存指标回调，注入 Prometheus 计数器。"""
+    try:
+        from services.prometheus_metrics import record_session_cache_hit, record_session_cache_miss
+        if event == "hit":
+            record_session_cache_hit(tier)
+        elif event == "miss":
+            record_session_cache_miss()
+    except Exception:
+        pass
+
+
+session_kwargs_cache = TieredSessionCache(
+    maxsize=256,
+    ttl=300,
+    redis_client=None,  # 由 init() 按配置注入
+    storage=None,
+    metrics_callback=_cache_metrics_callback,
+)
 
 
 class SessionPool:
@@ -80,11 +106,20 @@ class SessionPool:
         用 token 末 8 位做稳定标识（不泄露完整 token）。
         fp_key（第七轮新增）：调用方指纹标识（如 oai-device-id），
         同账号不同指纹的实例不会共享 Session，会话级头与 key 一致。
+
+        v2.24.0 增强：三级缓存代理配置查询结果，避免每次 get() 重复查存储层。
         """
         proxy = ""
         try:
-            profile = proxy_settings.get_profile(account=account)
-            proxy = profile.proxy_url or "direct"
+            token = str((account or {}).get("access_token") or "")
+            profile_cache_key = f"proxy_profile:{token[-8:]}" if token else "proxy_profile:anon"
+            cached_proxy = session_kwargs_cache.get(profile_cache_key)
+            if cached_proxy is not None:
+                proxy = cached_proxy
+            else:
+                profile = proxy_settings.get_profile(account=account)
+                proxy = profile.proxy_url or "direct"
+                session_kwargs_cache.set(profile_cache_key, proxy)
         except Exception:
             proxy = "direct"
         token = str((account or {}).get("access_token") or "")
