@@ -99,6 +99,44 @@ class StorageBackend(ABC):
         pass
 
 
+class AsyncStorageBackend(ABC):
+    """异步存储后端基类（v3.0：非阻塞数据库操作，使用 sqlalchemy.ext.asyncio）。
+
+    当 config.storage_async_enabled=True 时，工厂创建此实现。
+    现有同步调用方通过 AsyncToSyncStorageBackend 适配器桥接。
+    """
+
+    @abstractmethod
+    async def load_accounts(self) -> list[dict[str, Any]]:
+        """异步加载所有账号数据"""
+        pass
+
+    @abstractmethod
+    async def save_accounts(self, accounts: list[dict[str, Any]]) -> None:
+        """异步保存所有账号数据"""
+        pass
+
+    @abstractmethod
+    async def load_auth_keys(self) -> list[dict[str, Any]]:
+        """异步加载所有鉴权密钥数据"""
+        pass
+
+    @abstractmethod
+    async def save_auth_keys(self, auth_keys: list[dict[str, Any]]) -> None:
+        """异步保存所有鉴权密钥数据"""
+        pass
+
+    @abstractmethod
+    async def health_check(self) -> dict[str, Any]:
+        """异步健康检查"""
+        pass
+
+    @abstractmethod
+    async def get_backend_info(self) -> dict[str, Any]:
+        """异步获取存储后端信息"""
+        pass
+
+
 # ---- 抽象基类实现（方便继承） ----
 
 class AbstractRepository(ABC, Generic[T]):

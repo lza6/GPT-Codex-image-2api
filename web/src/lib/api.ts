@@ -264,6 +264,8 @@ export type SettingsConfig = {
   auto_relogin_after_refresh?: boolean;
   log_levels?: string[];
   scheduler_mode?: "round_robin" | "remaining_quota" | "weighted_random";
+  scheduler_adaptive_enabled?: boolean;
+  scheduler_adaptive_interval_seconds?: number;
   scheduler_priority?: Record<string, number>;
   proactive_probe_enabled?: boolean;
   proactive_probe_interval_minute?: number;
@@ -275,6 +277,7 @@ export type SettingsConfig = {
   progress_ttl_seconds?: number;
   ssrf_allow_private_ips?: boolean;
   trusted_proxies?: string[];
+  config_watch_enabled?: boolean;
   alert_webhook_url?: string;
   alert_webhook_timeout?: number;
   alert_events?: string[];
@@ -1333,6 +1336,7 @@ export type OpsOverview = {
     image_size_bytes: number;
   };
   scheduler_mode: string;
+  scheduler_adaptive_enabled?: boolean;
   refresh_account_interval_minute: number;
   image_account_concurrency: number;
   backup?: {
@@ -1588,7 +1592,75 @@ export async function fetchAccountTags() {
 
 /** 获取指定账号完整信息（含敏感字段）。 */
 export async function fetchAccountDetail(token: string) {
-  const params = new URLSearchParams();
-  params.set("token", token);
-  return httpRequest<{ item: AccountDetail }>(`/api/accounts/detail?${params.toString()}`);
+  return httpRequest<AccountDetail>("/api/accounts/detail", {
+    method: "POST",
+    body: JSON.stringify({ access_token: token }),
+  });
+}
+
+// ---- Diagnostic & Healing types ----
+
+export type DiagnosticResult = {
+  check: string;
+  status: "ok" | "warning" | "error";
+  message: string;
+  severity: "info" | "warning" | "error" | "critical";
+  details: Record<string, unknown>;
+};
+
+export type DiagnosticReport = {
+  results: DiagnosticResult[];
+  summary: Record<string, number>;
+  duration_ms: number;
+  started_at: number;
+  completed_at: number;
+};
+
+export type HealingResult = {
+  healed: boolean;
+  detail: string;
+  reason: string;
+  action: string;
+  duration_ms: number;
+};
+
+export type HealingHistoryItem = {
+  ts: number;
+  check: string;
+  issue_message: string;
+  healed: boolean;
+  action: string;
+  detail: string;
+  duration_ms: number;
+};
+
+export type HealingStats = {
+  total_attempts: number;
+  success_count: number;
+  success_rate: number;
+  history_size: number;
+};
+
+export async function runDiagnose(): Promise<DiagnosticReport> {
+  const resp = await httpRequest("/api/system/diagnose", { method: "POST" });
+  return resp.json();
+}
+
+export async function getLastDiagnose(): Promise<{ report: DiagnosticReport | null; last_time: number }> {
+  const resp = await httpRequest("/api/system/diagnose");
+  return resp.json();
+}
+
+export async function getHealingHistory(limit = 100): Promise<{ items: HealingHistoryItem[]; stats: HealingStats }> {
+  const resp = await httpRequest(`/api/system/healing/history?limit=${limit}`);
+  return resp.json();
+}
+
+export async function runHealing(): Promise<{ diagnose: DiagnosticReport; healing: HealingResult[] }> {
+  const resp = await httpRequest("/api/system/healing/run", { method: "POST" });
+  return resp.json();
+}
+
+export async function clearHealingHistory(): Promise<void> {
+  await httpRequest("/api/system/healing/clear-history", { method: "POST" });
 }

@@ -162,6 +162,8 @@ function normalizeConfig(config: SettingsConfig): SettingsConfig {
     auto_remove_rate_limited_accounts: Boolean(config.auto_remove_rate_limited_accounts),
     auto_relogin_after_refresh: Boolean(config.auto_relogin_after_refresh),
     scheduler_mode: ["round_robin", "remaining_quota", "weighted_random"].includes(config.scheduler_mode ?? "") ? (config.scheduler_mode as "round_robin" | "remaining_quota" | "weighted_random") : "round_robin",
+    scheduler_adaptive_enabled: Boolean(config.scheduler_adaptive_enabled),
+    scheduler_adaptive_interval_seconds: Number(config.scheduler_adaptive_interval_seconds ?? 30),
     proactive_probe_enabled: Boolean(config.proactive_probe_enabled),
     proactive_probe_interval_minute: Number(config.proactive_probe_interval_minute ?? 30),
     scheduler_priority: config.scheduler_priority || {},
@@ -172,6 +174,7 @@ function normalizeConfig(config: SettingsConfig): SettingsConfig {
     sqlite_busy_timeout_ms: Number(config.sqlite_busy_timeout_ms ?? 5000),
     progress_ttl_seconds: Number(config.progress_ttl_seconds ?? 3600),
     ssrf_allow_private_ips: Boolean(config.ssrf_allow_private_ips),
+    config_watch_enabled: Boolean(config.config_watch_enabled !== false),
     trusted_proxies: Array.isArray(config.trusted_proxies) ? config.trusted_proxies : ["127.0.0.1", "::1"],
     alert_webhook_url: typeof config.alert_webhook_url === "string" ? config.alert_webhook_url : "",
     alert_webhook_timeout: Number(config.alert_webhook_timeout ?? 10),
@@ -301,12 +304,15 @@ type SettingsStore = {
   setAutoRemoveRateLimitedAccounts: (value: boolean) => void;
   setAutoReloginAfterRefresh: (value: boolean) => void;
   setSchedulerMode: (value: "round_robin" | "remaining_quota" | "weighted_random") => void;
+  setSchedulerAdaptiveEnabled: (value: boolean) => void;
+  setSchedulerAdaptiveIntervalSeconds: (value: string) => void;
   setProactiveProbeEnabled: (value: boolean) => void;
   setProactiveProbeIntervalMinute: (value: string) => void;
   setRateLimitRpm: (value: string) => void;
   setRateLimitPerIpRpm: (value: string) => void;
   setWorkers: (value: string) => void;
   setSqliteWalMode: (value: boolean) => void;
+  setStorageAsyncEnabled: (value: boolean) => void;
   setSqliteBusyTimeoutMs: (value: string) => void;
   setProgressTtlSeconds: (value: string) => void;
   setSsrfAllowPrivateIps: (value: boolean) => void;
@@ -581,6 +587,14 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     set((state) => state.config ? { config: { ...state.config, scheduler_mode: value } } : {});
   },
 
+  setSchedulerAdaptiveEnabled: (value) => {
+    set((state) => state.config ? { config: { ...state.config, scheduler_adaptive_enabled: value } } : {});
+  },
+
+  setSchedulerAdaptiveIntervalSeconds: (value) => {
+    set((state) => state.config ? { config: { ...state.config, scheduler_adaptive_interval_seconds: Math.max(5, Number(value)) } } : {});
+  },
+
   setProactiveProbeEnabled: (value) => {
     set((state) => state.config ? { config: { ...state.config, proactive_probe_enabled: value } } : {});
   },
@@ -603,6 +617,10 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
 
   setSqliteWalMode: (value) => {
     set((state) => state.config ? { config: { ...state.config, sqlite_wal_mode: value } } : {});
+  },
+
+  setStorageAsyncEnabled: (value) => {
+    set((state) => state.config ? { config: { ...state.config, storage_async_enabled: value } } : {});
   },
 
   setSqliteBusyTimeoutMs: (value) => {

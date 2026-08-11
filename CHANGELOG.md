@@ -1,5 +1,21 @@
 # Changelog
 
+## 3.0.0 - 2026-08-11 (架构深度优化：异步化存储层)
+
+**存储层异步化：**
++ [新增] `services/storage/base.py` — `AsyncStorageBackend` 异步存储后端基类（所有方法 async）
++ [新增] `services/storage/async_database.py` — `AsyncDatabaseStorageBackend` 异步数据库后端（sqlalchemy.ext.asyncio + aiosqlite/asyncpg）
++ [新增] `services/storage/async_bridge.py` — `AsyncToSyncStorageBackend` 同步→异步桥接适配器（线程池 asyncio.run 桥接）
++ [新增] `services/storage/factory.py` — 支持 `STORAGE_ASYNC_ENABLED` 环境变量，自动创建异步后端
++ [新增] `services/config.py` — `storage_async_enabled` 配置项（默认 false，布尔类型校验）
++ [新增] `config.json` — `storage_async_enabled: false` 默认值
++ [新增] `web/src/lib/api.ts` — `SettingsConfig.storage_async_enabled` 字段
++ [新增] `web/src/app/settings/store.ts` — `storage_async_enabled` 状态 + setter
++ [新增] `web/src/app/settings/components/config-card.tsx` — 异步存储后端开关 UI
++ [新增] `test/test_async_storage.py` — 14 个测试覆盖异步后端全路径 + 桥接适配器
++ [变更] `services/storage/base.py` — 新增 `AsyncStorageBackend` ABC，与原有 `StorageBackend` 共存
++ [依赖] 新增 `aiosqlite`、`asyncpg` 异步驱动（已安装）
+
 ## 2.24.0 - 2026-08-11 (事件总线 Pub/Sub 增强)
 
 **EventBusV2 增强：**

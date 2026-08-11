@@ -37,12 +37,15 @@ export function ConfigCard() {
   const setAutoRemoveRateLimitedAccounts = useSettingsStore((state) => state.setAutoRemoveRateLimitedAccounts);
   const setAutoReloginAfterRefresh = useSettingsStore((state) => state.setAutoReloginAfterRefresh);
   const setSchedulerMode = useSettingsStore((state) => state.setSchedulerMode);
+const setSchedulerAdaptiveEnabled = useSettingsStore((state) => state.setSchedulerAdaptiveEnabled);
+const setSchedulerAdaptiveIntervalSeconds = useSettingsStore((state) => state.setSchedulerAdaptiveIntervalSeconds);
   const setProactiveProbeEnabled = useSettingsStore((state) => state.setProactiveProbeEnabled);
   const setProactiveProbeIntervalMinute = useSettingsStore((state) => state.setProactiveProbeIntervalMinute);
   const setRateLimitRpm = useSettingsStore((state) => state.setRateLimitRpm);
   const setRateLimitPerIpRpm = useSettingsStore((state) => state.setRateLimitPerIpRpm);
   const setWorkers = useSettingsStore((state) => state.setWorkers);
   const setSqliteWalMode = useSettingsStore((state) => state.setSqliteWalMode);
+  const setStorageAsyncEnabled = useSettingsStore((state) => state.setStorageAsyncEnabled);
   const setSqliteBusyTimeoutMs = useSettingsStore((state) => state.setSqliteBusyTimeoutMs);
   const setProgressTtlSeconds = useSettingsStore((state) => state.setProgressTtlSeconds);
   const setSsrfAllowPrivateIps = useSettingsStore((state) => state.setSsrfAllowPrivateIps);
@@ -248,6 +251,28 @@ export function ConfigCard() {
             <p className="text-xs text-stone-500">账号调度策略：轮询 / 按剩余配额优先 / 档位内按调度分加权随机（摊平磨损）。</p>
           </div>
           <div className="space-y-2">
+            <label className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-4 py-3 text-sm text-stone-700">
+              <Checkbox
+                checked={Boolean(config?.scheduler_adaptive_enabled)}
+                onCheckedChange={(checked) => setSchedulerAdaptiveEnabled(Boolean(checked))}
+              />
+              自适应调度器
+            </label>
+            <p className="text-xs text-stone-500">基于运行指标（并发/成功率/模型多样性）自动切换最优调度模式，默认关闭。</p>
+          </div>
+          {config?.scheduler_adaptive_enabled && (
+            <div className="space-y-2">
+              <label className="text-sm text-stone-700">自适应检查间隔（秒）</label>
+              <Input
+                value={String(config?.scheduler_adaptive_interval_seconds ?? 30)}
+                onChange={(event) => setSchedulerAdaptiveIntervalSeconds(event.target.value)}
+                placeholder="30"
+                className="h-10 rounded-xl border-stone-200 bg-white"
+              />
+              <p className="text-xs text-stone-500">收集指标并判断是否切换模式的间隔，最小 5 秒。</p>
+            </div>
+          )}
+          <div className="space-y-2">
             <label className="text-sm text-stone-700">全局限流 (RPM)</label>
             <Input
               value={String(config?.rate_limit_rpm ?? "")}
@@ -286,6 +311,16 @@ export function ConfigCard() {
               <span className="text-sm text-stone-700">SQLite WAL 模式</span>
             </div>
             <p className="text-xs text-stone-500">多 Worker 并发写安全，建议保持开启；仅 SQLite 存储后端生效，重启后生效。</p>
+          </div>
+          <div className="space-y-2">
+            <div className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-4 py-3">
+              <Checkbox
+                checked={Boolean(config?.storage_async_enabled)}
+                onCheckedChange={(checked) => setStorageAsyncEnabled(Boolean(checked))}
+              />
+              <span className="text-sm text-stone-700">异步存储后端</span>
+            </div>
+            <p className="text-xs text-stone-500">启用后数据库操作使用 sqlalchemy.ext.asyncio 非阻塞异步驱动，提升并发吞吐。仅数据库存储后端生效，需安装 aiosqlite/asyncpg 驱动，重启后生效。</p>
           </div>
           <div className="space-y-2">
             <div className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-4 py-3">
