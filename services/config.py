@@ -138,6 +138,9 @@ def _normalize_backup_state(value: object) -> dict[str, object]:
         "last_status": str(source.get("last_status") or "idle").strip() or "idle",
         "last_error": str(source.get("last_error") or "").strip() or None,
         "last_object_key": str(source.get("last_object_key") or "").strip() or None,
+        "last_sha256": str(source.get("last_sha256") or "").strip() or None,
+        "last_verify_status": str(source.get("last_verify_status") or "").strip() or None,
+        "last_verify_error": str(source.get("last_verify_error") or "").strip() or None,
     }
 
 
@@ -834,7 +837,7 @@ class ConfigStore:
     @property
     def alert_events(self) -> list[str]:
         """启用的告警事件列表。"""
-        default = ["circuit_breaker_open", "circuit_breaker_closed", "backup_failure", "account_invalid", "account_recovered", "quota_exhausted", "quota_forecast_depletion"]
+        default = ["circuit_breaker_open", "circuit_breaker_closed", "backup_failure", "backup_checksum_mismatch", "account_invalid", "account_recovered", "quota_exhausted", "quota_forecast_depletion"]
         raw = os.getenv("CHATGPT2API_ALERT_EVENTS")
         if raw is not None:
             return [e.strip() for e in str(raw).split(",") if e.strip()]

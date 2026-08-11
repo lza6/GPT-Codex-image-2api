@@ -165,6 +165,16 @@ export function BackupSettingsCard() {
     }
   };
 
+  // III-06：上传后自动完整性校验结果（verified / mismatch / unavailable）
+  const verifyText =
+    backupState?.last_verify_status === "verified" ? "通过" :
+    backupState?.last_verify_status === "mismatch" ? "不一致" :
+    backupState?.last_verify_status === "unavailable" ? "未校验（读回失败）" :
+    backupState?.last_verify_status ? backupState.last_verify_status : "—";
+  const verifyColor =
+    backupState?.last_verify_status === "mismatch" ? "text-rose-600" :
+    backupState?.last_verify_status === "verified" ? "text-emerald-600" : "text-stone-600";
+
   return (
     <>
       <Card className="rounded-2xl border-white/80 bg-white/90 shadow-sm">
@@ -284,6 +294,18 @@ export function BackupSettingsCard() {
               <div className="mt-1 break-all rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-rose-700">{backupState.last_error}</div>
             </div>
           ) : null}
+          <div className="md:col-span-3">
+            <div className="text-xs text-stone-500">最近完整性校验</div>
+            <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1">
+              <span className={`font-medium ${verifyColor}`}>{verifyText}</span>
+              {backupState?.last_sha256 ? (
+                <span className="break-all font-mono text-xs text-stone-500">sha256 {backupState.last_sha256}</span>
+              ) : null}
+              {backupState?.last_verify_error && backupState?.last_verify_status !== "mismatch" ? (
+                <span className="break-all text-xs text-amber-700">{backupState.last_verify_error}</span>
+              ) : null}
+            </div>
+          </div>
           </div>
 
           <div className="flex flex-wrap justify-end gap-2">

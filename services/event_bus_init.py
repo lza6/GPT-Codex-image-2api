@@ -13,6 +13,7 @@ from services.event_bus import (
     ACCOUNT_QUOTA_EXHAUSTED,
     ACCOUNT_QUOTA_LOW,
     ACCOUNT_RECOVERED,
+    BACKUP_CHECKSUM_MISMATCH,
     BACKUP_FAILURE,
     CIRCUIT_CLOSED,
     CIRCUIT_HALF_OPEN,
@@ -41,6 +42,7 @@ _ALERT_EVENT_MAP: dict[str, str] = {
     ACCOUNT_QUOTA_EXHAUSTED: "quota_exhausted",
     ACCOUNT_QUOTA_LOW: "quota_low",
     BACKUP_FAILURE: "backup_failure",
+    BACKUP_CHECKSUM_MISMATCH: "backup_checksum_mismatch",
     SESSION_DEGRADED: "session_degraded",
 }
 
@@ -110,6 +112,8 @@ def register_subscribers() -> None:
 
     # 备份失败 → 告警
     event_bus.subscribe(BACKUP_FAILURE, sync_handler=_alert_wrapper)
+    # 备份完整性校验失败（内容损坏）→ 告警
+    event_bus.subscribe(BACKUP_CHECKSUM_MISMATCH, sync_handler=_alert_wrapper)
 
     # 账号配额低 → 告警
     event_bus.subscribe(ACCOUNT_QUOTA_LOW, sync_handler=_alert_wrapper)

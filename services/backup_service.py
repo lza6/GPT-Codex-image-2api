@@ -135,6 +135,27 @@ class BackupError(RuntimeError):
     pass
 
 
+class BackupChecksumError(BackupError):
+    """备份已成功上传但读回校验 sha256 不一致（远端对象内容损坏/被篡改）。
+
+    与传输失败区分：上传链路失败（网络/凭证）走 BackupError + BACKUP_FAILURE 告警；
+    内容损坏才抛本异常并触发 backup_checksum_mismatch 告警。
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        object_key: str = "",
+        local_sha256: str = "",
+        remote_sha256: str = "",
+    ) -> None:
+        super().__init__(message)
+        self.object_key = object_key
+        self.local_sha256 = local_sha256
+        self.remote_sha256 = remote_sha256
+
+
 class CloudflareR2Client:
     def __init__(self, settings: dict[str, object]) -> None:
         self.account_id = _clean(settings.get("account_id"))
@@ -485,6 +506,9 @@ class BackupService:
                 "last_status": "idle",
                 "last_error": None,
                 "last_object_key": current.get("last_object_key"),
+                "last_sha256": current.get("last_sha256"),
+                "last_verify_status": current.get("last_verify_status"),
+                "last_verify_error": current.get("last_verify_error"),
             })
         try:
             result = self._run_backup_once(trigger=trigger)
@@ -494,8 +518,39 @@ class BackupService:
                 "last_status": "success",
                 "last_error": None,
                 "last_object_key": result["key"],
+                "last_sha256": result.get("sha256"),
+                "last_verify_status": result.get("verify_status"),
+                "last_verify_error": result.get("verify_error"),
             })
             return result
+        except BackupChecksumError as exc:
+            # III-06：内容损坏（校验和不一致）——只告警 checksum，不走 BACKUP_FAILURE 避免双重告警。
+            # 上传已成功但对象不可信，视为备份失败。
+            logger.error("备份完整性校验失败（trigger=%s）: %s", trigger, exc, exc_info=True)
+            chatgpt2api_backup_failures_total.inc()
+            try:
+                from services.event_bus import BACKUP_CHECKSUM_MISMATCH, Event, event_bus
+
+                event_bus.publish(Event(BACKUP_CHECKSUM_MISMATCH, {
+                    "error": str(exc),
+                    "trigger": trigger,
+                    "object_key": exc.object_key,
+                    "local_sha256": exc.local_sha256,
+                    "remote_sha256": exc.remote_sha256,
+                }))
+            except Exception:  # noqa: BLE001
+                pass
+            save_backup_state({
+                "last_started_at": started_at,
+                "last_finished_at": _iso_now(),
+                "last_status": "error",
+                "last_error": str(exc) or exc.__class__.__name__,
+                "last_object_key": exc.object_key or current.get("last_object_key"),
+                "last_sha256": exc.local_sha256 or None,
+                "last_verify_status": "mismatch",
+                "last_verify_error": str(exc) or None,
+            })
+            raise
         except Exception as exc:
             # D9：备份失败必须可见——完整堆栈进日志 + Prometheus 计数器 +1
             logger.error("备份失败（trigger=%s）: %s", trigger, exc, exc_info=True)
@@ -513,6 +568,9 @@ class BackupService:
                 "last_status": "error",
                 "last_error": str(exc) or exc.__class__.__name__,
                 "last_object_key": current.get("last_object_key"),
+                "last_sha256": None,
+                "last_verify_status": None,
+                "last_verify_error": None,
             })
             raise
         finally:
@@ -543,14 +601,55 @@ class BackupService:
         }
         try:
             result = client.upload_bytes(object_key, payload, content_type="application/octet-stream", metadata=metadata)
+            # III-06：上传后自动完整性校验——读回远端对象比对 sha256
+            local_sha256 = _sha256_hex(payload)
+            verify = self._verify_uploaded_object(client, object_key, local_sha256)
+            if verify["status"] == "mismatch":
+                # 内容损坏：校验不通过不轮替（保留旧的好备份），抛专用异常走 checksum 告警
+                raise BackupChecksumError(
+                    str(verify.get("error") or "备份完整性校验失败"),
+                    object_key=object_key,
+                    local_sha256=local_sha256,
+                    remote_sha256=str(verify.get("remote_sha256") or ""),
+                )
             self._apply_rotation(client, int(settings.get("rotation_keep") or 0))
             return {
                 "key": result["key"],
                 "size": len(payload),
                 "encrypted": encrypted,
+                "sha256": local_sha256,
+                "verify_status": verify["status"],
+                "verify_error": verify.get("error"),
+                "verify_remote_sha256": verify.get("remote_sha256"),
             }
         finally:
             client.close()
+
+    def _verify_uploaded_object(
+        self,
+        client: CloudflareR2Client,
+        object_key: str,
+        local_sha256: str,
+    ) -> dict[str, object]:
+        """上传后读回远端对象并比对 sha256。
+
+        返回值 status：
+        - "verified"：读回成功且 sha256 与本地一致。
+        - "mismatch"：读回成功但 sha256 不一致（内容损坏/被篡改），由调用方告警。
+        - "unavailable"：读回失败（网络/凭证问题）——不视为内容损坏，不告警 checksum，
+          避免把传输问题误报成损坏。
+        """
+        try:
+            remote_bytes = client.download_bytes(object_key)
+        except Exception as exc:  # noqa: BLE001 - 读回失败不阻断备份成功，仅标记未校验
+            logger.warning("备份完整性校验读回失败（object=%s，视为未校验）: %s", object_key, exc)
+            return {"status": "unavailable", "error": f"校验读回失败: {exc}"}
+        remote_sha256 = _sha256_hex(remote_bytes)
+        if remote_sha256 != local_sha256:
+            error = f"备份完整性校验失败：本地 sha256={local_sha256}，远端 sha256={remote_sha256}"
+            logger.error("备份完整性校验失败（object=%s）: %s", object_key, error)
+            return {"status": "mismatch", "error": error, "remote_sha256": remote_sha256}
+        return {"status": "verified", "remote_sha256": remote_sha256}
 
     def _decode_backup_payload(self, key: str, payload: bytes) -> dict[str, object]:
         decoded = payload

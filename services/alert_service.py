@@ -23,7 +23,7 @@ from curl_cffi import requests
 logger = logging.getLogger(__name__)
 
 DEFAULT_EVENTS = [
-    "circuit_breaker_open", "circuit_breaker_closed", "backup_failure",
+    "circuit_breaker_open", "circuit_breaker_closed", "backup_failure", "backup_checksum_mismatch",
     "account_invalid", "account_recovered", "quota_exhausted", "quota_forecast_depletion",
 ]
 
