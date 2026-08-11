@@ -45,7 +45,7 @@
     "country": "US",
     "developer_token": "Mjg2NDQ2MDQ1OUBxcS5jb20xNzE4ODUxOTYzNDI1MjQ5",
     "access_id": "1023701",
-    "proxy_enabled": false
+    "proxy_enabled": true
   },
   "proxy_runtime": {
     "enabled": false,
@@ -107,7 +107,7 @@
   },
   "image_account_concurrency": 3,
   "image_parallel_generation": true,
-  "scheduler_mode": "round_robin",
+  "scheduler_mode": "least_used",
   "scheduler_adaptive_enabled": false,
   "scheduler_adaptive_interval_seconds": 30,
   "scheduler_priority": {},
@@ -125,7 +125,7 @@
   "image_poll_interval_secs": 10,
   "image_poll_initial_wait_secs": 10,
   "image_storage": {
-    "enabled": false,
+    "enabled": true,
     "mode": "local",
     "webdav_url": "",
     "webdav_username": "",
@@ -156,7 +156,7 @@
     }
   },
   "image_remove_conversation_after_result": true,
-  "image_passthrough_enabled": true,
+  "image_passthrough_enabled": false,
   "quota_management": {
     "enabled": false,
     "default_quota": {
