@@ -38,6 +38,14 @@ _MIN_OBSERVATION = 3
 _INVALID_WINDOW_CRITICAL = 3
 _INVALID_WINDOW_HIGH = 2
 
+# III-03：配额预警阈值（按消耗速率估算的剩余天数）
+# 剩余 <= WARN 天 → 配额预警（healthy 降 warm）；剩余 <= CRITICAL 天 → 濒危（降 risky）。
+# 取值避免过于激进：WARN=3 天给运维补号窗口，CRITICAL=1 天近似"当天将耗尽"。
+QUOTA_WARN_DAYS = 3.0
+QUOTA_CRITICAL_DAYS = 1.0
+# 配额信号最小观测样本：success 至少达到此值才允许按速率外推，防刚建号误判
+_QUOTA_MIN_OBSERVATION = 3
+
 
 def _now() -> float:
     return time.time()
@@ -72,6 +80,31 @@ def _time_decay_factor(ts: float, now: float, *, half_life_seconds: float = 3600
     if age >= half_life_seconds * 8:
         return 0.0
     return 2 ** (-age / half_life_seconds)
+
+
+def _quota_remaining_days(account: dict[str, Any], now: float) -> float | None:
+    """按配额消耗速率估算剩余可用天数（III-03 第三信号）。
+
+    口径与 eta_days 一致（success 近似已用量 / 创建至今时长），但作为预警信号
+    有更严的观测守卫：success 样本 >= _QUOTA_MIN_OBSERVATION 且账号创建至少 1 天
+    才外推，否则返回 None（样本不足不预警，防误封抖动）。
+    """
+    quota = int(account.get("quota") or 0)
+    if quota <= 0:
+        return None
+    success = max(0, int(account.get("success") or 0))
+    if success < _QUOTA_MIN_OBSERVATION:
+        return None
+    created_ts = _parse_ts(account.get("created_at"))
+    if created_ts is None or now <= created_ts:
+        return None
+    days_elapsed = (now - created_ts) / 86400.0
+    if days_elapsed < 1.0:
+        return None
+    daily_consumption = success / days_elapsed
+    if daily_consumption <= 0:
+        return None
+    return quota / daily_consumption
 
 
 def compute_lifetime_risk(account: dict[str, Any], *, now: float | None = None) -> dict[str, Any]:
@@ -133,6 +166,8 @@ def compute_lifetime_risk(account: dict[str, Any], *, now: float | None = None) 
             "level": LEVEL_LOW,
             "score": 0.0,
             "eta_days": None,
+            "quota_remaining_days": None,
+            "quota_warning": False,
             "signals": {"fail_rate": fail_rate, "invalid_window": invalid_count, "recent_error_score": recent_error_score},
         }
 
@@ -180,13 +215,20 @@ def compute_lifetime_risk(account: dict[str, Any], *, now: float | None = None) 
         elif level == LEVEL_MEDIUM:
             eta_days = 30
 
+    # III-03：配额预警第三信号（剩余天数按消耗速率外推）
+    quota_days = _quota_remaining_days(account, now)
+    quota_warning = quota_days is not None and quota_days <= QUOTA_WARN_DAYS
+
     return {
         "level": level,
         "score": round(min(100.0, score), 1),
         "eta_days": eta_days,
+        "quota_remaining_days": round(quota_days, 1) if quota_days is not None else None,
+        "quota_warning": quota_warning,
         "signals": {
             "fail_rate": round(fail_rate, 3),
             "invalid_window": invalid_count,
             "recent_error_score": round(recent_error_score, 3),
+            "quota_remaining_days": round(quota_days, 1) if quota_days is not None else None,
         },
     }

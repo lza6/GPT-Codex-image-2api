@@ -89,6 +89,12 @@ class AccountService:
         self._affinity_at: dict[str, float] = {}  # model -> last_used_timestamp
         # 智能调度增强：Predictive EWMA 消耗速率（token -> rate）
         self._usage_rate: dict[str, float] = {}  # token -> EWMA rate (calls/hour)
+        # III-02：调度模式 A/B 可观测——per-mode 聚合（命中数/成功/失败/延迟累计）
+        self._scheduler_mode_stats: dict[str, dict[str, float | int]] = {}
+        # token -> 本次 pick 时的生效调度模式（mark_image_result 回填结果）
+        self._last_pick_mode: dict[str, str] = {}
+        # token -> 本次 pick 的单调时钟起点（结果回填时算端到端耗时）
+        self._pick_started_at: dict[str, float] = {}
 
     def set_circuit_breaker_registry(self, registry) -> None:
         """注入熔断器注册表（生产为全局单例，测试注入独立实例验证清理）。"""
@@ -241,16 +247,33 @@ class AccountService:
 
         只降不升（健康账号不会因预测被抬升）；最小观测窗口守卫在
         account_lifetime 内部完成，避免「瞬间封禁/复活抖动」。
+
+        III-03：配额预警第三信号——按配额消耗速率估算剩余天数，
+        剩余 <=1 天 → risky、<=3 天且当前 healthy → warm（同样只降不升）。
         """
         try:
-            from services.account_lifetime import LEVEL_CRITICAL, LEVEL_HIGH, compute_lifetime_risk
+            from services.account_lifetime import (
+                LEVEL_CRITICAL,
+                LEVEL_HIGH,
+                QUOTA_CRITICAL_DAYS,
+                QUOTA_WARN_DAYS,
+                compute_lifetime_risk,
+            )
         except Exception:  # pragma: no cover - 模块缺失时降级为原档位
             return tier
         risk = compute_lifetime_risk(account)
         level = risk.get("level")
+        quota_days = (risk.get("signals") or {}).get("quota_remaining_days")
         if level == LEVEL_CRITICAL:
             return cls._RISKY
+        # III-03：配额濒危（剩余 <=1 天）优先降 risky——避免耗尽瞬间才熔断
+        if quota_days is not None and quota_days <= QUOTA_CRITICAL_DAYS:
+            if tier != cls._RISKY:
+                return cls._RISKY
         if level == LEVEL_HIGH and tier == cls._HEALTHY:
+            return cls._WARM
+        # III-03：配额预警档位（只降不升）
+        if quota_days is not None and quota_days <= QUOTA_WARN_DAYS and tier == cls._HEALTHY:
             return cls._WARM
         return tier
 
@@ -290,6 +313,76 @@ class AccountService:
         if email in priorities:
             return int(priorities[email])
         return 0
+
+    def _effective_scheduler_mode(self) -> str:
+        """当前生效调度模式：自适应开启时用 adaptive_scheduler.current_mode，否则 config.scheduler_mode。
+
+        adaptive 切换只改 AdaptiveScheduler 内部状态（不写回 config），
+        故实际选号分支仍按 config.scheduler_mode 走，但 A/B 观测用生效模式
+        标记每次 pick，使自适应切换前后标签口径一致。
+        """
+        try:
+            if config.scheduler_adaptive_enabled:
+                from services.adaptive_scheduler import adaptive_scheduler
+
+                mode = adaptive_scheduler.current_mode
+                if mode:
+                    return mode
+        except Exception:  # noqa: BLE001 - 观测不影响选号主流程
+            pass
+        return config.scheduler_mode or "round_robin"
+
+    def _record_scheduler_pick_stat(self, access_token: str, mode: str) -> None:
+        """记录一次调度选取到 per-mode 统计（供看板 A/B 对比）。"""
+        if not mode:
+            mode = "round_robin"
+        stat = self._scheduler_mode_stats.setdefault(
+            mode, {"picks": 0, "success": 0, "fail": 0, "latency_sum_ms": 0.0}
+        )
+        stat["picks"] = int(stat.get("picks") or 0) + 1
+        self._last_pick_mode[access_token] = mode
+        self._pick_started_at[access_token] = time.monotonic()
+
+    def _record_scheduler_result_stat(self, access_token: str, success: bool) -> None:
+        """把一次调度结果（成功/失败 + 端到端耗时）回填到对应模式的统计。"""
+        mode = self._last_pick_mode.pop(access_token, None)
+        start = self._pick_started_at.pop(access_token, None)
+        if mode is None or mode not in self._scheduler_mode_stats:
+            return
+        stat = self._scheduler_mode_stats[mode]
+        if success:
+            stat["success"] = int(stat.get("success") or 0) + 1
+        else:
+            stat["fail"] = int(stat.get("fail") or 0) + 1
+        if start is not None:
+            stat["latency_sum_ms"] = float(stat.get("latency_sum_ms") or 0.0) + (time.monotonic() - start) * 1000.0
+
+    def get_scheduler_mode_stats(self, limit: int = 20) -> list[dict[str, object]]:
+        """按调度模式返回聚合统计（命中数/成功率/平均延迟），供看板 A/B 对比。
+
+        延迟口径：从调度 pick 到 mark_image_result（端到端出图耗时），
+        可对比不同调度模式的出图快慢。
+        """
+        with self._lock:
+            items = [dict(item) for item in self._scheduler_mode_stats.values()]
+            keys = list(self._scheduler_mode_stats.keys())
+        stats = []
+        for mode, stat in zip(keys, items):
+            picks = int(stat.get("picks") or 0)
+            success = int(stat.get("success") or 0)
+            fail = int(stat.get("fail") or 0)
+            done = success + fail
+            latency_sum = float(stat.get("latency_sum_ms") or 0.0)
+            stats.append({
+                "mode": mode,
+                "picks": picks,
+                "success": success,
+                "fail": fail,
+                "fail_rate": round(fail / done, 4) if done else 0.0,
+                "avg_latency_ms": round(latency_sum / done, 1) if done else 0.0,
+            })
+        stats.sort(key=lambda item: -int(item["picks"]))
+        return stats[:limit]
 
     @classmethod
     def _account_matches_plan_type(cls, account: dict, plan_type: str | None = None) -> bool:
@@ -1251,11 +1344,14 @@ class AccountService:
                         self._index += 1
                     self._image_inflight[access_token] = int(self._image_inflight.get(access_token, 0)) + 1
                     # v2.10.0：调度选取指标（tier 分布）
+                    # III-02：带 mode 标签（A/B 对比各调度模式命中分布）
+                    mode = self._effective_scheduler_mode()
                     try:
                         from services.prometheus_metrics import record_scheduler_pick
-                        record_scheduler_pick(self._account_health_tier(self._accounts.get(access_token) or {}))
+                        record_scheduler_pick(self._account_health_tier(self._accounts.get(access_token) or {}), mode)
                     except Exception:
                         pass
+                    self._record_scheduler_pick_stat(access_token, mode)
                     return access_token
                 self._image_slot_condition.wait(timeout=1.0)
 
@@ -2289,6 +2385,8 @@ class AccountService:
             account = self._normalize_account(next_item)
             if account is None:
                 return None
+            # III-02：按调度模式回填结果（命中数/失败率/平均延迟）
+            self._record_scheduler_result_stat(access_token, success)
             # 更新健康评分
             self._update_health_score(access_token)
             if account.get("status") == "限流" and config.auto_remove_rate_limited_accounts:

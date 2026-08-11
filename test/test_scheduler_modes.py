@@ -334,5 +334,68 @@ class TestAdaptiveScheduler(unittest.TestCase):
         self.assertIsInstance(adaptive_scheduler, AdaptiveScheduler)
 
 
+class TestSchedulerModeStats(unittest.TestCase):
+    """III-02：调度模式 A/B 统计——每次 pick 记录 mode，结果回填到对应模式。"""
+
+    def setUp(self) -> None:
+        self.service = _make_service([
+            {"access_token": "token-a", "type": "Plus", "status": "正常", "quota": 10},
+            {"access_token": "token-b", "type": "Plus", "status": "正常", "quota": 10},
+        ])
+
+    def tearDown(self) -> None:
+        _cleanup(self.service)
+
+    def test_effective_mode_default(self) -> None:
+        """默认（非自适应）→ 生效模式 = config.scheduler_mode。"""
+        _set_scheduler_mode("round_robin")
+        self.assertEqual(self.service._effective_scheduler_mode(), "round_robin")
+
+    def test_pick_records_mode_stat_and_result(self) -> None:
+        """pick 后 per-mode picks 增加，mark_image_result 回填成功与延迟。"""
+        _set_scheduler_mode("weighted_random")
+        token = self.service._acquire_next_candidate_token()
+        stats = self.service.get_scheduler_mode_stats()
+        self.assertEqual(len(stats), 1)
+        self.assertEqual(stats[0]["mode"], "weighted_random")
+        self.assertEqual(stats[0]["picks"], 1)
+        # 回填成功
+        self.service.mark_image_result(token, True)
+        stats = self.service.get_scheduler_mode_stats()
+        self.assertEqual(stats[0]["success"], 1)
+        self.assertGreaterEqual(stats[0]["avg_latency_ms"], 0.0)
+        self.assertEqual(stats[0]["fail_rate"], 0.0)
+
+    def test_result_fail_updates_fail_rate(self) -> None:
+        """失败结果 → fail_rate 反映在统计中。"""
+        _set_scheduler_mode("least_used")
+        token = self.service._acquire_next_candidate_token()
+        self.service.mark_image_result(token, False)
+        stats = self.service.get_scheduler_mode_stats()
+        self.assertEqual(stats[0]["fail"], 1)
+        self.assertEqual(stats[0]["fail_rate"], 1.0)
+
+    def test_mode_stats_sorted_by_picks(self) -> None:
+        """mode stats 按命中数降序排列。"""
+        self.service._record_scheduler_pick_stat("token-a", "round_robin")
+        self.service._record_scheduler_pick_stat("token-a", "least_used")
+        self.service._record_scheduler_pick_stat("token-a", "round_robin")
+        stats = self.service.get_scheduler_mode_stats()
+        self.assertEqual(stats[0]["mode"], "round_robin")
+        self.assertEqual(stats[0]["picks"], 2)
+        self.assertEqual(stats[1]["mode"], "least_used")
+
+    def test_adaptive_enabled_uses_current_mode(self) -> None:
+        """自适应开启 → 生效模式取 adaptive_scheduler.current_mode。"""
+        from services.adaptive_scheduler import adaptive_scheduler
+        config.data["scheduler_adaptive_enabled"] = True
+        adaptive_scheduler._current_mode = "predictive"
+        try:
+            self.assertEqual(self.service._effective_scheduler_mode(), "predictive")
+        finally:
+            config.data["scheduler_adaptive_enabled"] = False
+            adaptive_scheduler._current_mode = "weighted_random"
+
+
 if __name__ == "__main__":
     unittest.main()

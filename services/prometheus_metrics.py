@@ -101,8 +101,14 @@ chatgpt2api_circuit_breaker_transitions = Counter(
 
 chatgpt2api_scheduler_pick_total = Counter(
     "chatgpt2api_scheduler_pick_total",
-    "Scheduler picks by health tier",
-    ["tier"],
+    "Scheduler picks by health tier and scheduler mode",
+    ["tier", "mode"],
+)
+
+chatgpt2api_scheduler_mode_switch_total = Counter(
+    "chatgpt2api_scheduler_mode_switch_total",
+    "Adaptive scheduler mode switch count",
+    ["from_mode", "to_mode"],
 )
 
 chatgpt2api_lifetime_risk = Gauge(
@@ -208,9 +214,18 @@ def record_circuit_breaker_transition(from_state: str, to_state: str) -> None:
     chatgpt2api_circuit_breaker_transitions.labels(from_state=from_state, to_state=to_state).inc()
 
 
-def record_scheduler_pick(tier: str) -> None:
-    """记录调度选取分布。"""
-    chatgpt2api_scheduler_pick_total.labels(tier=tier).inc()
+def record_scheduler_pick(tier: str, mode: str) -> None:
+    """记录调度选取分布（tier + 调度模式）。
+
+    mode 为当前生效调度模式（自适应开启时为 adaptive_scheduler.current_mode，
+    否则为 config.scheduler_mode），用于看板 A/B 对比各模式命中分布。
+    """
+    chatgpt2api_scheduler_pick_total.labels(tier=tier, mode=mode).inc()
+
+
+def record_scheduler_mode_switch(from_mode: str, to_mode: str) -> None:
+    """记录自适应调度模式切换（A/B 可观测：谁切到谁）。"""
+    chatgpt2api_scheduler_mode_switch_total.labels(from_mode=from_mode, to_mode=to_mode).inc()
 
 
 def update_lifetime_risk(risk_distribution: dict[str, int]) -> None:

@@ -375,7 +375,7 @@ function DashboardContent() {
       {/* 账号池总览 */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <StatCard icon={Users} label="账号总数" value={String(health?.total ?? 0)} sub={`总配额 ${health?.total_quota ?? 0}`} />
-        <StatCard icon={Activity} label="健康账号" value={String(health?.tiers?.healthy ?? 0)} sub={`温存 ${health?.tiers?.warm ?? 0} · 风险 ${health?.tiers?.risky ?? 0}`} />
+        <StatCard icon={Activity} label="健康账号" value={String(health?.tiers?.healthy ?? 0)} sub={`温存 ${health?.tiers?.warm ?? 0} · 风险 ${health?.tiers?.risky ?? 0}${scheduler?.quota_warning_accounts ? ` · 配额预警 ${scheduler.quota_warning_accounts}` : ""}`} />
         <StatCard icon={Timer} label="在途图片" value={String(health?.total_inflight ?? 0)} sub={`并发上限 ${ops?.image_account_concurrency ?? "-"}`} />
         <StatCard icon={Activity} label="近24h调用" value={String(usage?.total_24h ?? 0)} sub={`成功 ${usage?.success_24h ?? 0} · 失败 ${usage?.failed_24h ?? 0}`} />
       </div>
@@ -643,6 +643,62 @@ function DashboardContent() {
         </Card>
       )}
 
+      {/* III-02：调度模式 A/B 对比（命中数 / 失败率 / 平均延迟） */}
+      {(scheduler?.mode_stats?.length ?? 0) > 0 && (
+        <Card className="rounded-xl border-stone-200 bg-white">
+          <CardHeader className="pb-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <CardTitle className="text-base">调度模式对比（A/B）</CardTitle>
+              <span className="text-xs text-stone-400">
+                当前生效: {scheduler?.effective_mode ?? ops?.scheduler_mode ?? "-"}
+              </span>
+            </div>
+            <p className="text-xs text-stone-400">按调度模式统计命中数、失败率与平均延迟（选号→结果）</p>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <div className="h-56">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={scheduler?.mode_stats} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                    <XAxis dataKey="mode" tick={{ fontSize: 10 }} />
+                    <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+                    <Tooltip />
+                    <Bar dataKey="picks" name="命中数" fill="#0f766e" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>模式</TableHead>
+                      <TableHead className="text-right">命中数</TableHead>
+                      <TableHead className="text-right">成功/失败</TableHead>
+                      <TableHead className="text-right">失败率</TableHead>
+                      <TableHead className="text-right">平均延迟</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {scheduler?.mode_stats?.map((m) => (
+                      <TableRow key={m.mode}>
+                        <TableCell className="font-medium">{m.mode}</TableCell>
+                        <TableCell className="text-right">{m.picks}</TableCell>
+                        <TableCell className="text-right text-xs">{m.success}/{m.fail}</TableCell>
+                        <TableCell className={`text-right ${m.fail_rate > 0.3 ? "text-red-600" : ""}`}>
+                          {(m.fail_rate * 100).toFixed(1)}%
+                        </TableCell>
+                        <TableCell className="text-right">{m.avg_latency_ms > 0 ? `${m.avg_latency_ms.toFixed(0)}ms` : "-"}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* 调度排行榜 */}
       <Card className="rounded-xl border-stone-200 bg-white">
         <CardHeader className="pb-2">
@@ -665,7 +721,7 @@ function DashboardContent() {
               ))}
             </div>
           </div>
-          <p className="text-xs text-stone-400">模式: {ops?.scheduler_mode ?? "-"} · 每30秒自动刷新</p>
+          <p className="text-xs text-stone-400">模式: {scheduler?.effective_mode ?? ops?.scheduler_mode ?? "-"} · 每30秒自动刷新</p>
         </CardHeader>
         <CardContent>
           {/* 6.5：窄屏横向滚动，防表格溢出 */}
@@ -705,6 +761,11 @@ function DashboardContent() {
                         {LIFETIME_LABELS[account.lifetime_risk ?? "low"]}
                         {account.lifetime_eta_days != null ? ` · ${account.lifetime_eta_days}d` : ""}
                       </Badge>
+                      {account.quota_warning ? (
+                        <Badge className="ml-1 bg-orange-100 text-orange-700 dark:bg-orange-950/40 dark:text-orange-300">
+                          配额预警{account.quota_remaining_days != null ? ` ${account.quota_remaining_days}d` : ""}
+                        </Badge>
+                      ) : null}
                     </TableCell>
                     <TableCell className="text-right">{account.quota}</TableCell>
                     <TableCell className="text-right font-semibold">{account.score.toFixed(1)}</TableCell>

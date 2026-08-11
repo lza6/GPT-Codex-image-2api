@@ -94,6 +94,9 @@ def _build_stream_payload() -> dict[str, object]:
         "ops": _collect_ops_overview(),
         "usage": _collect_log_stats(),
         "metrics_summary": _build_metrics_summary(),
+        # III-02：调度模式 A/B 统计随 SSE 实时推送
+        "effective_mode": account_service._effective_scheduler_mode(),
+        "mode_stats": account_service.get_scheduler_mode_stats(),
     }
 
 
@@ -300,6 +303,7 @@ def create_router() -> APIRouter:
             logging.getLogger("chatgpt2api").warning("Prometheus 指标更新失败")
         # 带调度分的账号排名（供前端展示）
         ranked = []
+        quota_warning_accounts = 0
         for account in accounts:
             if account.get("status") in {"禁用", "异常"}:
                 continue
@@ -307,12 +311,15 @@ def create_router() -> APIRouter:
             tier = AccountService._account_health_tier(account)
             score = AccountService._account_dispatch_score(account, tier)
             # 5.1：寿命预测（含风险档位 + 预估剩余天数）
+            # III-03：配额预警第三信号（quota_warning / 剩余天数）一并透出
             lifetime = {}
             try:
                 from services.account_lifetime import compute_lifetime_risk
                 lifetime = compute_lifetime_risk(account)
             except Exception:  # pragma: no cover - 预测失败不影响排名
                 lifetime = {"level": "low", "eta_days": None}
+            if bool(lifetime.get("quota_warning")):
+                quota_warning_accounts += 1
             ranked.append(
                 {
                     "email": account.get("email"),
@@ -328,6 +335,8 @@ def create_router() -> APIRouter:
                     "lifetime_risk": lifetime.get("level", "low"),
                     "lifetime_eta_days": lifetime.get("eta_days"),
                     "lifetime_score": lifetime.get("score", 0.0),
+                    "quota_warning": bool(lifetime.get("quota_warning")),
+                    "quota_remaining_days": lifetime.get("quota_remaining_days"),
                 }
             )
         ranked.sort(key=lambda item: (item["tier"] != "healthy", -item["score"]))
@@ -338,7 +347,15 @@ def create_router() -> APIRouter:
             provider_stats = provider_scheduler.get_provider_stats(accounts)
         except Exception:
             pass
-        result = {"health": health, "accounts": ranked, "provider_stats": provider_stats}
+        # III-02：按调度模式 A/B 统计（命中数/失败率/平均延迟）
+        result = {
+            "health": health,
+            "accounts": ranked,
+            "provider_stats": provider_stats,
+            "effective_mode": account_service._effective_scheduler_mode(),
+            "mode_stats": account_service.get_scheduler_mode_stats(),
+            "quota_warning_accounts": quota_warning_accounts,
+        }
         response_cache.set("/api/dashboard/scheduler", result)
         if response is not None:
             apply_cache_headers("/api/dashboard/scheduler", response)

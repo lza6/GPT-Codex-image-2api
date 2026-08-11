@@ -126,6 +126,89 @@ class TestSchedulerIntegration:
         assert tier in ("healthy", "warm"), f"不应因观测不足判 risky: {tier}"
 
 
+class TestQuotaWarningSignal:
+    """III-03：配额预警第三信号——按消耗速率估算剩余天数。"""
+
+    def _quota_account(self, **kw) -> dict:
+        created = (datetime.now(UTC) - timedelta(days=10)).isoformat()
+        base = {"access_token": "t", "status": "正常", "quota": 10, "success": 100, "created_at": created}
+        base.update(kw)
+        return base
+
+    def test_quota_remaining_days_signal(self) -> None:
+        """有 created_at + success 样本 → 估算剩余天数并标记 quota_warning。"""
+        result = compute_lifetime_risk(self._quota_account(quota=10, success=100))
+        days = result.get("signals", {}).get("quota_remaining_days")
+        assert days is not None
+        # 10 天用 100 → 日均 10 → 10 配额 ≈ 1 天（允许速率估算误差）
+        assert 0.5 <= days <= 3
+        assert result.get("quota_warning") is True
+
+    def test_abundant_quota_no_warning(self) -> None:
+        """配额充足（剩余远大于阈值）→ 不触发 quota_warning。"""
+        result = compute_lifetime_risk(self._quota_account(quota=500, success=100))
+        assert result.get("quota_warning") is False
+
+    def test_no_created_at_no_warning(self) -> None:
+        """无 created_at → 无法外推，不触发配额预警。"""
+        result = compute_lifetime_risk(_account(success=100, quota=10))
+        assert result.get("quota_remaining_days") is None
+        assert result.get("quota_warning") is False
+
+    def test_small_sample_no_warning(self) -> None:
+        """success 样本不足（<3）→ 不触发配额预警（最小观测窗口，防误封）。"""
+        result = compute_lifetime_risk(self._quota_account(success=1, quota=10))
+        assert result.get("quota_warning") is False
+
+    def test_unlimited_quota_no_warning(self) -> None:
+        """quota<=0（无限配额）→ 不触发配额预警。"""
+        result = compute_lifetime_risk(self._quota_account(quota=-1))
+        assert result.get("quota_warning") is False
+
+
+class TestQuotaWarningTier:
+    """III-03：配额预警接入调度档位——只降不升 + 最小观测窗口。"""
+
+    def _quota_account(self, **kw) -> dict:
+        created = (datetime.now(UTC) - timedelta(days=10)).isoformat()
+        base = {"access_token": "t", "status": "正常", "quota": 25, "success": 100, "created_at": created}
+        base.update(kw)
+        return base
+
+    def test_quota_warning_downgrades_healthy_to_warm(self) -> None:
+        """配额预警（剩余 ~2.5 天 ≤ WARN）→ healthy 降 warm，不直接 risky。"""
+        account = self._quota_account(quota=25, success=100)  # 日均10 → 剩余2.5天
+        assert AccountService._account_health_tier(account) == "warm"
+
+    def test_quota_critical_downgrades_to_risky(self) -> None:
+        """配额濒危（剩余 <1 天 ≤ CRITICAL）→ risky。"""
+        account = self._quota_account(quota=5, success=100)  # 日均10 → 剩余0.5天
+        assert AccountService._account_health_tier(account) == "risky"
+
+    def test_quota_critical_beats_high_lifetime(self) -> None:
+        """healthy + 高寿命风险 + 配额濒危 → 降 risky（濒危优先，防耗尽瞬间才熔断）。"""
+        account = self._quota_account(
+            quota=5, success=100, invalid_count=3, last_invalid_at=_iso(minutes_ago=120)
+        )
+        assert AccountService._account_health_tier(account) == "risky"
+
+    def test_quota_signal_does_not_upgrade(self) -> None:
+        """只降不升：基础档位因高失败率已 risky，配额充足也不回升 healthy。"""
+        account = self._quota_account(quota=500, success=5, fail=20)
+        assert AccountService._account_health_tier(account) == "risky"
+
+    def test_no_quota_signal_keeps_healthy(self) -> None:
+        """无 created_at / 样本不足 → 不触发配额预警，healthy 保持 healthy（不误封）。"""
+        account = {"access_token": "t", "status": "正常", "quota": 5, "success": 100}
+        assert AccountService._account_health_tier(account) == "healthy"
+
+    def test_quota_warning_keeps_warm_when_not_critical(self) -> None:
+        """基础档位已 warm + 配额预警（非濒危）→ 保持 warm（不升不降抖动）。"""
+        account = self._quota_account(quota=25, success=100, fail=1)
+        # success=100 fail=1 → 总样本充足但失败率 ~1% → 基础档位 healthy；配额2.5天 → warm
+        assert AccountService._account_health_tier(account) == "warm"
+
+
 def test_now_importable() -> None:
     """模块级 now 可被测试注入（时钟可控，避免测试依赖真实时间）。"""
     import services.account_lifetime as module

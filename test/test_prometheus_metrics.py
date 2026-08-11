@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from prometheus_client import generate_latest, REGISTRY
+from prometheus_client import REGISTRY, generate_latest
 from prometheus_client.parser import text_string_to_metric_families
 
 from services.prometheus_metrics import (
@@ -16,10 +16,14 @@ from services.prometheus_metrics import (
     c2api_session_pool_size,
     c2api_token_requests_total,
     c2api_upstream_latency_seconds,
+    chatgpt2api_scheduler_mode_switch_total,
+    chatgpt2api_scheduler_pick_total,
     record_accounts_count,
     record_circuit_breaker_state,
     record_image_task,
     record_quota_remaining,
+    record_scheduler_mode_switch,
+    record_scheduler_pick,
     record_token_request,
     record_upstream_latency,
     update_session_pool_size,
@@ -40,7 +44,8 @@ def _clear_registry() -> None:
     """清理指标样本，避免跨测试 label 残留。"""
     for metric in (c2api_accounts_total, c2api_token_requests_total, c2api_session_pool_size,
                    c2api_circuit_breaker_state, c2api_image_tasks_total, c2api_quota_remaining,
-                   c2api_upstream_latency_seconds):
+                   c2api_upstream_latency_seconds, chatgpt2api_scheduler_pick_total,
+                   chatgpt2api_scheduler_mode_switch_total):
         metric._metrics.clear()
 
 
@@ -110,3 +115,25 @@ def test_record_upstream_latency() -> None:
     # Histogram: 验证 +Inf bucket 计数包含所有观测值
     assert _get_sample("c2api_upstream_latency_seconds_count", {"provider": "openai", "endpoint": "chat/completions"}) == 2.0
     assert _get_sample("c2api_upstream_latency_seconds_count", {"provider": "azure", "endpoint": "images/generations"}) == 1.0
+
+
+def test_record_scheduler_pick_with_mode() -> None:
+    """III-02：调度选取指标带 mode 标签（A/B 对比命中分布）。"""
+    _clear_registry()
+    record_scheduler_pick("healthy", "round_robin")
+    record_scheduler_pick("healthy", "weighted_random")
+    record_scheduler_pick("healthy", "weighted_random")
+    record_scheduler_pick("warm", "weighted_random")
+    assert _get_sample("chatgpt2api_scheduler_pick_total", {"tier": "healthy", "mode": "round_robin"}) == 1.0
+    assert _get_sample("chatgpt2api_scheduler_pick_total", {"tier": "healthy", "mode": "weighted_random"}) == 2.0
+    assert _get_sample("chatgpt2api_scheduler_pick_total", {"tier": "warm", "mode": "weighted_random"}) == 1.0
+
+
+def test_record_scheduler_mode_switch() -> None:
+    """III-02：自适应调度模式切换指标（from_mode -> to_mode）。"""
+    _clear_registry()
+    record_scheduler_mode_switch("weighted_random", "least_load")
+    record_scheduler_mode_switch("weighted_random", "least_load")
+    record_scheduler_mode_switch("least_load", "predictive")
+    assert _get_sample("chatgpt2api_scheduler_mode_switch_total", {"from_mode": "weighted_random", "to_mode": "least_load"}) == 2.0
+    assert _get_sample("chatgpt2api_scheduler_mode_switch_total", {"from_mode": "least_load", "to_mode": "predictive"}) == 1.0
