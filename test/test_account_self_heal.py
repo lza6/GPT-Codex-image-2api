@@ -284,3 +284,62 @@ class TestAccountWarmup:
             svc.fetch_remote_info.assert_not_called()
         finally:
             _restore_config("account_warmup_enabled", None)
+
+# ====================================================================
+# 异常账号恢复候选筛选（v3.0 排除已放弃账号）
+# ====================================================================
+
+class TestAbnormalRecoverCandidateFilter:
+    def _svc(self, tmp_path):
+        from services.storage.json_storage import JSONStorageBackend
+        storage = JSONStorageBackend(tmp_path / "accounts.json")
+        return AccountService(storage)
+
+    def test_recovers_account_with_low_invalid_count(self, tmp_path):
+        """invalid_count>=2 且未放弃的异常账号应被列为恢复候选。"""
+        svc = self._svc(tmp_path)
+        token = "recoverable-token"
+        svc._accounts[token] = _account(
+            access_token=token, status="异常", invalid_count=3,
+            self_heal_retry_attempts=1, self_heal_next_retry_at=None,
+        )
+        assert token in svc.list_abnormal_tokens_for_recover()
+
+    def test_excludes_recovery_given_up_account(self, tmp_path):
+        """已达重试上限且无下次重试时间的账号不再被拉取（防 invalid_count 无限累加）。"""
+        svc = self._svc(tmp_path)
+        token = "given-up-token"
+        _set_config("self_heal_retry_max_attempts", 5)
+        try:
+            svc._accounts[token] = _account(
+                access_token=token, status="异常", invalid_count=800,
+                self_heal_retry_attempts=5, self_heal_next_retry_at=None,
+            )
+            assert token not in svc.list_abnormal_tokens_for_recover()
+        finally:
+            _restore_config("self_heal_retry_max_attempts", None)
+
+    def test_excludes_quota_exhausted_account(self, tmp_path):
+        """额度耗尽账号仍被排除（不受新逻辑影响）。"""
+        svc = self._svc(tmp_path)
+        token = "quota-exhausted-token"
+        svc._accounts[token] = _account(
+            access_token=token, status="异常", invalid_count=10,
+            self_heal_retry_attempts=0, self_heal_next_retry_at=None,
+            last_refresh_error="quota_exhausted",
+        )
+        assert token not in svc.list_abnormal_tokens_for_recover()
+
+    def test_includes_account_below_max_attempts(self, tmp_path):
+        """尝试次数未达上限时即使 next_retry 为空也应继续尝试。"""
+        svc = self._svc(tmp_path)
+        token = "below-max-token"
+        _set_config("self_heal_retry_max_attempts", 5)
+        try:
+            svc._accounts[token] = _account(
+                access_token=token, status="异常", invalid_count=4,
+                self_heal_retry_attempts=3, self_heal_next_retry_at=None,
+            )
+            assert token in svc.list_abnormal_tokens_for_recover()
+        finally:
+            _restore_config("self_heal_retry_max_attempts", None)

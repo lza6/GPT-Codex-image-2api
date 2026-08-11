@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import base64
 import json
@@ -1707,6 +1707,10 @@ class AccountService:
         关键字，说明上游明确告知额度用完，反复刷新只会浪费请求额度，不可恢复）。
         纯 token 账号（有 refresh_token）走 refresh_token 换 token 路径；
         带 email+password 的账号走密码重登兜底。两者 fetch_remote_info 都会覆盖。
+
+        v3.0.0：排除已放弃恢复的账号（self_heal_retry_attempts >= max_attempts 且
+        self_heal_next_retry_at 为空）。这些账号经指数退避达到重试上限，被判定为不可恢复，
+        再拉取只会反复失败并无限累加 invalid_count（实测达 800+），应停止自动重试。
         """
         # v2.9.0：额度真实耗尽错误关键字（这些说明上游明确告知额度用完，不可恢复）
         QUOTA_EXHAUSTED_MARKERS = (
@@ -1718,6 +1722,14 @@ class AccountService:
             err = str(item.get("last_refresh_error") or "").lower()
             return any(marker in err for marker in QUOTA_EXHAUSTED_MARKERS)
 
+        def _recovery_given_up(item: dict) -> bool:
+            """指数退避达到重试上限（self_heal_retry_attempts >= max 且无下次重试时间）。"""
+            attempts = int(item.get("self_heal_retry_attempts") or 0)
+            if attempts < config.self_heal_retry_max_attempts:
+                return False
+            next_retry = str(item.get("self_heal_next_retry_at") or "").strip()
+            return not next_retry
+
         with self._lock:
             return [
                 token
@@ -1725,6 +1737,7 @@ class AccountService:
                 if item.get("status") == "异常"
                    and int(item.get("invalid_count") or 0) >= 2
                    and not _is_quota_exhausted(item)
+                   and not _recovery_given_up(item)
                    and (token := item.get("access_token") or "")
             ]
 

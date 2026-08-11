@@ -66,10 +66,11 @@ export type Account = {
   provider?: string;
 };
 
-/** 账号标签（name + color）。 */
+/** 账号标签（name + color，count 为使用该标签的账号数）。 */
 export type AccountTag = {
   name: string;
   color: string;
+  count?: number;
 };
 
 /** 批量导出请求参数。 */
@@ -1642,9 +1643,9 @@ export async function fetchAccountTags() {
 
 // ── 账号详情 ──────────────────────────────────────────────────────
 
-/** 获取指定账号完整信息（含敏感字段）。 */
+/** 获取指定账号完整信息（含敏感字段）。返回 {item: AccountDetail}。 */
 export async function fetchAccountDetail(token: string) {
-  return httpRequest<AccountDetail>("/api/accounts/detail", {
+  return httpRequest<{ item: AccountDetail }>("/api/accounts/detail", {
     method: "POST",
     body: JSON.stringify({ access_token: token }),
   });

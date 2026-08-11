@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Menu, PanelLeftClose, PanelLeft } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Menu } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 
 import { HeaderActions } from "@/components/header-actions";
@@ -67,7 +67,6 @@ export function TopNav() {
   const pathname = usePathname();
   const router = useRouter();
   const [session, setSession] = useState<StoredAuthSession | null | undefined>(undefined);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -154,16 +153,6 @@ export function TopNav() {
             chatgpt2api
           </Link>
 
-          {/* 桌面端侧边栏折叠按钮 */}
-          <button
-            type="button"
-            className="hidden size-8 items-center justify-center rounded-lg text-stone-400 transition hover:bg-stone-100 hover:text-stone-700 sm:inline-flex dark:hover:bg-white/10 dark:hover:text-stone-300"
-            onClick={() => setSidebarCollapsed((prev) => !prev)}
-            title={sidebarCollapsed ? "展开侧边栏" : "折叠侧边栏"}
-          >
-            {sidebarCollapsed ? <PanelLeft className="size-4" /> : <PanelLeftClose className="size-4" />}
-          </button>
-
           <HeaderActions className="ml-auto sm:hidden" />
         </div>
 
@@ -209,32 +198,6 @@ export function TopNav() {
       <div className="hidden px-6 pb-1.5 sm:block">
         <Breadcrumbs pathname={pathname} navItems={navItems} />
       </div>
-
-      {/* 桌面端可折叠侧边栏 */}
-      {!sidebarCollapsed && (
-        <aside className="hidden border-r border-stone-100/50 sm:block dark:border-white/10">
-          <nav className="flex flex-col gap-0.5 px-3 py-2">
-            {navItems.map((item) => {
-              const active = isActive(item.href);
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={cn(
-                    "flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition",
-                    active
-                      ? "bg-stone-100 font-medium text-stone-900 dark:bg-white/10 dark:text-white"
-                      : "text-stone-500 hover:text-stone-900 dark:text-stone-400 dark:hover:text-white",
-                  )}
-                >
-                  <span className={cn("size-1.5 rounded-full", active ? "bg-stone-900 dark:bg-white" : "bg-transparent")} />
-                  {item.label}
-                </Link>
-              );
-            })}
-          </nav>
-        </aside>
-      )}
     </header>
   );
 }

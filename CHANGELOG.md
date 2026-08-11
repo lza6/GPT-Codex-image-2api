@@ -1,5 +1,44 @@
 # Changelog
 
+## 2.31.0 - 2026-08-11 (前端深度体验 + SSE 事件流 + 契约断链清零)
+
+**4.3.1 组件交互反馈系统：**
++ [新增] `web/src/utils/motion.ts` — 统一动效预设（fadeIn/slideUp/scaleIn/stagger/expandCollapse/ripple），所有组件共享 framer-motion 动画配置
++ [新增] `web/src/hooks/use-interaction-feedback.ts` — 统一交互反馈 Hook：点击涟漪坐标 + 加载/成功/错误三态 + 震动反馈
++ [新增] `web/src/components/ui/ripple.tsx` — 波纹点击组件（点击位置扩散涟漪）
++ [新增] `web/src/components/ui/progress-bar.tsx` — 进度条组件（确定/不确定模式，sm/md/lg 尺寸，四色主题）
++ [改进] `web/src/components/ui/button.tsx` — 集成 action 异步操作，自动 loading/success/error 三态动画 + 涟漪
++ [改进] `web/src/components/ui/input.tsx` — 实时校验 + 字符计数 + 清空按钮 + 左侧图标 + 焦点动画 + 校验错误提示
++ [改进] `web/src/components/ui/select.tsx` — 新增 `SearchableSelect` 搜索过滤下拉框（搜索 + 分组 + 选中高亮）
++ [改进] `web/src/components/ui/table.tsx` — 新增 `ExpandableRowContent` 可展开行动画（AnimatePresence 高度过渡）
++ [改进] `web/src/components/ui/dialog.tsx` — 新增拖拽移动 + 堆叠管理（z-index 提升 + stackId 唯一标识）
++ [改进] `web/src/lib/toast-helper.ts` — Toast 进度条复用 ProgressBar 组件 + `toastPositioned` 位置定制
+
+**4.3.2 响应式 + 移动端优化：**
++ [新增] `web/src/hooks/use-breakpoint.ts` — 响应式断点 Hook（mobile/tablet/desktop，matchMedia 监听）
++ [改进] `web/src/app/dashboard/page.tsx` — 接入实时事件流卡片（EventStream 组件，此前为死代码未被任何页面使用）
+
+**4.3.3 SSE 实时数据管道（升级增强）：**
++ [新增] `api/dashboard.py` — `GET /api/events/stream` SSE 事件流端点（1s 推送事件，含自动去重）
++ [新增] `api/dashboard.py` — `GET /api/dashboard/events` 端点（读 events.jsonl 最近事件，SSE 事件流同源）
++ [新增] `api/dashboard.py` — `_fetch_recent_events()` 从 events.jsonl 读取最近事件（限量 + JSON 容错）
++ [新增] `api/app.py` — 事件总线持久化订阅：账号/熔断/备份/Provider 事件写入 events.jsonl + `_trim_events_file` 行数裁剪
++ [改进] `web/src/hooks/use-realtime.ts` — 支持多行 JSON 解析 + 多字段通道提取（data/channel 字段兼容）
+
+**契约断链清零（3 → 0）：**
++ [修复] `api/accounts.py` — 新增 `GET /api/accounts/tags`（去重 label 标签列表 + count）
++ [修复] `api/accounts.py` — 新增 `POST /api/accounts/export-csv`（CSV 导出，仅非敏感字段）
++ [修复] `api/accounts.py` — 新增 `POST /api/accounts/detail`（按 token 返回账号详情 + 熔断状态）
++ [测试] `test/test_accounts_detail_tags_export.py` — 9 个测试覆盖 tags 去重/详情 404/CSV 导出
++ [测试] `test/test_events_stream.py` — 8 个测试覆盖事件流鉴权/events.jsonl 持久化/行数裁剪
++ [契约] `scripts/contract_guard.py` — SNAPSHOT/DYNAMIC_KEY_ENDPOINTS 新增 `/api/dashboard/events`
+
+**Bug 修复：**
++ [修复] `web/src/components/top-nav.tsx` — 移除桌面端冗余垂直侧边栏及折叠按钮（PanelLeft），顶部导航已完整展示所有导航项，避免 UI 严重重复
++ [修复] `services/account_service.py` — `list_abnormal_tokens_for_recover` 排除已达重试上限且无下次重试时间的账号。此前已放弃恢复的异常账号被无限重试，invalid_count 累加到 800+ 仍反复尝试
++ [测试] `test/test_account_self_heal.py` — 新增 4 个恢复候选筛选测试（排除已放弃/额度耗尽、保留可恢复账号）
++ [文档] `docs/openapi.json` — 重新生成（新增 4 端点，路径数 116→120）
+
 ## 2.30.0 - 2026-08-11 (3.1.3 请求级响应缓存)
 
 **3.1.3 请求级响应缓存：**
