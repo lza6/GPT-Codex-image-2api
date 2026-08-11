@@ -1,10 +1,12 @@
-"""五道防线一键执行器：contract → sql → slowquery → mutation → stress。
+"""八道防线一键执行器：contract → sql → slowquery → mutation → stress → benchmark → docs_sync → coverage。
 
 对应用户指令的终局校验清单，一次调用跑完所有防线并汇总 PASS/FAIL。
 用法：
     .venv/Scripts/python.exe scripts/run_all_guards.py
 退出码：任一防线 FAIL = 1。各防线详细报告在 reports/<防线名>/ 下。
 E2：执行锁——reports/.guards.lock 文件互斥，防 CI 与本地并发双跑导致防线互相污染。
+注：benchmark 依赖前一道 stress 刚产出的 reports/stress/*.json，顺序不可交换；
+coverage 会完整跑一遍 pytest（~3-4 分钟），是全套中耗时最长的一道。
 """
 
 from __future__ import annotations
@@ -46,7 +48,9 @@ GUARDS = [
     ("慢查询猎杀", "scripts/slow_query_report.py", []),
     ("变异探针", "scripts/mutation_probe.py", []),
     ("极限施压", "scripts/stress_test.py", ["--requests", "200", "--concurrency", "15"]),
+    ("性能基准", "scripts/benchmark_check.py", []),
     ("文档同步", "scripts/docs_sync_check.py", []),
+    ("覆盖率门禁", "scripts/coverage_guard.py", []),
 ]
 
 
@@ -82,7 +86,7 @@ def _run_guards() -> int:
             for line in proc.stderr.strip().splitlines()[-3:]:
                 print(f"  [stderr] {line}")
 
-    print("\n===== 五道防线汇总 =====")
+    print("\n===== 八道防线汇总 =====")
     all_ok = True
     for name, ok, elapsed in results:
         print(f"{'PASS' if ok else 'FAIL'}  {name}  ({elapsed:.1f}s)")

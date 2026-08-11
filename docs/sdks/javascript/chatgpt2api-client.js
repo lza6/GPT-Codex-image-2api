@@ -1,5 +1,5 @@
 /**
- * chatgpt2api SDK — 自动生成 (v2.28.0)
+ * chatgpt2api SDK — 自动生成 (v2.33.0)
  *
  * 用法：
  *   const client = new Chatgpt2apiClient('/', 'your-api-key');
@@ -7,7 +7,7 @@
  */
 
 export class Chatgpt2apiClient {
-  VERSION = "2.28.0";
+  VERSION = "2.33.0";
 
   constructor(baseUrl = "/", apiKey = null) {
     this.baseUrl = baseUrl.replace(/\/$/, "");
@@ -201,6 +201,24 @@ export class Chatgpt2apiClient {
     return this.request('POST', path, { body });
   }
 
+  /** Export Accounts Csv */
+  async exportAccountsCsvApiAccountsExportCsvPost() {
+    const path = `/api/accounts/export-csv`;
+    return this.request('POST', path, { body });
+  }
+
+  /** Account Tags */
+  async accountTagsApiAccountsTagsGet() {
+    const path = `/api/accounts/tags`;
+    return this.request('GET', path);
+  }
+
+  /** Account Detail */
+  async accountDetailApiAccountsDetailPost() {
+    const path = `/api/accounts/detail`;
+    return this.request('POST', path, { body });
+  }
+
   /** Batch Accounts */
   async batchAccountsApiAccountsBatchPost() {
     const path = `/api/accounts/batch`;
@@ -216,6 +234,25 @@ export class Chatgpt2apiClient {
   /** Update Account */
   async updateAccountApiAccountsUpdatePost() {
     const path = `/api/accounts/update`;
+    return this.request('POST', path, { body });
+  }
+
+  /** List Trash */
+  async listTrashApiAccountsTrashGet() {
+    const path = `/api/accounts/trash`;
+    const params = { limit, top_reasons, refresh };
+    return this.request('GET', path, { params: params });
+  }
+
+  /** Clear Trash */
+  async clearTrashApiAccountsTrashClearPost() {
+    const path = `/api/accounts/trash/clear`;
+    return this.request('POST', path);
+  }
+
+  /** Restore Trash */
+  async restoreTrashApiAccountsTrashRestorePost() {
+    const path = `/api/accounts/trash/restore`;
     return this.request('POST', path, { body });
   }
 
@@ -391,7 +428,7 @@ export class Chatgpt2apiClient {
   /** Usage Stats */
   async usageStatsApiDashboardUsageGet() {
     const path = `/api/dashboard/usage`;
-    const params = { hours };
+    const params = { hours, refresh };
     return this.request('GET', path, { params: params });
   }
 
@@ -436,6 +473,13 @@ export class Chatgpt2apiClient {
   async metricsSummaryApiDashboardMetricsSummaryGet() {
     const path = `/api/dashboard/metrics_summary`;
     return this.request('GET', path);
+  }
+
+  /** Dashboard Events */
+  async dashboardEventsApiDashboardEventsGet() {
+    const path = `/api/dashboard/events`;
+    const params = { limit, refresh };
+    return this.request('GET', path, { params: params });
   }
 
   /** Adaptive Scheduler Status */
@@ -672,7 +716,7 @@ export class Chatgpt2apiClient {
   /** Get Logs */
   async getLogsApiLogsGet() {
     const path = `/api/logs`;
-    const params = { type, start_date, end_date, account_email, days, event, request_id, result, page, page_size };
+    const params = { type, start_date, end_date, account_email, days, event, request_id, result, page, page_size, refresh };
     return this.request('GET', path, { params: params });
   }
 

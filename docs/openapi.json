@@ -1827,7 +1827,7 @@
           "Accounts"
         ],
         "summary": "List Trash",
-        "description": "回收站：返回剔除记录列表 + 统计。",
+        "description": "回收站：返回剔除记录列表 + 统计。\n\nstats 含原因分布（by_reason 全量 dict + by_reason_top Top N 数组）与\n按天趋势（by_day dict + trend 数组）。top_reasons 控制 by_reason_top 条数。\n\nV-02：TTL 15s 缓存（键含 limit/top_reasons）；写侧失效——\ntrash_service.add/clear/restore 均 invalidate，防止读脏。",
         "operationId": "list_trash_api_accounts_trash_get",
         "parameters": [
           {
@@ -1838,6 +1838,26 @@
               "type": "integer",
               "default": 100,
               "title": "Limit"
+            }
+          },
+          {
+            "name": "top_reasons",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 8,
+              "title": "Top Reasons"
+            }
+          },
+          {
+            "name": "refresh",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Refresh"
             }
           },
           {
@@ -4164,6 +4184,16 @@
             }
           },
           {
+            "name": "refresh",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Refresh"
+            }
+          },
+          {
             "name": "authorization",
             "in": "header",
             "required": false,
@@ -6064,7 +6094,7 @@
           "Dashboard"
         ],
         "summary": "Usage Stats",
-        "description": "用量统计：指定小时窗口内调用量 + 按类型分布 + 最近记录。\n\n支持 hours 参数控制窗口：1/6/24/168(7d)/720(30d)，默认 24。",
+        "description": "用量统计：指定小时窗口内调用量 + 按类型分布 + 最近记录。\n\n支持 hours 参数控制窗口：1/6/24/168(7d)/720(30d)，默认 24。\n\nV-02：TTL 15s 缓存（键含窗口）；写侧失效——usage_agg.ingest 增量\n摄入到新日志时 invalidate，防止读脏。",
         "operationId": "usage_stats_api_dashboard_usage_get",
         "parameters": [
           {
@@ -6075,6 +6105,16 @@
               "type": "integer",
               "default": 24,
               "title": "Hours"
+            }
+          },
+          {
+            "name": "refresh",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Refresh"
             }
           },
           {
@@ -6468,7 +6508,7 @@
           "Dashboard"
         ],
         "summary": "Dashboard Events",
-        "description": "看板事件流：最近系统事件（从 events.jsonl 读取，SSE 事件频道同源）。",
+        "description": "看板事件流：最近系统事件（从 events.jsonl 读取，SSE 事件频道同源）。\n\nV-02：TTL 5s 缓存（键含 limit）；写侧失效——api/app.py 事件持久化\n订阅 _append_event_jsonl 写入后 invalidate，防止读脏。",
         "operationId": "dashboard_events_api_dashboard_events_get",
         "parameters": [
           {
@@ -6479,6 +6519,16 @@
               "type": "integer",
               "default": 50,
               "title": "Limit"
+            }
+          },
+          {
+            "name": "refresh",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Refresh"
             }
           },
           {
@@ -8644,6 +8694,17 @@
               }
             ],
             "title": "Stream"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
           }
         },
         "type": "object",
@@ -8695,6 +8756,17 @@
               }
             ],
             "title": "Seed"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
           }
         },
         "type": "object",

@@ -14,6 +14,8 @@
 | 项 | 结果 | 范围/说明 | 日期 | 证据 |
 |----|------|-----------|------|------|
 | 全量单测 | **1179 passed / 0 failed**（33 live/redis 排除，真实 exit 0） | 全 test/（干净跑；本轮 +17：R2Client 层 16 + API 端点 3 - 复用；openapi.json 重生成） | 2026-08-12 | `pytest -q` |
+| 覆盖率（增量门） | **services+api 行覆盖 60~62%**（门禁 fail_under=55） | VII-01 首次实测：两轮全量 60% / 62%；目标 90%+，每提升一档上调 5pt；`pyproject [tool.coverage.report] fail_under` + CI coverage gate + `scripts/coverage_guard.py` | 2026-08-12 | `pytest --cov=services --cov=api`；reports/coverage/ |
+| 性能基准 | **PASS（8/8）**，实测吞吐 149.5 rps / p99 334.3ms / 慢存储 p99 262.7ms / 错误率 0 | V-04：`docs/benchmark-baseline.json` 阈值（≥30 rps / ≤1500ms / ≤1%）；`scripts/benchmark_check.py` 断言最近施压 JSON | 2026-08-12 | reports/stress/ + reports/benchmark/ |
 | 六道防线·契约守卫 | PASS（断链=0 漂移=0） | 本轮涉 R2/回收站/least_used/粘性IP 区域 | 2026-08-12 | reports/contract/ |
 | 六道防线·SQL 审查 | PASS（P0=0 P1=0） | 修 `text(` 启发式误报（write_text 撞 text(f），加负向后瞻 | 2026-08-12 | reports/sqlaudit/ |
 | 六道防线·慢查询 | PASS | | 2026-08-12 | reports/slowquery/ |
@@ -27,6 +29,7 @@
 
 | 区域 | 改动 | 验证 | 状态 |
 |------|------|------|------|
+| 工程效能 VII-01~04 + V-04（本轮） | `pyproject.toml`（pytest-cov + [tool.coverage] 门禁 + 补 hypothesis/aiosqlite 声明）、`.github/workflows/ci.yml`（coverage gate + OpenAPI/SDK --check + guards job）、`scripts/coverage_guard.py`、`scripts/benchmark_check.py` + `docs/benchmark-baseline.json`、`generate_openapi_spec.py --check`、`generate_sdks.py --check`（含 GBK 安全输出）、`run_all_guards.py` 扩至八道防线、`stress_test.py` 慢存储注入 marker 修复、`scripts/hooks/`（文档保鲜 git hook） | 各脚本本地实跑：openapi/sdk --check PASS、coverage_guard PASS（62%≥55%）、benchmark PASS、hook 放行/阻塞双路径验证；CI job 需 GitHub Actions 环境 | ✅（本轮） |
 | R2 图片存储后端 | `services/image_storage_service.py` R2Client（AWS SigV4，纯 Python）+ config r2_* 四字段 | `test/test_image_storage_service.py`（覆盖签名/上传/读取/删除/列对象/降级） | ✅（第二十一轮闭环） |
 | 变异探针增强 | `scripts/mutation_probe.py`（282 行增量，锚点覆盖 14 测试文件） | `pytest` 全量 + 防线变异（caught=33 escaped=0） | ✅（第二十一轮闭环） |
 | R2 前端配置接线（v2.33.0） | `web/src/lib/api.ts`（ImageStorageMode 加 r2/r2_local + 五字段）+ `settings/store.ts`（normalize/save 补 r2）+ `config-card.tsx`（R2 表单 + 按模式测试按钮）+ `api/system.py`（image-storage/test 按 mode 分流） | `npx tsc --noEmit` 0 错误 + `npm run build` 成功 + `test_image_storage_service.py` 端点 3 项 | ✅（本轮闭环） |
@@ -60,6 +63,7 @@ v2.9.0（24 确认已修 / 8 驳回）与更早轮次的审计明细见 git hist
 
 ## 五、各区域"最近改动"速记（下次只重测这些）
 
+- 2026-08-12（工程效能 VII 轮）：`pyproject.toml`（覆盖率门禁 + 依赖补齐）、`ci.yml`（coverage/guards/--check job）、`run_all_guards.py`（八道防线）、`coverage_guard.py`、`benchmark_check.py` + `docs/benchmark-baseline.json`、`generate_openapi_spec.py --check`、`generate_sdks.py --check`、`stress_test.py`（慢存储 marker）、`scripts/hooks/`（文档保鲜 hook）→ 重跑：coverage_guard + benchmark_check + 防线全量 + hook 冒烟。
 - 2026-08-12（第二十二轮）：`api/system.py`（image-storage/test 按 mode 分流）、`web/src/lib/api.ts` + `settings/store.ts` + `config-card.tsx`（R2 接线 + diagnose/healing .json() 修复）、`test/test_image_storage_service.py`（R2Client 层 16+3）、`docs/e2e.md`、CHANGELOG/VERSION（v2.33.0）→ 重跑：image_storage/config 相关测试 + 前端 build/tsc + 防线全量 + E2E。
 - 2026-08-12（第二十一轮）：`services/image_storage_service.py`（R2Client）、`scripts/mutation_probe.py`、`scripts/docs_sync_check.py`、`scripts/run_all_guards.py`、`.gitignore`、SKILL.md、workflow_status.md、verification-registry.md、CLAUDE.md、docs/project-spec.md → 已验证，重跑沿用。
 - 2026-08-11（v2.32.0）：`services/trash_service.py`、`account_service.py`（least_used）、`proxy_service.py`（get_profile）、`config.py`（scheduler_mode）、`api/accounts.py`（trash 端点）→ 已验证，重跑沿用。

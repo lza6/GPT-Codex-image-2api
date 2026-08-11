@@ -1,0 +1,18 @@
+{
+  "version": "2.33.0",
+  "baseline_date": "2026-08-12",
+  "environment": "Windows 本机 TestClient 进程内压测（不触网、不开端口），--requests 200 --concurrency 15",
+  "thresholds": {
+    "min_throughput_rps": 30.0,
+    "max_p99_ms": 1500.0,
+    "max_slow_p99_ms": 4000.0,
+    "max_error_rate": 0.01
+  },
+  "measured_20260812": {
+    "throughput_rps": 149.5,
+    "p99_ms": 334.3,
+    "error_rate": 0.0,
+    "slow_p99_ms": 262.7
+  },
+  "notes": "阈值取实测值的宽松裕量：吞吐 ≥30 rps（实测 148.5，留 ~5 倍余量）、p99 ≤1500ms（与 stress_test 默认预算一致）、错误率 ≤1%。基准变化需在 CHANGELOG 提示并在 verification-registry 更新本文件。CI 不跑施压（耗时与数据敏感），本地 run_all_guards 或手动 stress_test 后由 scripts/benchmark_check.py 断言。"
+}

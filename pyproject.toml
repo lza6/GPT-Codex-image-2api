@@ -25,6 +25,9 @@ dev = [
     "httpx>=0.28.1",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
+    "pytest-cov>=7.0.0",
+    "hypothesis>=6.60.0",
+    "aiosqlite>=0.20.0",
     "ruff>=0.8.0",
     "mypy>=1.13.0",
     "pip-audit>=2.7.0",
@@ -63,3 +66,22 @@ warn_redundant_casts = false
 [[tool.uv.index]]
 url = "https://mirrors.aliyun.com/pypi/simple"
 default = true
+
+# ── 覆盖率门禁（VII-01，增量门）────────────────────────────────────
+# 实测基线：services+api 行覆盖率 60~62%（2026-08-12 两轮全量实测，排除 live/redis）。
+# 目标 90%+；当前门禁 fail_under=55 留环境波动裕量，每提升一档上调 5pt，
+# 基线记录见 docs/verification-registry.md。
+# 本地 `uv run pytest`（不带 --cov）不受影响；CI 与 scripts/coverage_guard.py 显式 --cov。
+[tool.coverage.run]
+source = ["services", "api"]
+branch = false
+omit = ["*/test/*", "*/tests/*", "*/__pycache__/*"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 55
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]

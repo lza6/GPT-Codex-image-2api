@@ -1,0 +1,17 @@
+#!/usr/bin/env node
+// 文档保鲜 pre-commit 钩子（VII-03）：提交前校验 VERSION 与核心文档内嵌版本一致。
+// 委托 scripts/hooks/check_docs_sync.cjs 执行；不一致则 exit 1 阻塞提交。
+// 注意：Node 对无扩展名主文件默认按 ESM 解析，故用 import 语法（.cjs 执行器仍为 CommonJS）。
+import { spawnSync } from "node:child_process";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const hookDir = path.dirname(fileURLToPath(import.meta.url));
+// hook 位于 scripts/hooks/githooks/，上三层到仓库根
+const ROOT = path.resolve(hookDir, "../../..");
+
+const res = spawnSync(process.execPath, [path.join(ROOT, "scripts", "hooks", "check_docs_sync.cjs")], {
+  cwd: ROOT,
+  stdio: "inherit",
+});
+process.exit(res.status ?? 1);

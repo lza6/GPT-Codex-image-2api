@@ -135,12 +135,14 @@ def run_slow_storage(client, requests: int, concurrency: int, delay_ms: int) -> 
     """慢存储注入：给日志文件的全量读取加延迟，验证存储变慢时不挂死。
 
     说明：请求路径上的存储 I/O 热点是 log_service（/api/logs、/api/dashboard/usage
-    每次全量读 logs.jsonl）；账号数据在启动时一次性加载进内存，请求路径不再读盘。
+    每次全量读 logs-YYYY-MM-DD.jsonl 天文件）；账号数据在启动时一次性加载进内存，请求路径不再读盘。
     因此注入点选 Path.read_text（log_service 的唯一读取通道），而非启动期的
     JSONStorageBackend._load_json_list。
     """
     original_read_text = Path.read_text
-    marker = "logs.jsonl"
+    # v2.6.0 起日志按天轮转为 logs-YYYY-MM-DD.jsonl（旧 logs.jsonl 仅作惰性迁移源），
+    # 注入 marker 取 "logs-" 前缀匹配天文件，防慢存储注入空跑（V-04 实测发现失配）。
+    marker = "logs-"
     hits = {"count": 0}
     hits_lock = threading.Lock()
 
@@ -150,6 +152,15 @@ def run_slow_storage(client, requests: int, concurrency: int, delay_ms: int) -> 
                 hits["count"] += 1
             time.sleep(delay_ms / 1000)
         return original_read_text(self, *args, **kwargs)
+
+    # 先清响应缓存：/api/logs 与 /api/dashboard/usage 已被常规施压写进内存缓存，
+    # 不清的话慢阶段直接命中缓存不触盘，注入将空跑（V-04 实测确认）。
+    try:
+        from api.response_cache import response_cache
+
+        response_cache.invalidate()
+    except Exception:  # noqa: BLE001 - 缓存清空失败不阻断注入
+        pass
 
     Path.read_text = slowed_read_text
     try:

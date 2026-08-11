@@ -1,5 +1,5 @@
 """
-chatgpt2api SDK — 自动生成 (v2.28.0)
+chatgpt2api SDK — 自动生成 (v2.33.0)
 
 用法：
     client = Chatgpt2apiClient(base_url='/', api_key='your-key')
@@ -13,7 +13,7 @@ from typing import Any
 import httpx
 
 
-VERSION = "2.28.0"
+VERSION = "2.33.0"
 
 
 class Chatgpt2apiClient:
@@ -40,6 +40,11 @@ class Chatgpt2apiClient:
 
     # --- 数据模型 ---
 
+    class AccountBatchExportCSVRequest:
+        def __init__(self, **kwargs: Any):
+            for k, v in kwargs.items():
+                setattr(self, k, v)
+
     class AccountBatchRequest:
         def __init__(self, **kwargs: Any):
             for k, v in kwargs.items():
@@ -51,6 +56,11 @@ class Chatgpt2apiClient:
                 setattr(self, k, v)
 
     class AccountDeleteRequest:
+        def __init__(self, **kwargs: Any):
+            for k, v in kwargs.items():
+                setattr(self, k, v)
+
+    class AccountDetailRequest:
         def __init__(self, **kwargs: Any):
             for k, v in kwargs.items():
                 setattr(self, k, v)
@@ -451,6 +461,27 @@ class Chatgpt2apiClient:
         resp.raise_for_status()
         return resp.json()
 
+    def export_accounts_csv_api_accounts_export_csv_post(self, body: dict | None = None):
+        """Export Accounts Csv"""
+        url = self.base_url + "/api/accounts/export-csv"
+        resp = self._client.post(url, json=body)
+        resp.raise_for_status()
+        return resp.json()
+
+    def account_tags_api_accounts_tags_get(self):
+        """Account Tags"""
+        url = self.base_url + "/api/accounts/tags"
+        resp = self._client.get(url)
+        resp.raise_for_status()
+        return resp.json()
+
+    def account_detail_api_accounts_detail_post(self, body: dict | None = None):
+        """Account Detail"""
+        url = self.base_url + "/api/accounts/detail"
+        resp = self._client.post(url, json=body)
+        resp.raise_for_status()
+        return resp.json()
+
     def batch_accounts_api_accounts_batch_post(self, body: dict | None = None):
         """Batch Accounts"""
         url = self.base_url + "/api/accounts/batch"
@@ -468,6 +499,31 @@ class Chatgpt2apiClient:
     def update_account_api_accounts_update_post(self, body: dict | None = None):
         """Update Account"""
         url = self.base_url + "/api/accounts/update"
+        resp = self._client.post(url, json=body)
+        resp.raise_for_status()
+        return resp.json()
+
+    def list_trash_api_accounts_trash_get(self, limit: Any = None, top_reasons: Any = None, refresh: Any = None):
+        """List Trash"""
+        url = self.base_url + "/api/accounts/trash"
+        params = {k: v for k, v in locals().items() if k in ['limit', 'top_reasons', 'refresh'] and v is not None}
+        if params:
+            from urllib.parse import urlencode
+            url += '?' + urlencode(params)
+        resp = self._client.get(url)
+        resp.raise_for_status()
+        return resp.json()
+
+    def clear_trash_api_accounts_trash_clear_post(self):
+        """Clear Trash"""
+        url = self.base_url + "/api/accounts/trash/clear"
+        resp = self._client.post(url, json=body)
+        resp.raise_for_status()
+        return resp.json()
+
+    def restore_trash_api_accounts_trash_restore_post(self, body: dict | None = None):
+        """Restore Trash"""
+        url = self.base_url + "/api/accounts/trash/restore"
         resp = self._client.post(url, json=body)
         resp.raise_for_status()
         return resp.json()
@@ -677,10 +733,10 @@ class Chatgpt2apiClient:
         resp.raise_for_status()
         return resp.json()
 
-    def usage_stats_api_dashboard_usage_get(self, hours: Any = None):
+    def usage_stats_api_dashboard_usage_get(self, hours: Any = None, refresh: Any = None):
         """Usage Stats"""
         url = self.base_url + "/api/dashboard/usage"
-        params = {k: v for k, v in locals().items() if k in ['hours'] and v is not None}
+        params = {k: v for k, v in locals().items() if k in ['hours', 'refresh'] and v is not None}
         if params:
             from urllib.parse import urlencode
             url += '?' + urlencode(params)
@@ -737,6 +793,17 @@ class Chatgpt2apiClient:
     def metrics_summary_api_dashboard_metrics_summary_get(self):
         """Metrics Summary"""
         url = self.base_url + "/api/dashboard/metrics_summary"
+        resp = self._client.get(url)
+        resp.raise_for_status()
+        return resp.json()
+
+    def dashboard_events_api_dashboard_events_get(self, limit: Any = None, refresh: Any = None):
+        """Dashboard Events"""
+        url = self.base_url + "/api/dashboard/events"
+        params = {k: v for k, v in locals().items() if k in ['limit', 'refresh'] and v is not None}
+        if params:
+            from urllib.parse import urlencode
+            url += '?' + urlencode(params)
         resp = self._client.get(url)
         resp.raise_for_status()
         return resp.json()
@@ -1023,10 +1090,10 @@ class Chatgpt2apiClient:
         resp.raise_for_status()
         return resp.json()
 
-    def get_logs_api_logs_get(self, type: Any = None, start_date: Any = None, end_date: Any = None, account_email: Any = None, days: Any = None, event: Any = None, request_id: Any = None, result: Any = None, page: Any = None, page_size: Any = None):
+    def get_logs_api_logs_get(self, type: Any = None, start_date: Any = None, end_date: Any = None, account_email: Any = None, days: Any = None, event: Any = None, request_id: Any = None, result: Any = None, page: Any = None, page_size: Any = None, refresh: Any = None):
         """Get Logs"""
         url = self.base_url + "/api/logs"
-        params = {k: v for k, v in locals().items() if k in ['type', 'start_date', 'end_date', 'account_email', 'days', 'event', 'request_id', 'result', 'page', 'page_size'] and v is not None}
+        params = {k: v for k, v in locals().items() if k in ['type', 'start_date', 'end_date', 'account_email', 'days', 'event', 'request_id', 'result', 'page', 'page_size', 'refresh'] and v is not None}
         if params:
             from urllib.parse import urlencode
             url += '?' + urlencode(params)

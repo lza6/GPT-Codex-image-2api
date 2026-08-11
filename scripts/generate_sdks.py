@@ -2,18 +2,21 @@
 """基于 OpenAPI 规范生成多语言 SDK 客户端代码。
 
 用法：
-    .venv/Scripts/python.exe scripts/generate_sdks.py
+    .venv/Scripts/python.exe scripts/generate_sdks.py            # 生成并写文件
+    .venv/Scripts/python.exe scripts/generate_sdks.py --check   # 只校验不写文件
 
 输出：
     docs/sdks/python/chatgpt2api_client.py — Python 客户端
     docs/sdks/javascript/chatgpt2api-client.js — JavaScript 客户端
     docs/sdks/go/chatgpt2api.go — Go 客户端
+
+--check 模式（VII-04）：在内存重新生成各 SDK 并与现有文件比对，
+不一致时 exit 1 并提示重新生成，供 CI 校验 job 使用。
 """
 from __future__ import annotations
 
+import argparse
 import json
-import os
-import shutil
 from pathlib import Path
 from typing import Any
 
@@ -236,7 +239,6 @@ def generate_python(spec: dict[str, Any]) -> str:
             for p in params:
                 pname = p.get("name", "param")
                 pin = p.get("in", "query")
-                required = p.get("required", False)
                 if pin == "path":
                     path_params.append(pname)
                     func_params.append(f"{pname}: str")
@@ -247,7 +249,7 @@ def generate_python(spec: dict[str, Any]) -> str:
             if rb:
                 schema_name = _get_schema_name(rb, spec)
                 if schema_name:
-                    func_params.append(f"body: dict | None = None")
+                    func_params.append("body: dict | None = None")
                 else:
                     func_params.append("body: dict | None = None")
 
@@ -371,7 +373,7 @@ def generate_javascript(spec: dict[str, Any]) -> str:
                 js_params.append(p)
                 js_path = js_path.replace(f"{{{p}}}", "${" + p + "}")
 
-            lines.append(f"")
+            lines.append("")
             lines.append(f"  /** {summary} */")
             lines.append(f"  async {js_name}({', '.join(js_params)}) {{")
 
@@ -442,7 +444,7 @@ def generate_go(spec: dict[str, Any]) -> str:
         "}",
         "",
         "// NewClient 创建一个新的 API 客户端",
-        f"func NewClient(baseURL, apiKey string) *Client {{",
+        "func NewClient(baseURL, apiKey string) *Client {{",
         "    return &Client{",
         "        baseURL: baseURL,",
         "        apiKey:  apiKey,",
@@ -531,7 +533,6 @@ def generate_go(spec: dict[str, Any]) -> str:
             rb = _get_request_body(op)
             params = _get_parameters(op)
             path_params = [p.get("name") for p in params if p.get("in") == "path"]
-            query_params = [p.get("name") for p in params if p.get("in") == "query"]
 
             func_params = ["c *Client"]
             call_args = ["nil"]
@@ -579,21 +580,50 @@ def _go_field_name(name: str) -> str:
 # Main
 # ──────────────────────────────────────────────
 
-def main() -> None:
+PACKAGES = [
+    ("Python", "python", "chatgpt2api_client.py", generate_python),
+    ("JavaScript", "javascript", "chatgpt2api-client.js", generate_javascript),
+    ("Go", "go", "chatgpt2api.go", generate_go),
+]
+
+
+def _check() -> int:
+    """重新生成各 SDK 并与现有文件比对，不一致返回 1（VI-04 校验模式）。"""
     spec = load_spec()
+    problems: list[str] = []
+    for lang_name, lang_dir, filename, gen_func in PACKAGES:
+        target = OUTPUT_DIR / lang_dir / filename
+        code = gen_func(spec)
+        if not target.exists():
+            problems.append(f"{lang_name}: {target.relative_to(BASE_DIR)} 缺失")
+            continue
+        if target.read_text(encoding="utf-8") != code:
+            problems.append(f"{lang_name}: {target.relative_to(BASE_DIR)} 已漂移")
+    if problems:
+        print("[FAIL] SDK 已漂移：")
+        for p in problems:
+            print(f"  - {p}")
+        print("      请重新运行 scripts/generate_sdks.py 并提交更新后的 docs/sdks/ 产物。")
+        return 1
+    print(f"[PASS] 各语言 SDK 与 docs/openapi.json 一致（{len(PACKAGES)} 份）")
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="基于 OpenAPI spec 生成多语言 SDK")
+    parser.add_argument("--check", action="store_true", help="只校验不写文件，与现有 SDK 不一致则 exit 1")
+    args = parser.parse_args()
+
+    spec = load_spec()
+    if args.check:
+        return _check()
+
     info = spec.get("info", {})
-    title = info.get("title", "API")
     version = info.get("version", "0.0.0")
 
-    print(f"📖 基于 OpenAPI spec 生成 SDK (v{version})...")
+    print(f"[*] 基于 OpenAPI spec 生成 SDK (v{version})...")
 
-    packages = [
-        ("Python", "python", "chatgpt2api_client.py", generate_python),
-        ("JavaScript", "javascript", "chatgpt2api-client.js", generate_javascript),
-        ("Go", "go", "chatgpt2api.go", generate_go),
-    ]
-
-    for lang_name, lang_dir, filename, gen_func in packages:
+    for lang_name, lang_dir, filename, gen_func in PACKAGES:
         lang_path = OUTPUT_DIR / lang_dir
         lang_path.mkdir(parents=True, exist_ok=True)
 
@@ -606,10 +636,11 @@ def main() -> None:
         output_file = lang_path / filename
         output_file.write_text(code, encoding="utf-8")
         line_count = len(code.splitlines())
-        print(f"  ✅ {lang_name}: {output_file.relative_to(BASE_DIR)} ({line_count} lines)")
+        print(f"[OK] {lang_name}: {output_file.relative_to(BASE_DIR)} ({line_count} lines)")
 
     print(f"\nSDK 生成完成！输出目录: {OUTPUT_DIR}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
