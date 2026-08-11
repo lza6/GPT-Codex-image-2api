@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { LoaderCircle, Trash2, RotateCcw } from "lucide-react";
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -38,6 +39,22 @@ export function TrashDialog({ open, onOpenChange }: { open: boolean; onOpenChang
   const [loading, setLoading] = useState(false);
   const [selectedEmails, setSelectedEmails] = useState<Set<string>>(new Set());
   const [isClearing, setIsClearing] = useState(false);
+
+  /** 原因 Top N 分布（新后端直接取 by_reason_top，旧后端回退到 by_reason 切片）。 */
+  const reasonData = useMemo(() => {
+    if (stats?.by_reason_top) return stats.by_reason_top;
+    return Object.entries(stats?.by_reason ?? {})
+      .slice(0, 8)
+      .map(([reason, count]) => ({ reason, count }));
+  }, [stats]);
+
+  /** 按天趋势（新后端直接取 trend，旧后端回退到 by_day 升序）。 */
+  const trendData = useMemo(() => {
+    if (stats?.trend && stats.trend.length > 0) return stats.trend;
+    return Object.entries(stats?.by_day ?? {})
+      .map(([day, count]) => ({ day, count }))
+      .sort((a, b) => a.day.localeCompare(b.day));
+  }, [stats]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -120,16 +137,45 @@ export function TrashDialog({ open, onOpenChange }: { open: boolean; onOpenChang
               </div>
             ) : null}
 
-            {/* 原因分布 */}
-            {stats?.by_reason && Object.keys(stats.by_reason).length > 0 ? (
-              <div className="flex flex-wrap gap-1.5">
-                {Object.entries(stats.by_reason)
-                  .slice(0, 8)
-                  .map(([reason, count]) => (
-                    <Badge key={reason} variant="secondary" className="rounded-lg">
-                      {truncate(reason, 24)} × {count}
-                    </Badge>
-                  ))}
+            {/* 原因 Top N 分布 */}
+            {reasonData.length > 0 ? (
+              <div>
+                <div className="mb-1 text-xs font-medium text-stone-500">剔除原因分布（Top {reasonData.length}）</div>
+                <div className="h-40 rounded-xl border border-stone-200 bg-white/70 p-2">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart layout="vertical" data={reasonData} margin={{ left: 8, right: 16 }}>
+                      <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e7e5e4" />
+                      <XAxis type="number" tick={{ fontSize: 11 }} allowDecimals={false} />
+                      <YAxis
+                        type="category"
+                        dataKey="reason"
+                        width={140}
+                        tick={{ fontSize: 11 }}
+                        tickFormatter={(v: string) => truncate(v, 16)}
+                      />
+                      <Tooltip />
+                      <Bar dataKey="count" name="剔除数" fill="#d97706" radius={[0, 4, 4, 0]} barSize={10} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            ) : null}
+
+            {/* 按天剔除趋势 */}
+            {trendData.length > 0 ? (
+              <div>
+                <div className="mb-1 text-xs font-medium text-stone-500">按天剔除趋势</div>
+                <div className="h-32 rounded-xl border border-stone-200 bg-white/70 p-2">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={trendData} margin={{ left: -12, right: 16 }}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e7e5e4" />
+                      <XAxis dataKey="day" tick={{ fontSize: 10 }} tickFormatter={(v: string) => v.slice(5)} />
+                      <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                      <Tooltip />
+                      <Line type="monotone" dataKey="count" name="剔除数" stroke="#1e293b" strokeWidth={2} dot={{ r: 2 }} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
               </div>
             ) : null}
 

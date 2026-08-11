@@ -21,6 +21,35 @@
     "quota_exhausted",
     "quota_forecast_depletion"
   ],
+  "alert_channels": {
+    "telegram_ops": {
+      "type": "telegram",
+      "enabled": false,
+      "bot_token": "",
+      "chat_id": ""
+    },
+    "wecom_ops": {
+      "type": "wecom",
+      "enabled": false,
+      "webhook_url": ""
+    },
+    "dingtalk_ops": {
+      "type": "dingtalk",
+      "enabled": false,
+      "webhook_url": ""
+    },
+    "email_ops": {
+      "type": "email",
+      "enabled": false,
+      "smtp_host": "",
+      "smtp_port": 465,
+      "smtp_user": "",
+      "smtp_password": "",
+      "use_tls": true,
+      "from_addr": "",
+      "to_addrs": []
+    }
+  },
   "image_retention_days": 15,
   "image_poll_timeout_secs": 600,
   "auto_remove_rate_limited_accounts": false,

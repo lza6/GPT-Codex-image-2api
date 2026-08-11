@@ -102,8 +102,13 @@ class TrashService:
         with self._lock:
             return list(reversed(self._entries[-limit:]))
 
-    def stats(self) -> dict[str, Any]:
-        """回收站统计：总数 + 状态分布 + 按天分布。"""
+    def stats(self, top_reasons: int = 8) -> dict[str, Any]:
+        """回收站统计：总数 + 状态分布 + 按天分布 + 原因分布。
+
+        新增图表友好字段（向后兼容，原字段保留）：
+        - ``by_reason_top``: 上游原因 Top N 分布（数组，按数量降序），供条形图
+        - ``trend``: 按天剔除数趋势（数组，时间升序），供趋势图
+        """
         with self._lock:
             total = len(self._entries)
             by_status: dict[str, int] = {}
@@ -116,11 +121,21 @@ class TrashService:
                 by_day[day] = by_day.get(day, 0) + 1
                 reason = str(e.get("reason") or "未知")[:40] or "未知"
                 by_reason[reason] = by_reason.get(reason, 0) + 1
+            reasons_sorted = sorted(by_reason.items(), key=lambda kv: -kv[1])
+            top_n = max(1, min(100, int(top_reasons)))
             return {
                 "total": total,
                 "by_status": by_status,
                 "by_day": dict(sorted(by_day.items(), reverse=True)),
-                "by_reason": dict(sorted(by_reason.items(), key=lambda kv: -kv[1])),
+                "by_reason": dict(reasons_sorted),
+                "by_reason_top": [
+                    {"reason": reason, "count": count}
+                    for reason, count in reasons_sorted[:top_n]
+                ],
+                "trend": [
+                    {"day": day, "count": by_day[day]}
+                    for day in sorted(by_day.keys())
+                ],
             }
 
     def clear(self) -> int:

@@ -304,6 +304,71 @@ def _validate_image_storage_settings(settings: dict[str, object]) -> None:
         raise ValueError("启用 WebDAV 图片存储后必须填写 WebDAV 密码")
 
 
+def _normalize_alert_channels(value: object) -> dict[str, dict[str, object]]:
+    """归一化告警多通道配置：{通道名: {type, enabled, ...}}。
+
+    - 保留所有通道（含用户自定义类型），按 type 归一化字段
+    - enabled 缺省视为 True（向后兼容：旧配置无 enabled 字段默认启用）
+    - 环境变量覆盖在 alert_channels property 中叠加
+    """
+    source = value if isinstance(value, dict) else {}
+    normalized: dict[str, dict[str, object]] = {}
+    for name, raw_cfg in source.items():
+        if not isinstance(raw_cfg, dict):
+            continue
+        cfg = dict(raw_cfg)
+        channel_type = str(cfg.get("type", name)).strip().lower()
+        entry: dict[str, object] = {
+            "type": channel_type,
+            "enabled": _normalize_bool(cfg.get("enabled"), True),
+        }
+        if channel_type == "telegram":
+            entry["bot_token"] = str(cfg.get("bot_token") or "").strip()
+            entry["chat_id"] = str(cfg.get("chat_id") or "").strip()
+        elif channel_type == "email":
+            smtp_user = str(cfg.get("smtp_user") or "").strip()
+            raw_to = cfg.get("to_addrs")
+            if isinstance(raw_to, str):
+                to_addrs = [addr.strip() for addr in raw_to.split(",") if addr.strip()]
+            elif isinstance(raw_to, list):
+                to_addrs = [str(addr).strip() for addr in raw_to if str(addr).strip()]
+            else:
+                to_addrs = []
+            entry["smtp_host"] = str(cfg.get("smtp_host") or "").strip()
+            entry["smtp_port"] = _normalize_positive_int(cfg.get("smtp_port"), 465, 1)
+            entry["smtp_user"] = smtp_user
+            entry["smtp_password"] = str(cfg.get("smtp_password") or "").strip()
+            entry["use_tls"] = _normalize_bool(cfg.get("use_tls"), True)
+            entry["from_addr"] = str(cfg.get("from_addr") or "").strip() or smtp_user
+            entry["to_addrs"] = to_addrs
+        else:
+            # wecom / dingtalk / generic / 自定义 webhook 类通道
+            entry["webhook_url"] = str(cfg.get("webhook_url") or "").strip()
+        normalized[str(name)] = entry
+    return normalized
+
+
+def _validate_alert_channels(channels: dict[str, dict[str, object]]) -> None:
+    """校验启用状态的告警通道参数完整性（fail-fast）。"""
+    for name, cfg in channels.items():
+        if not _normalize_bool(cfg.get("enabled"), True):
+            continue
+        channel_type = str(cfg.get("type") or name).strip().lower()
+        if channel_type == "telegram":
+            if not str(cfg.get("bot_token") or "").strip() or not str(cfg.get("chat_id") or "").strip():
+                raise ValueError(f"告警通道 {name} 启用 Telegram 后必须填写 bot_token 与 chat_id")
+        elif channel_type == "email":
+            if not str(cfg.get("smtp_host") or "").strip():
+                raise ValueError(f"告警通道 {name} 启用邮件后必须填写 smtp_host")
+            if not str(cfg.get("from_addr") or "").strip():
+                raise ValueError(f"告警通道 {name} 启用邮件后必须填写 from_addr（或 smtp_user）")
+            if not cfg.get("to_addrs"):
+                raise ValueError(f"告警通道 {name} 启用邮件后必须至少填写一个收件人 to_addrs")
+        else:
+            if not str(cfg.get("webhook_url") or "").strip():
+                raise ValueError(f"告警通道 {name} 启用后必须填写 webhook_url")
+
+
 @dataclass(frozen=True)
 class LoadedSettings:
     auth_key: str
@@ -470,6 +535,7 @@ class ConfigStore:
         "provider_weights",
         "provider_rate_limit_rpm",
         "model_upstream_map",
+        "alert_channels",
     )
     _ENUM_FIELDS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("scheduler_mode", ("round_robin", "remaining_quota", "weighted_random", "least_load", "least_used", "predictive", "affinity")),
@@ -776,6 +842,65 @@ class ConfigStore:
         if isinstance(value, list):
             return [str(e).strip() for e in value if str(e).strip()]
         return default
+
+    @property
+    def alert_channels(self) -> dict[str, dict[str, object]]:
+        """告警多通道配置（telegram / wecom / dingtalk / email / 自定义 webhook）。
+
+        环境变量覆盖约定（CHATGPT2API_*，设置即启用对应通道）：
+        - CHATGPT2API_ALERT_TELEGRAM_BOT_TOKEN / CHATGPT2API_ALERT_TELEGRAM_CHAT_ID
+        - CHATGPT2API_ALERT_EMAIL_SMTP_HOST / _SMTP_PORT / _SMTP_USER / _SMTP_PASSWORD / _FROM / _TO / _USE_TLS
+        """
+        channels = _normalize_alert_channels(self.data.get("alert_channels"))
+
+        tg_token = os.getenv("CHATGPT2API_ALERT_TELEGRAM_BOT_TOKEN")
+        tg_chat = os.getenv("CHATGPT2API_ALERT_TELEGRAM_CHAT_ID")
+        if tg_token or tg_chat:
+            entry = channels.get("telegram_ops")
+            if entry is None:
+                entry = {"type": "telegram", "enabled": True}
+                channels["telegram_ops"] = entry
+            if tg_token:
+                entry["bot_token"] = tg_token.strip()
+            if tg_chat:
+                entry["chat_id"] = tg_chat.strip()
+            entry["enabled"] = True
+            entry["type"] = "telegram"
+
+        email_host = os.getenv("CHATGPT2API_ALERT_EMAIL_SMTP_HOST")
+        if email_host:
+            entry = channels.get("email_ops")
+            if entry is None:
+                entry = {"type": "email", "enabled": True}
+                channels["email_ops"] = entry
+            entry["smtp_host"] = email_host.strip()
+            port_raw = os.getenv("CHATGPT2API_ALERT_EMAIL_SMTP_PORT")
+            if port_raw:
+                try:
+                    entry["smtp_port"] = max(1, int(port_raw))
+                except ValueError:
+                    pass
+            user_raw = os.getenv("CHATGPT2API_ALERT_EMAIL_SMTP_USER")
+            if user_raw:
+                entry["smtp_user"] = user_raw.strip()
+            pass_raw = os.getenv("CHATGPT2API_ALERT_EMAIL_SMTP_PASSWORD")
+            if pass_raw:
+                entry["smtp_password"] = pass_raw.strip()
+            from_raw = os.getenv("CHATGPT2API_ALERT_EMAIL_FROM")
+            if from_raw:
+                entry["from_addr"] = from_raw.strip()
+            else:
+                entry["from_addr"] = str(entry.get("from_addr") or entry.get("smtp_user") or "").strip()
+            to_raw = os.getenv("CHATGPT2API_ALERT_EMAIL_TO")
+            if to_raw:
+                entry["to_addrs"] = [addr.strip() for addr in to_raw.split(",") if addr.strip()]
+            tls_raw = os.getenv("CHATGPT2API_ALERT_EMAIL_USE_TLS")
+            if tls_raw is not None:
+                entry["use_tls"] = _normalize_bool(tls_raw, True)
+            entry["enabled"] = True
+            entry["type"] = "email"
+
+        return channels
 
     @property
     def proactive_probe_enabled(self) -> bool:
@@ -1216,6 +1341,7 @@ class ConfigStore:
         data["alert_webhook_url"] = self.alert_webhook_url
         data["alert_webhook_timeout"] = self.alert_webhook_timeout
         data["alert_events"] = self.alert_events
+        data["alert_channels"] = self.alert_channels
         data["proactive_probe_enabled"] = self.proactive_probe_enabled
         data["proactive_probe_interval_minute"] = self.proactive_probe_interval_minute
         data["self_heal_retry_initial_secs"] = self.self_heal_retry_initial_secs
@@ -1301,6 +1427,9 @@ class ConfigStore:
         if "image_storage" in next_data:
             next_data["image_storage"] = _normalize_image_storage_settings(next_data.get("image_storage"))
             _validate_image_storage_settings(next_data["image_storage"])
+        if "alert_channels" in next_data:
+            next_data["alert_channels"] = _normalize_alert_channels(next_data.get("alert_channels"))
+            _validate_alert_channels(next_data["alert_channels"])
         if "chat_completion_cache" in next_data:
             next_data["chat_completion_cache"] = _normalize_chat_completion_cache_settings(
                 next_data.get("chat_completion_cache")

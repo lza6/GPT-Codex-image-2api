@@ -663,16 +663,22 @@ def create_router() -> APIRouter:
     @router.get("/api/accounts/trash")
     async def list_trash(
         limit: int = 100,
+        top_reasons: int = 8,
         authorization: str | None = Header(default=None),
     ):
-        """回收站：返回剔除记录列表 + 统计。"""
+        """回收站：返回剔除记录列表 + 统计。
+
+        stats 含原因分布（by_reason 全量 dict + by_reason_top Top N 数组）与
+        按天趋势（by_day dict + trend 数组）。top_reasons 控制 by_reason_top 条数。
+        """
         require_admin(authorization)
         from services.trash_service import trash_service
 
         limit = max(1, min(500, int(limit)))
+        top_reasons = max(1, min(100, int(top_reasons)))
         return {
             "items": trash_service.list(limit=limit),
-            "stats": trash_service.stats(),
+            "stats": trash_service.stats(top_reasons=top_reasons),
         }
 
     @router.post("/api/accounts/trash/clear")
