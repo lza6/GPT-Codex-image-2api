@@ -81,11 +81,11 @@ class CostService:
         except Exception:
             logger.warning("provider_stats 读取失败", exc_info=True)
 
-        # 3. kookeey 代理流量
+        # 3. kookeey 代理流量（辅助卡片：3s 短超时快速降级，避免无外网/慢网络阻塞主请求链）
         try:
             from services.kookeey_service import kookeey_service
 
-            traffic = kookeey_service.get_traffic_overview()
+            traffic = kookeey_service.get_traffic_overview(timeout=3)
             if traffic.get("ok"):
                 result["kookeey_traffic"] = {
                     "balance_mb": traffic.get("balance_mb"),

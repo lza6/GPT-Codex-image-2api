@@ -29,7 +29,7 @@ DANGER_PATTERNS = [
     (r"""session\.execute\(\s*f["']""", "P0", "f-string 直接进 session.execute——SQL 注入面"),
     (r"""\.execute\(\s*["'][^"']*%[sd]""", "P1", "% 格式化进 execute——若含用户输入即注入"),
     (r"""\.execute\(\s*["'][^"']*"\s*\+""", "P1", "字符串拼接进 execute——注入面"),
-    (r"""text\(\s*f["']""", "P0", "f-string 进 text()——SQL 注入面"),
+    (r"""(?<![A-Za-z_])text\(\s*f["']""", "P0", "f-string 进 text()——SQL 注入面（负向后瞻排除 write_text/read_text 等方法名）"),
     (r"""\.query\([^)]*f["']""", "P1", "f-string 进 query——注入面"),
     (r"""\.filter\(\s*["']""", "P1", "字符串形式 filter（应为列表达式）——注入面/弃用 API"),
     (r"""session\.delete\([^)]*\)\s*(?!.*where)""", "P3", "delete 调用（需人工确认是否有 where 条件）"),

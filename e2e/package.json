@@ -1,0 +1,16 @@
+{
+  "name": "chatgpt2api-e2e",
+  "version": "2.30.0",
+  "private": true,
+  "description": "Playwright E2E 全链路测试（登录/看板/账号/设置）",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0",
+    "dotenv": "^16.4.0",
+    "typescript": "^5.6.0"
+  }
+}

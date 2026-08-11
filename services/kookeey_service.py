@@ -338,12 +338,14 @@ class KookeeyService:
         except Exception:
             return ""
 
-    def get_traffic_overview(self) -> dict:
+    def get_traffic_overview(self, timeout: int = 30) -> dict:
         """流量总览卡片数据：调 /tinfo（剩余/今日/近30天）+ /package（动态住宅包余额）。
 
         返回 {ok, balance_mb, today_use_mb, month_use_mb, package:{traffic_left_gb,
         traffic_total_gb, thread_left, thread_total, expire_time}, error}。
         未配置 developer_token/access_id 返回 ok=False + need_config。
+        timeout：kookeey API 请求超时秒数——辅助卡片调用方（cost_service）传短超时快速降级，
+        避免无外网/慢网络时阻塞主请求链。
         """
         access_id, token = self._api_creds()
         if not (access_id and token):
@@ -351,7 +353,7 @@ class KookeeyService:
         proxy = self._api_proxy()
         verify = self._ssl_verify()
         try:
-            tinfo = _api_get("tinfo", [], access_id, token, proxy=proxy, verify=verify)
+            tinfo = _api_get("tinfo", [], access_id, token, proxy=proxy, verify=verify, timeout=timeout)
         except Exception as exc:
             return {"ok": False, "error": f"tinfo: {exc}"}
         result: dict[str, Any] = {
@@ -362,7 +364,7 @@ class KookeeyService:
         }
         # /package?t=2 动态住宅包余额（失败不阻断总览）
         try:
-            pkg = _api_get("package", [("t", "2")], access_id, token, proxy=proxy, verify=verify)
+            pkg = _api_get("package", [("t", "2")], access_id, token, proxy=proxy, verify=verify, timeout=timeout)
             if isinstance(pkg, dict):
                 result["package"] = {
                     "traffic_left_gb": pkg.get("traffic_left"),
