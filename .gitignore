@@ -6,6 +6,18 @@ dist/
 wheels/
 *.egg-info
 web_dist
+web_dist_bak/
+
+# coverage annotate 冗余副本（可再生成，不入库）
+**/*,cover
+
+# 构建/打包产物
+*.tar
+
+# 临时图片产物（assets/ 下已跟踪资源不受影响）
+*.png
+!assets/
+!assets/**
 # Virtual environments
 .venv
 .idea
@@ -54,3 +66,8 @@ GPT web端的逆向注意参考我的这个/
 reports/
 *.html
 计划书/
+
+# E2E Playwright 运行产物（可再生成）
+e2e/test-results/
+e2e/playwright-report/
+e2e/node_modules/
