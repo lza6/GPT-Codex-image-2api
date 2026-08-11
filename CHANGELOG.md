@@ -1,6 +1,18 @@
 # Changelog
 
-## 2.29.0 - 2026-08-11 (v3.2 容量规划 + 成本优化)
+## 2.30.0 - 2026-08-11 (3.1.3 请求级响应缓存)
+
+**3.1.3 请求级响应缓存：**
++ [新增] `api/response_cache.py` — `ResponseCache` 类（`cachetools.TTLCache` 封装），支持 get/set/register/invalidate/get_cache_stats/get_ttl，线程安全
++ [新增] `api/response_cache.py` — 全局单例 `response_cache`，预注册 5 个端点 TTL：`/v1/models` 60s、`/api/providers` 30s、`/api/dashboard/scheduler` 10s、`/api/accounts` 5s、`/api/dashboard/ops` 15s
++ [新增] `api/response_cache.py` — `apply_cache_headers()` 函数，为响应添加 `Cache-Control: max-age=N` 头
++ [新增] `api/ai.py` — `/v1/models` 端点接入缓存，支持 `?refresh=1` 强制刷新
++ [新增] `api/providers.py` — `/api/providers` 端点接入缓存，支持 `?refresh=1` 强制刷新
++ [新增] `api/dashboard.py` — `/api/dashboard/scheduler`、`/api/dashboard/ops` 端点接入缓存，支持 `?refresh=1` 强制刷新
++ [新增] `api/accounts.py` — `/api/accounts` 端点接入缓存，支持 `?refresh=1` 强制刷新；写操作（POST/DELETE/refresh/update/batch）自动 invalidate 缓存
++ [新增] `test/test_response_cache.py` — 22 个测试覆盖：基础 get/set、TTL 过期、失效策略（单/全量）、统计查询、并发安全、Cache-Control 头、边界（0 TTL/大值/自定义 maxsize/链式注册）
++ [依赖] pyproject.toml — 新增 `cachetools>=5.3.0`
++ [测试] 22 passed / 0 failed 在 test_response_cache.py；全量回归 1087+ 通过，无回归
 
 **5.1.1 容量预测仪表盘（前端补齐）：**
 + [前端] `web/src/lib/api.ts` — 新增 `fetchCapacity()` / `CapacityStats` 类型

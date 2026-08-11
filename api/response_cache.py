@@ -35,7 +35,7 @@ class ResponseCache:
             return None
         return cache.get(key)
 
-    def set(self, pattern: str, key: str, value: object) -> None:
+    def set(self, pattern: str, value: object, key: str = "default") -> None:
         cache = self._caches.get(pattern)
         if cache is not None:
             cache[key] = value
