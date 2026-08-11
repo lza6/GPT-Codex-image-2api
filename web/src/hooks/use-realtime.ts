@@ -93,7 +93,11 @@ export function useRealtime<T>(
 
       source.onmessage = (event) => {
         try {
-          const payload = JSON.parse(event.data) as Record<string, unknown>;
+          // 支持多行 JSON（SSE data: 可能包含多行）
+          const rawData = event.data.trim();
+          if (!rawData) return;
+
+          const payload = JSON.parse(rawData) as Record<string, unknown>;
           const msgChannel = (payload as { channel?: string }).channel ?? "";
           const filterChannel = options.channel ?? channelRef.current;
 
@@ -115,6 +119,13 @@ export function useRealtime<T>(
           const payloadData = payload.data as T | undefined;
           if (payloadData !== undefined) {
             setData(payloadData);
+            return;
+          }
+
+          // 多字段提取：channel 字段名 + 传入 channel 名
+          const channelField = (payload[msgChannel] ?? payload[channelRef.current]) as T | undefined;
+          if (channelField !== undefined) {
+            setData(channelField);
           }
         } catch {
           // 忽略解析错误

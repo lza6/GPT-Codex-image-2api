@@ -22,6 +22,8 @@
 import * as React from "react";
 import { toast } from "sonner";
 
+import { ProgressBar } from "@/components/ui/progress-bar";
+
 /**
  * 从各种错误形态中提取用户可读消息。
  * 支持 Axios 错误（含 userMessage）、Error 实例、字符串、对象。
@@ -57,21 +59,21 @@ export function extractErrorMessage(error: unknown, fallback = "操作失败"): 
  * 显示错误 Toast，自动提取错误消息。
  */
 export function toastError(error: unknown, fallback?: string): void {
-  toast.error(extractErrorMessage(error, fallback));
+  toast.error(extractErrorMessage(error, fallback), { duration: 5000 });
 }
 
 /**
  * 显示成功 Toast。
  */
 export function toastSuccess(message: string): void {
-  toast.success(message);
+  toast.success(message, { duration: 3000 });
 }
 
 /**
  * 显示信息 Toast。
  */
 export function toastInfo(message: string): void {
-  toast.info(message);
+  toast.info(message, { duration: 3000 });
 }
 
 /**
@@ -134,13 +136,7 @@ export function progressToast(
     toast(
       React.createElement("div", { className: "flex flex-col gap-2" },
         React.createElement("span", { className: "text-sm text-stone-700 dark:text-stone-200" }, message),
-        React.createElement("div", { className: "h-1.5 w-full overflow-hidden rounded-full bg-stone-100 dark:bg-stone-700" },
-          React.createElement("div", {
-            className: "h-full rounded-full bg-stone-950 transition-all duration-300 ease-out dark:bg-white",
-            style: { width: `${Math.min(100, currentProgress)}%` },
-          }),
-        ),
-        React.createElement("span", { className: "text-xs text-stone-400" }, `${Math.round(currentProgress)}%`),
+        React.createElement(ProgressBar, { value: currentProgress, size: "sm", label: `${Math.round(currentProgress)}%` }),
       ),
       { id, duration: Infinity },
     );
@@ -159,4 +155,16 @@ export function progressToast(
     },
     dismiss: () => toast.dismiss(id),
   };
+}
+
+/**
+ * 位置定制 Toast — 可指定显示位置。
+ */
+export function toastPositioned(
+  message: string,
+  type: "success" | "error" | "info" = "info",
+  position: "top-center" | "bottom-center" | "top-left" | "top-right" | "bottom-left" | "bottom-right" = "top-center",
+): void {
+  const fn = type === "error" ? toast.error : type === "success" ? toast.success : toast.info;
+  fn(message, { position });
 }

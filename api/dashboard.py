@@ -9,6 +9,7 @@ import platform
 import shutil
 import time
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from fastapi import APIRouter, Header, Response
 from fastapi.concurrency import run_in_threadpool
@@ -235,6 +236,30 @@ def _collect_capacity(windows_days: int = 7) -> dict[str, object]:
     }
 
 
+def _fetch_recent_events(limit: int = 50) -> list[dict]:
+    """从 events.jsonl 读取最近事件。
+
+    事件总线持久化订阅的 handler 每收到事件写入 data/events.jsonl，
+    然后由本函数读取最近 N 条返回（JSON 容错，跳过坏行）。
+    """
+    events: list[dict] = []
+    events_path = Path(str(DATA_DIR)) / "events.jsonl"
+    if events_path.exists():
+        try:
+            with events_path.open("r", encoding="utf-8") as f:
+                lines = f.readlines()
+                for line in lines[-limit:]:
+                    line = line.strip()
+                    if line:
+                        try:
+                            events.append(json.loads(line))
+                        except json.JSONDecodeError:
+                            continue
+        except OSError:
+            pass
+    return events
+
+
 def create_router() -> APIRouter:
     router = APIRouter(tags=["Dashboard"])
 
@@ -447,6 +472,52 @@ def create_router() -> APIRouter:
                     await asyncio.sleep(3)
             except asyncio.CancelledError:
                 # 客户端断开连接，正常退出协程
+                return
+
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    @router.get("/api/dashboard/events")
+    async def dashboard_events(authorization: str | None = Header(default=None), limit: int = 50):
+        """看板事件流：最近系统事件（从 events.jsonl 读取，SSE 事件频道同源）。"""
+        require_admin(authorization)
+        events = await run_in_threadpool(_fetch_recent_events, limit)
+        return {"events": events}
+
+    @router.get("/api/events/stream", include_in_schema=False)
+    async def events_stream(authorization: str | None = Header(default=None), token: str = ""):
+        """SSE 事件流：实时推送系统事件（事件总线事件，1s 级）。
+
+        EventSource 无法传 Authorization header，支持 ?token= 查询参数鉴权。
+        """
+        if not authorization and token:
+            authorization = f"Bearer {token}"
+        require_admin(authorization)
+
+        async def event_generator():
+            sent_ids: set[str] = set()
+            try:
+                while True:
+                    try:
+                        events_data = await run_in_threadpool(_fetch_recent_events, 20)
+                        for event in events_data:
+                            if event["id"] not in sent_ids:
+                                sent_ids.add(event["id"])
+                                payload = {
+                                    "type": "dashboard",
+                                    "channel": "events",
+                                    "data": event,
+                                }
+                                yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                        if len(sent_ids) > 1000:
+                            sent_ids = set(list(sent_ids)[-500:])
+                    except Exception:
+                        pass
+                    await asyncio.sleep(1)
+            except asyncio.CancelledError:
                 return
 
         return StreamingResponse(

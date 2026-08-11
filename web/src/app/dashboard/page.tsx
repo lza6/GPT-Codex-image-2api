@@ -9,9 +9,11 @@ import { AsyncButton } from "@/components/ui/async-button";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { EventStream } from "@/components/dashboard/event-stream";
 import {
   fetchCapacity,
   fetchCostOverview,
+  fetchDashboardEvents,
   fetchImageStorage,
   fetchLatencySummary,
   fetchMetricsSummary,
@@ -21,6 +23,7 @@ import {
   fetchUsageStats,
   type CapacityStats,
   type CostOverview,
+  type DashboardEvent,
   type ImageStorageStats,
   type LatencySummary,
   type MetricsSummary,
@@ -102,6 +105,7 @@ function DashboardContent() {
   const [metrics, setMetrics] = useState<MetricsSummary | null>(null);
   const [capacity, setCapacity] = useState<CapacityStats | null>(null);
   const [cost, setCost] = useState<CostOverview | null>(null);
+  const [events, setEvents] = useState<DashboardEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [tierFilter, setTierFilter] = useState<TierFilter>("all");
   const [usageHours, setUsageHours] = useState(24);
@@ -109,7 +113,7 @@ function DashboardContent() {
 
   const load = useCallback(async () => {
     try {
-      const [sched, opsData, usageData, latencyData, metricsData, forecastData, imgStorage, capacityData, costData] = await Promise.all([
+      const [sched, opsData, usageData, latencyData, metricsData, forecastData, imgStorage, capacityData, costData, eventsData] = await Promise.all([
         fetchSchedulerDashboard(),
         fetchOpsOverview(),
         fetchUsageStats(usageHours),
@@ -119,6 +123,7 @@ function DashboardContent() {
         fetchImageStorage(),
         fetchCapacity(),
         fetchCostOverview(),
+        fetchDashboardEvents(50),
       ]);
       setScheduler(sched);
       setOps(opsData);
@@ -129,6 +134,7 @@ function DashboardContent() {
       setImageStorage(imgStorage);
       setCapacity(capacityData);
       setCost(costData);
+      setEvents(eventsData?.events ?? []);
     } catch (error) {
       toastError(error, "加载看板失败");
     } finally {
@@ -764,6 +770,9 @@ function DashboardContent() {
           )}
         </CardContent>
       </Card>
+
+      {/* 实时事件流（v2.31.0：SSE 事件频道，账号/熔断/备份/Provider 事件） */}
+      <EventStream events={events} onRefresh={() => { void load(); }} />
     </div>
   );
 }

@@ -11,7 +11,7 @@
       "name": "MIT",
       "url": "https://opensource.org/licenses/MIT"
     },
-    "version": "2.28.0"
+    "version": "2.31.0"
   },
   "servers": [
     {
@@ -1458,6 +1458,170 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/AccountExportRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/accounts/export-csv": {
+      "post": {
+        "tags": [
+          "Accounts"
+        ],
+        "summary": "Export Accounts Csv",
+        "description": "批量导出选中账号为 CSV（前端触发浏览器下载）。",
+        "operationId": "export_accounts_csv_api_accounts_export_csv_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccountBatchExportCSVRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/accounts/tags": {
+      "get": {
+        "tags": [
+          "Accounts"
+        ],
+        "summary": "Account Tags",
+        "description": "获取所有账号标签（去重后的 label 字段列表）。",
+        "operationId": "account_tags_api_accounts_tags_get",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/accounts/detail": {
+      "post": {
+        "tags": [
+          "Accounts"
+        ],
+        "summary": "Account Detail",
+        "description": "获取指定账号完整信息（含敏感字段，供详情侧栏）。",
+        "operationId": "account_detail_api_accounts_detail_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccountDetailRequest"
               }
             }
           }
@@ -7684,6 +7848,24 @@
   },
   "components": {
     "schemas": {
+      "AccountBatchExportCSVRequest": {
+        "properties": {
+          "format": {
+            "type": "string",
+            "title": "Format",
+            "default": "csv"
+          },
+          "ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Ids"
+          }
+        },
+        "type": "object",
+        "title": "AccountBatchExportCSVRequest"
+      },
       "AccountBatchRequest": {
         "properties": {
           "action": {
@@ -7746,6 +7928,17 @@
         },
         "type": "object",
         "title": "AccountDeleteRequest"
+      },
+      "AccountDetailRequest": {
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "title": "Access Token",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "AccountDetailRequest"
       },
       "AccountExportRequest": {
         "properties": {

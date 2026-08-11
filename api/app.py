@@ -23,6 +23,19 @@ from services.metrics_service import set_request_id
 from utils.log import logger
 
 
+def _trim_events_file(path: Path, max_lines: int = 2000) -> None:
+    """裁剪 events.jsonl 行数，防止无限增长。"""
+    try:
+        if path.exists():
+            with path.open("r", encoding="utf-8") as f:
+                lines = f.readlines()
+            if len(lines) > max_lines:
+                with path.open("w", encoding="utf-8") as f:
+                    f.writelines(lines[-max_lines:])
+    except OSError:
+        pass
+
+
 def create_app() -> FastAPI:
     app_version = config.app_version
 
@@ -33,6 +46,42 @@ def create_app() -> FastAPI:
             from services.event_bus_init import register_subscribers
             register_subscribers()
         except Exception:  # noqa: BLE001 - 事件总线初始化失败不阻断启动
+            pass
+
+        # 注册事件总线持久化订阅（写入 events.jsonl 供 SSE 事件流消费）
+        try:
+            from services.event_bus import event_bus
+            from services.config import DATA_DIR
+            from pathlib import Path
+            import json
+
+            _events_path = Path(str(DATA_DIR)) / "events.jsonl"
+            _last_events_cleanup = 0
+
+            def _persist_event(event):
+                nonlocal _last_events_cleanup
+                try:
+                    with _events_path.open("a", encoding="utf-8") as f:
+                        f.write(json.dumps({
+                            "id": event.id,
+                            "type": event.type,
+                            "data": event.data,
+                            "timestamp": int(event.timestamp) if hasattr(event, "timestamp") else int(time.time()),
+                        }, ensure_ascii=False) + "\n")
+                    # 每天清理一次
+                    now = int(time.time())
+                    if now - _last_events_cleanup > 86400:
+                        _last_events_cleanup = now
+                        _trim_events_file(_events_path, 2000)
+                except Exception:
+                    pass
+
+            for evt in ["account.invalid", "account.recovered", "account.quota_exhausted",
+                        "circuit.open", "circuit.half_open", "circuit.closed",
+                        "backup.failure", "provider.health_changed"]:
+                event_bus.subscribe(evt, sync_handler=_persist_event)
+            _trim_events_file(_events_path, 2000)
+        except Exception:
             pass
 
         # 初始化任务队列处理器（在后台线程启动之前注册所有处理器）
