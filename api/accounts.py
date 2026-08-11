@@ -534,6 +534,8 @@ def create_router() -> APIRouter:
         """批量导出选中账号为 CSV（前端触发浏览器下载）。"""
         require_admin(authorization)
         access_tokens = _unique_tokens(body.ids)
+        if not access_tokens:
+            raise HTTPException(status_code=400, detail={"error": "ids 不能为空，请先勾选账号"})
         items = account_service.build_export_items(access_tokens)
         if not items:
             raise HTTPException(
@@ -655,6 +657,42 @@ def create_router() -> APIRouter:
         response_cache.invalidate("/api/accounts")
         response_cache.invalidate("/api/dashboard/scheduler")
         return {"item": account, "items": account_service.list_accounts()}
+
+    # ---- 回收站 ----
+
+    @router.get("/api/accounts/trash")
+    async def list_trash(
+        limit: int = 100,
+        authorization: str | None = Header(default=None),
+    ):
+        """回收站：返回剔除记录列表 + 统计。"""
+        require_admin(authorization)
+        from services.trash_service import trash_service
+
+        limit = max(1, min(500, int(limit)))
+        return {
+            "items": trash_service.list(limit=limit),
+            "stats": trash_service.stats(),
+        }
+
+    @router.post("/api/accounts/trash/clear")
+    async def clear_trash(authorization: str | None = Header(default=None)):
+        """清空回收站，返回清除条数。"""
+        require_admin(authorization)
+        from services.trash_service import trash_service
+
+        return {"cleared": trash_service.clear()}
+
+    @router.post("/api/accounts/trash/restore")
+    async def restore_trash(body: AccountDeleteRequest, authorization: str | None = Header(default=None)):
+        """从回收站恢复指定 email 账号（移除回收站记录）。"""
+        require_admin(authorization)
+        from services.trash_service import trash_service
+
+        emails = [str(e or "").strip() for e in body.tokens if str(e or "").strip()]
+        if not emails:
+            raise HTTPException(status_code=400, detail={"error": "tokens (email) is required"})
+        return trash_service.restore(emails)
 
     @router.post("/api/accounts/oauth/start")
     async def start_oauth_login(
