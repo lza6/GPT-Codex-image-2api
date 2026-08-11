@@ -665,21 +665,37 @@ def create_router() -> APIRouter:
         limit: int = 100,
         top_reasons: int = 8,
         authorization: str | None = Header(default=None),
+        refresh: bool = False,
+        response: Response = None,
     ):
         """回收站：返回剔除记录列表 + 统计。
 
         stats 含原因分布（by_reason 全量 dict + by_reason_top Top N 数组）与
         按天趋势（by_day dict + trend 数组）。top_reasons 控制 by_reason_top 条数。
+
+        V-02：TTL 15s 缓存（键含 limit/top_reasons）；写侧失效——
+        trash_service.add/clear/restore 均 invalidate，防止读脏。
         """
         require_admin(authorization)
         from services.trash_service import trash_service
 
         limit = max(1, min(500, int(limit)))
         top_reasons = max(1, min(100, int(top_reasons)))
-        return {
+        _cache_key = f"limit={limit}|top={top_reasons}"
+        if not refresh:
+            cached = response_cache.get("/api/accounts/trash", key=_cache_key)
+            if cached is not None:
+                if response is not None:
+                    apply_cache_headers("/api/accounts/trash", response)
+                return cached
+        result = {
             "items": trash_service.list(limit=limit),
             "stats": trash_service.stats(top_reasons=top_reasons),
         }
+        response_cache.set("/api/accounts/trash", result, key=_cache_key)
+        if response is not None:
+            apply_cache_headers("/api/accounts/trash", response)
+        return result
 
     @router.post("/api/accounts/trash/clear")
     async def clear_trash(authorization: str | None = Header(default=None)):

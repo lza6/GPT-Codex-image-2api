@@ -74,6 +74,11 @@ _response_cache.register("/api/providers", ttl=30)
 _response_cache.register("/api/dashboard/scheduler", ttl=10)
 _response_cache.register("/api/accounts", ttl=5)
 _response_cache.register("/api/dashboard/ops", ttl=15)
+# V-02：只读高频端点扩展（均带写侧 invalidate，见对应端点/服务）
+_response_cache.register("/api/logs", ttl=15)
+_response_cache.register("/api/accounts/trash", ttl=15)
+_response_cache.register("/api/dashboard/usage", ttl=15)
+_response_cache.register("/api/dashboard/events", ttl=5)
 
 # 暴露的引用（保持命名一致性，但实际是带注册的实例）
 response_cache = _response_cache

@@ -79,6 +79,9 @@ class SessionPool:
         connection_ttl: float = 300.0,
         backoff_base: float = 1.0,
         backoff_cap: float = 16.0,
+        # III-05：泄漏检测——空闲超 TTL 倍数判定泄漏、泄漏数达阈值触发告警
+        leak_threshold_multiplier: float = 3.0,
+        leak_alert_min: int = 1,
     ):
         self._ttl = ttl_seconds
         self._max_entries = max_entries
@@ -97,6 +100,16 @@ class SessionPool:
         # v2.17.0：池中 value 变为 (session, created_at, conn_created_at)
         self._sessions: dict[str, tuple[requests.Session, float, float]] = {}
         self._lock = threading.Lock()
+        # III-05：连接池自愈与泄漏检测
+        # 借出未归还：key → 借出时间（monotonic），get() 命中/新建返回时登记，release()/移除时清除
+        self._borrowed: dict[str, float] = {}
+        # 复用率统计：get() 命中缓存 vs 总调用
+        self._get_total = 0
+        self._get_hits = 0
+        # 历史累计不同配置 key（stats 的"总配置数"）
+        self._configured_keys: set[str] = set()
+        self._leak_threshold_multiplier = leak_threshold_multiplier
+        self._leak_alert_min = max(1, int(leak_alert_min))
 
     def _make_key(self, account: dict | None, impersonate: str, verify: bool, fp_key: str = "") -> str:
         """生成缓存 key：账号标识 + 代理配置 + impersonate + verify + 指纹标识。
@@ -125,6 +138,20 @@ class SessionPool:
         token = str((account or {}).get("access_token") or "")
         acct_id = token[-8:] if token else "anon"
         return f"{acct_id}|{proxy}|{impersonate}|{int(verify)}|{fp_key}"
+
+    # ── III-05：连接池自愈与泄漏检测 ─────────────────────────────────
+
+    def _leak_threshold(self) -> float:
+        """泄漏判定阈值：空闲超过 TTL×multiplier 视为泄漏。"""
+        return self._ttl * self._leak_threshold_multiplier
+
+    def _record_get_result(self, key: str, hit: bool) -> None:
+        """登记一次 get 结果：统计复用率并标记连接为借用（在用）。"""
+        with self._lock:
+            self._get_total += 1
+            if hit:
+                self._get_hits += 1
+            self._borrowed[key] = time.monotonic()
 
     # ── v2.17.0 新方法 ──────────────────────────────────────────────
 
@@ -209,6 +236,7 @@ class SessionPool:
             sorted_items = sorted(self._sessions.items(), key=lambda x: x[1][1])
             for key, _ in sorted_items[:remove_count]:
                 cached = self._sessions.pop(key, None)
+                self._borrowed.pop(key, None)
                 if cached:
                     try:
                         cached[0].close()
@@ -250,6 +278,7 @@ class SessionPool:
                 else:
                     # TTL 或连接 TTL 过期，移除后关闭
                     self._sessions.pop(key, None)
+                    self._borrowed.pop(key, None)
                     try:
                         session.close()
                     except Exception:
@@ -260,6 +289,7 @@ class SessionPool:
             session, _, _ = cached
             if self._health_check(session):
                 self._record_result(True)
+                self._record_get_result(key, hit=True)
                 return session
             # 健康检查失败——从池中移除
             self._record_result(False)
@@ -267,6 +297,7 @@ class SessionPool:
                 existing = self._sessions.get(key)
                 if existing is not None and existing[0] is session:
                     self._sessions.pop(key, None)
+                    self._borrowed.pop(key, None)
                     try:
                         session.close()
                     except Exception:
@@ -287,6 +318,7 @@ class SessionPool:
                 except Exception:
                     pass
                 self._sessions.pop(oldest_key, None)
+                self._borrowed.pop(oldest_key, None)
 
             # 竞态防护：另一个线程可能已插入同 key Session
             existing = self._sessions.get(key)
@@ -296,13 +328,18 @@ class SessionPool:
                 except Exception:
                     pass
                 self._record_result(True)
+                self._borrowed[key] = time.monotonic()
+                self._get_total += 1
+                self._get_hits += 1
                 return existing[0]
 
             now = time.monotonic()
             self._sessions[key] = (new_session, now, getattr(new_session, "_pool_conn_created_at", now))
+            self._configured_keys.add(key)
             self._adaptive_grow()
 
         self._record_result(True)
+        self._record_get_result(key, hit=False)
         return new_session
 
     def release(self, session: requests.Session) -> None:
@@ -312,6 +349,9 @@ class SessionPool:
         如果 Session 已被 remove() 提出池外（长轮询暂借），则重新入池；
         仍在池中则无需操作（连接复用依赖 curl keep-alive）。
         非池化 Session（无标记）由调用方直接 close()。
+
+        III-05：归还同时清除借用标记（_borrowed），连接回到"空闲"状态，
+        供泄漏检测以 created_at 重新计量空闲时长。
         """
         pool_key = getattr(session, "_pool_key", None)
         if pool_key is None:
@@ -319,9 +359,12 @@ class SessionPool:
         now = time.monotonic()
         conn_created_at = getattr(session, "_pool_conn_created_at", now)
         with self._lock:
+            # 归还：清除借用标记，连接回到空闲状态
+            self._borrowed.pop(pool_key, None)
             if pool_key in self._sessions:
                 return
             self._sessions[pool_key] = (session, now, conn_created_at)
+            self._configured_keys.add(pool_key)
 
     def remove(self, session: requests.Session) -> None:
         """从池中移除一个 Session（不 close），供长轮询等场景独享 Session。
@@ -333,6 +376,9 @@ class SessionPool:
 
         连续错误计数：每次 remove 视为一次错误信号，连续 3 次触发自适应缩容，
         清理最旧的 20% 连接以隔离故障。
+
+        III-05：移除时清除借用标记（_borrowed）——连接归调用方管理
+        （此后 close() 真 close，不再走 release 归还路径）。
         """
         self._consecutive_errors += 1
         if self._consecutive_errors >= 3:
@@ -342,6 +388,7 @@ class SessionPool:
             for key, (sess, ts, _) in list(self._sessions.items()):
                 if sess is session:
                     del self._sessions[key]
+                    self._borrowed.pop(key, None)
                     try:
                         session._chatgpt2api_pooled = False  # type: ignore[attr-defined]
                         session._pool_key = None  # type: ignore[attr-defined]
@@ -359,6 +406,7 @@ class SessionPool:
             keys = [k for k in self._sessions if k == prefix or k.startswith(prefix)]
             for key in keys:
                 cached = self._sessions.pop(key, None)
+                self._borrowed.pop(key, None)
                 if cached is not None:
                     try:
                         cached[0].close()
@@ -373,19 +421,159 @@ class SessionPool:
                 except Exception:
                     pass
             self._sessions.clear()
+            self._borrowed.clear()
 
     def stats(self) -> dict[str, Any]:
         with self._lock:
+            now = time.monotonic()
+            threshold = self._leak_threshold()
+            idle_count = 0
+            idle_stale_count = 0
+            for key, (_, created_at, _) in self._sessions.items():
+                if key not in self._borrowed:
+                    idle_count += 1
+                    if now - created_at >= threshold:
+                        idle_stale_count += 1
+            in_use = len(self._borrowed)
+            total = self._get_total
+            hits = self._get_hits
             return {
                 "pooled_sessions": len(self._sessions),
+                "idle_sessions": idle_count,
+                "in_use": in_use,
+                "borrowed_sessions": in_use,
+                "hit_rate": round(hits / total, 4) if total else 0.0,
+                "get_total": total,
+                "get_hits": hits,
+                "configured_count": len(self._configured_keys),
                 "max_entries": self._max_entries,
                 "ttl_seconds": self._ttl,
+                "leak_threshold_seconds": round(threshold, 1),
+                "idle_stale": idle_stale_count,
                 "health_check_enabled": self._health_check_enabled,
                 "connection_ttl": self._connection_ttl,
                 "error_rate": self._error_rate(),
                 "cooldown_seconds": self._cooldown_seconds(),
             }
 
+    # ── III-05：泄漏检测与自愈 ──────────────────────────────────────
+
+    def leak_report(self) -> dict[str, Any]:
+        """泄漏检测：返回空闲/借用超阈值连接统计（无副作用）。
+
+        - idle_stale：池内空闲连接，自上次归还/入池起空闲超过 TTL×multiplier 未回收
+        - borrowed_stale：已借出（get 后未 release）超过 TTL×multiplier 未归还
+        """
+        now = time.monotonic()
+        threshold = self._leak_threshold()
+        idle_stale: list[str] = []
+        borrowed_stale: list[str] = []
+        with self._lock:
+            for key, (_, created_at, _) in self._sessions.items():
+                if key not in self._borrowed and (now - created_at) >= threshold:
+                    idle_stale.append(key)
+            for key, borrowed_at in self._borrowed.items():
+                if (now - borrowed_at) >= threshold:
+                    borrowed_stale.append(key)
+        return {
+            "idle_stale_count": len(idle_stale),
+            "borrowed_stale_count": len(borrowed_stale),
+            "leak_count": len(idle_stale) + len(borrowed_stale),
+            "leak_threshold_seconds": round(threshold, 1),
+            "idle_stale_keys": idle_stale[:20],
+            "borrowed_stale_keys": borrowed_stale[:20],
+        }
+
+    def cleanup_stale(self) -> int:
+        """主动清理（由健康检查接管）：对空闲超阈值连接做 HEAD 验证，不健康的关闭移除。
+
+        仅清除确认死亡/断连的连接；健康但闲置的连接保留
+        （下一次 get 会因 TTL 过期自然重建，不误杀）。
+        返回清理数量。
+        """
+        report = self.leak_report()
+        removed = 0
+        for key in report["idle_stale_keys"]:
+            with self._lock:
+                cached = self._sessions.get(key)
+                if cached is None or key in self._borrowed:
+                    continue
+            if not self._health_check(cached[0]):
+                with self._lock:
+                    current = self._sessions.pop(key, None)
+                    self._borrowed.pop(key, None)
+                if current is not None:
+                    try:
+                        cached[0].close()
+                    except Exception:
+                        pass
+                    removed += 1
+        if removed:
+            logger.warning("session_pool 主动清理死亡空闲连接 %d 个", removed)
+        return removed
+
+    def check_leaks(self) -> dict[str, Any]:
+        """泄漏检测 + 超阈值告警 + 健康检查清理（主动自愈）。
+
+        返回泄漏报告（含清理数）。leak_count >= leak_alert_min 时发布
+        session_pool.leak 事件并调用 alert_service.send_alert
+        （复用现有多通道 + 去重窗口，事件经 event_bus_init 订阅转发）。
+        """
+        report = self.leak_report()
+        if report["leak_count"] >= self._leak_alert_min:
+            stats = self.stats()
+            payload = {
+                "leak_count": report["leak_count"],
+                "idle_stale_count": report["idle_stale_count"],
+                "borrowed_stale_count": report["borrowed_stale_count"],
+                "pool_size": stats["pooled_sessions"],
+                "leak_threshold_seconds": report["leak_threshold_seconds"],
+                "trigger": "session_pool_leak",
+            }
+            try:
+                from services.event_bus import SESSION_POOL_LEAK, Event, event_bus
+                event_bus.publish(Event(SESSION_POOL_LEAK, payload))
+            except Exception as exc:  # noqa: BLE001 - 事件发布失败不阻塞自愈
+                logger.warning("session_pool 泄漏事件发布失败: %s", exc)
+            try:
+                from services.alert_service import send_alert
+                send_alert("session_pool_leak", payload)
+            except Exception as exc:  # noqa: BLE001 - 告警失败不阻塞自愈
+                logger.warning("session_pool 泄漏告警发送失败: %s", exc)
+        # 主动清理：健康检查接管
+        report["removed_count"] = self.cleanup_stale()
+        return report
+
 
 # 全局 Session 池：5 分钟 TTL，最多缓存 200 个配置，最小保留 5 个连接
 session_pool = SessionPool(ttl_seconds=300.0, max_entries=200, min_size=5)
+
+
+def check_session_pool_leaks() -> dict[str, Any]:
+    """全局便捷入口：检测全局 session_pool 泄漏并自愈（告警 + 健康检查清理）。"""
+    return session_pool.check_leaks()
+
+
+def _leak_watcher_loop(stop_event: threading.Event, interval_seconds: float) -> None:
+    """守护线程主体：周期检测连接池泄漏。绝不抛异常冒泡（自愈线程不阻塞主服务）。"""
+    while not stop_event.wait(interval_seconds):
+        try:
+            check_session_pool_leaks()
+        except Exception as exc:  # noqa: BLE001 - 泄漏检测失败不阻断循环
+            logger.warning("session_pool 泄漏检测异常: %s", exc)
+
+
+def start_leak_watcher(stop_event: threading.Event, interval_seconds: float = 60.0) -> threading.Thread:
+    """启动连接池泄漏检测守护线程（主动自愈）。
+
+    参照 image_service.start_image_cleanup_scheduler 的 stop_event 模式，
+    由应用 lifespan 启动并在 shutdown 时 join。
+    """
+    t = threading.Thread(
+        target=_leak_watcher_loop,
+        args=(stop_event, max(5.0, float(interval_seconds))),
+        daemon=True,
+        name="session-pool-leak",
+    )
+    t.start()
+    return t

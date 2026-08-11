@@ -33,6 +33,16 @@ _RECENT_MAXLEN = 50
 _INGEST_INTERVAL_SECONDS = 60
 
 
+def _invalidate_usage_cache() -> None:
+    """失效 /api/dashboard/usage 响应缓存（V-02 写侧失效）。
+
+    懒加载避免 services→api 模块级循环导入（api/__init__ 会拉起 api.app 全链路）。
+    """
+    from api.response_cache import response_cache
+
+    response_cache.invalidate("/api/dashboard/usage")
+
+
 def _parse_ts(created: str) -> float:
     """时间键兼容：text 'time' / json 'ts' / 历史 'created_at'。"""
     try:
@@ -145,6 +155,9 @@ class UsageAgg:
                     self._file_offsets[path.name] = file.tell()
             self._prune()
             self._invalidate_cumulative_cache()
+            # V-02：有新日志摄入才失效用量缓存（无新增不打扰，避免无谓失效）
+            if added:
+                _invalidate_usage_cache()
             return added
 
     def _invalidate_cumulative_cache(self) -> None:

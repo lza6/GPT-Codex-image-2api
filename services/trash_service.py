@@ -30,6 +30,16 @@ def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def _invalidate_trash_cache() -> None:
+    """失效 /api/accounts/trash 响应缓存（V-02 写侧失效）。
+
+    懒加载避免 services→api 模块级循环导入（api/__init__ 会拉起 api.app 全链路）。
+    """
+    from api.response_cache import response_cache
+
+    response_cache.invalidate("/api/accounts/trash")
+
+
 class TrashService:
     """账号回收站（线程安全，原子落盘）。"""
 
@@ -79,6 +89,7 @@ class TrashService:
         with self._lock:
             self._entries.append(entry)
             self._save()
+        _invalidate_trash_cache()
 
     def add_from_account(self, account: dict[str, Any] | None, *, reason: str = "", source: str = "") -> None:
         """从账号字典构造回收站条目（保留 email/token/状态）。"""
@@ -144,7 +155,8 @@ class TrashService:
             count = len(self._entries)
             self._entries = []
             self._save()
-            return count
+        _invalidate_trash_cache()
+        return count
 
     def restore(self, emails: list[str]) -> dict[str, Any]:
         """从回收站恢复指定 email 的账号（删除回收站记录）。
@@ -165,7 +177,8 @@ class TrashService:
                     kept.append(e)
             self._entries = kept
             self._save()
-            return {"restored": restored, "total": len(self._entries)}
+        _invalidate_trash_cache()
+        return {"restored": restored, "total": len(self._entries)}
 
 
 trash_service = TrashService()

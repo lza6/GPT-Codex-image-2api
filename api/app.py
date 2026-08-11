@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
 from threading import Event
 
 from fastapi import FastAPI, HTTPException
@@ -15,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from api import accounts, ai, dashboard, image_tasks, keys, kookeey, logs, providers, proxy_pool, system, tracing
 from api.errors import install_exception_handlers
 from api.rate_limit import RateLimitMiddleware
+from api.response_cache import response_cache
 from api.support import resolve_web_asset, start_limited_account_watcher, start_proactive_probe, WEB_DIST_DIR
 from services.backup_service import backup_service
 from services.config import config
@@ -36,6 +38,25 @@ def _trim_events_file(path: Path, max_lines: int = 2000) -> None:
         pass
 
 
+def _append_event_jsonl(event, events_path: Path) -> None:
+    """把事件序列化追加到 events.jsonl，并失效 /api/dashboard/events 响应缓存。
+
+    V-02：事件列表缓存写侧失效点——事件持久化订阅写入后立即清缓存，
+    保证轮询方读不到脏数据。提取为模块级函数便于测试直接验证失效行为
+    （无需启动完整 lifespan）。
+    """
+    import json as _json
+
+    with events_path.open("a", encoding="utf-8") as f:
+        f.write(_json.dumps({
+            "id": event.id,
+            "type": event.type,
+            "data": event.data,
+            "timestamp": int(event.timestamp) if hasattr(event, "timestamp") else int(time.time()),
+        }, ensure_ascii=False) + "\n")
+    response_cache.invalidate("/api/dashboard/events")
+
+
 def create_app() -> FastAPI:
     app_version = config.app_version
 
@@ -50,10 +71,8 @@ def create_app() -> FastAPI:
 
         # 注册事件总线持久化订阅（写入 events.jsonl 供 SSE 事件流消费）
         try:
-            from services.event_bus import event_bus
             from services.config import DATA_DIR
-            from pathlib import Path
-            import json
+            from services.event_bus import event_bus
 
             _events_path = Path(str(DATA_DIR)) / "events.jsonl"
             _last_events_cleanup = 0
@@ -61,13 +80,7 @@ def create_app() -> FastAPI:
             def _persist_event(event):
                 nonlocal _last_events_cleanup
                 try:
-                    with _events_path.open("a", encoding="utf-8") as f:
-                        f.write(json.dumps({
-                            "id": event.id,
-                            "type": event.type,
-                            "data": event.data,
-                            "timestamp": int(event.timestamp) if hasattr(event, "timestamp") else int(time.time()),
-                        }, ensure_ascii=False) + "\n")
+                    _append_event_jsonl(event, _events_path)
                     # 每天清理一次
                     now = int(time.time())
                     if now - _last_events_cleanup > 86400:
@@ -78,7 +91,8 @@ def create_app() -> FastAPI:
 
             for evt in ["account.invalid", "account.recovered", "account.quota_exhausted",
                         "circuit.open", "circuit.half_open", "circuit.closed",
-                        "backup.failure", "provider.health_changed"]:
+                        "backup.failure", "provider.health_changed",
+                        "session_pool.leak"]:
                 event_bus.subscribe(evt, sync_handler=_persist_event)
             _trim_events_file(_events_path, 2000)
         except Exception:
@@ -125,6 +139,13 @@ def create_app() -> FastAPI:
             ip_probe_thread = None
 
         agg_thread = start_usage_agg_watcher(stop_event)
+        # III-05：连接池泄漏检测守护线程（空闲超阈值告警 + 健康检查清理）
+        leak_thread = None
+        try:
+            from services.session_pool import start_leak_watcher
+            leak_thread = start_leak_watcher(stop_event)
+        except Exception:  # noqa: BLE001 - 泄漏检测线程启动失败不阻断
+            leak_thread = None
         backup_service.start()
         config.cleanup_old_images()
         # P2：启动时预热模型缓存，避免首次请求 /v1/models 时等待 0.7s+ 上游调用
@@ -163,6 +184,8 @@ def create_app() -> FastAPI:
             if probe_thread is not None:
                 probe_thread.join(timeout=5)
             agg_thread.join(timeout=5)
+            if leak_thread is not None:
+                leak_thread.join(timeout=5)
             backup_service.stop()
             # 停止任务队列消费者
             try:

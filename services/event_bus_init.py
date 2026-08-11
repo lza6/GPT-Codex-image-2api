@@ -21,6 +21,7 @@ from services.event_bus import (
     CONFIG_CHANGED,
     IMAGE_TASK_COMPLETED,
     SESSION_DEGRADED,
+    SESSION_POOL_LEAK,
     Event,
     event_bus,
 )
@@ -44,6 +45,7 @@ _ALERT_EVENT_MAP: dict[str, str] = {
     BACKUP_FAILURE: "backup_failure",
     BACKUP_CHECKSUM_MISMATCH: "backup_checksum_mismatch",
     SESSION_DEGRADED: "session_degraded",
+    SESSION_POOL_LEAK: "session_pool_leak",
 }
 
 
@@ -123,6 +125,9 @@ def register_subscribers() -> None:
 
     # 会话降级 → 告警
     event_bus.subscribe(SESSION_DEGRADED, sync_handler=_alert_wrapper)
+
+    # 连接池泄漏 → 告警
+    event_bus.subscribe(SESSION_POOL_LEAK, sync_handler=_alert_wrapper)
 
     # 配置变更 → 日志
     event_bus.subscribe(CONFIG_CHANGED, sync_handler=_config_changed_wrapper)

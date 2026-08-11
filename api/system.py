@@ -7,6 +7,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict
 
+from api.response_cache import apply_cache_headers, response_cache
 from api.support import require_admin, require_identity, resolve_image_base_url
 from services.backup_service import BackupError, backup_service
 from services.config import config
@@ -175,8 +176,20 @@ def create_router(app_version: str) -> APIRouter:
         })
 
     @router.get("/api/logs")
-    async def get_logs(type: str = "", start_date: str = "", end_date: str = "", account_email: str = "", days: int | None = Query(default=None), event: str = "", request_id: str = "", result: str = "", page: int = Query(default=0, ge=0), page_size: int = Query(default=0, ge=0, le=500), authorization: str | None = Header(default=None)):
+    async def get_logs(type: str = "", start_date: str = "", end_date: str = "", account_email: str = "", days: int | None = Query(default=None), event: str = "", request_id: str = "", result: str = "", page: int = Query(default=0, ge=0), page_size: int = Query(default=0, ge=0, le=500), authorization: str | None = Header(default=None), refresh: bool = False, response: Response = None):
         require_admin(authorization)
+        # V-02：按过滤条件派生缓存键（不同过滤组合互不串用），TTL 15s；
+        # 写侧失效：log_service.add 写日志 + POST /api/logs/delete 均会 invalidate。
+        _cache_key = (
+            f"type={type}|start={start_date}|end={end_date}|email={account_email}|"
+            f"days={days}|event={event}|rid={request_id}|result={result}|page={page}|ps={page_size}"
+        )
+        if not refresh:
+            cached = response_cache.get("/api/logs", key=_cache_key)
+            if cached is not None:
+                if response is not None:
+                    apply_cache_headers("/api/logs", response)
+                return cached
         items = log_service.list(
             type=type.strip(),
             start_date=start_date.strip(),
@@ -191,12 +204,18 @@ def create_router(app_version: str) -> APIRouter:
         if page_size > 0 and page > 0:
             start = (page - 1) * page_size
             items = items[start : start + page_size]
-        return {"items": items, "total": total}
+        result = {"items": items, "total": total}
+        response_cache.set("/api/logs", result, key=_cache_key)
+        if response is not None:
+            apply_cache_headers("/api/logs", response)
+        return result
 
     @router.post("/api/logs/delete")
     async def delete_logs(body: LogDeleteRequest, authorization: str | None = Header(default=None)):
         require_admin(authorization)
-        return log_service.delete(body.ids)
+        result = log_service.delete(body.ids)
+        response_cache.invalidate("/api/logs")
+        return result
 
     @router.get("/api/system/log-level")
     async def get_log_level(authorization: str | None = Header(default=None)):

@@ -53,6 +53,8 @@ SNAPSHOT_ENDPOINTS = [
     "/api/dashboard/circuit_breakers",
     "/api/proxies",
     "/api/accounts",
+    "/api/accounts/trash",
+    "/api/dashboard/events",
     "/api/logs?limit=1",
     "/api/audit?limit=1",
 ]
@@ -68,6 +70,8 @@ DYNAMIC_KEY_ENDPOINTS = {
     "/api/audit/export",
     "/api/dashboard/usage-forecast",
     "/api/dashboard/scheduler",
+    "/api/accounts/trash",
+    "/api/dashboard/events",
     "/api/auth/keys",
     "/api/auth/keys/usage",
 }

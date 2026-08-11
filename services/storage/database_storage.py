@@ -6,6 +6,7 @@ from typing import Any
 from sqlalchemy import Column, Integer, String, Text, create_engine, event, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 
+from services.prometheus_metrics import storage_operation_timer
 from services.storage.base import StorageBackend
 
 Base = declarative_base()
@@ -99,20 +100,21 @@ class DatabaseStorageBackend(StorageBackend):
             conn.commit()
 
     def load_accounts(self) -> list[dict[str, Any]]:
-        """从数据库加载账号数据"""
-        session = self.Session()
-        try:
-            accounts = []
-            for row in session.query(AccountModel).all():
-                try:
-                    account_data = json.loads(row.data)
-                    if isinstance(account_data, dict):
-                        accounts.append(account_data)
-                except json.JSONDecodeError:
-                    continue
-            return accounts
-        finally:
-            session.close()
+        """从数据库加载账号数据（仅启动期一次性加载）"""
+        with storage_operation_timer("database", "load_accounts"):
+            session = self.Session()
+            try:
+                accounts = []
+                for row in session.query(AccountModel).all():
+                    try:
+                        account_data = json.loads(row.data)
+                        if isinstance(account_data, dict):
+                            accounts.append(account_data)
+                    except json.JSONDecodeError:
+                        continue
+                return accounts
+            finally:
+                session.close()
 
     def save_accounts(self, accounts: list[dict[str, Any]]) -> None:
         """保存账号数据到数据库"""
@@ -120,7 +122,8 @@ class DatabaseStorageBackend(StorageBackend):
 
     def load_auth_keys(self) -> list[dict[str, Any]]:
         """从数据库加载鉴权密钥数据"""
-        return self._load_rows(AuthKeyModel)
+        with storage_operation_timer("database", "load_auth_keys"):
+            return self._load_rows(AuthKeyModel)
 
     def save_auth_keys(self, auth_keys: list[dict[str, Any]]) -> None:
         """保存鉴权密钥数据到数据库"""
@@ -148,72 +151,103 @@ class DatabaseStorageBackend(StorageBackend):
         source_key: str,
         target_key: str | None = None,
     ) -> None:
-        session = self.Session()
-        try:
-            key_column = target_key or source_key
-            existing_rows = {
-                str(getattr(row, key_column)): row
-                for row in session.query(model).all()
-            }
-            incoming_keys: set[str] = set()
+        """合并写（单事务，rollback 兜底）。
 
-            for item in items:
-                if not isinstance(item, dict):
-                    continue
-                key_value = str(item.get(source_key) or "").strip()
-                if not key_value:
-                    continue
-                if key_value in incoming_keys:
-                    raise ValueError(f"Duplicate {source_key} in storage snapshot")
+        III-04 优化形态（慢查询猎杀热点「数据库后端 ORM 查询形态」）：
+        - 键列扫描替代整表全行加载：只 SELECT 业务键列构建 existing_keys，
+          不再拉取 data 大字段，降低 save 的 O(N) 数据量；
+        - 定向更新：仅对数据变化的行加载全量并改写（未变化跳过写）；
+        - 批量删除：不存在的键用单条 DELETE ... WHERE key IN (...)
+          （synchronize_session=False，事务内无后续引用，安全）。
+        """
+        with storage_operation_timer(
+            "database",
+            "save_accounts" if model is AccountModel else "save_auth_keys",
+        ):
+            session = self.Session()
+            try:
+                key_column = target_key or source_key
+                key_attr = getattr(model, key_column)
+                # 只加载键列（避免全表拉取 data 大字段）
+                existing_keys = {str(k) for (k,) in session.query(key_attr).all()}
+                incoming_keys: set[str] = set()
 
-                incoming_keys.add(key_value)
-                serialized_data = json.dumps(item, ensure_ascii=False)
-                existing_row = existing_rows.get(key_value)
-                if existing_row is None:
-                    session.add(
-                        model(
-                            **{key_column: key_value},
-                            data=serialized_data,
-                        )
+                pending_adds: list[tuple[str, str]] = []
+                pending_updates: list[tuple[str, str]] = []
+
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                    key_value = str(item.get(source_key) or "").strip()
+                    if not key_value:
+                        continue
+                    if key_value in incoming_keys:
+                        raise ValueError(f"Duplicate {source_key} in storage snapshot")
+
+                    incoming_keys.add(key_value)
+                    serialized_data = json.dumps(item, ensure_ascii=False)
+                    if key_value in existing_keys:
+                        pending_updates.append((key_value, serialized_data))
+                    else:
+                        pending_adds.append((key_value, serialized_data))
+
+                if pending_adds:
+                    session.add_all(
+                        model(**{key_column: key_value}, data=serialized_data)
+                        for key_value, serialized_data in pending_adds
                     )
-                elif existing_row.data != serialized_data:
-                    existing_row.data = serialized_data
 
-            for key_value, row in existing_rows.items():
-                if key_value not in incoming_keys:
-                    session.delete(row)
+                # 仅对需更新的行加载全量（避免无谓拉取 data）
+                if pending_updates:
+                    rows = {
+                        str(getattr(row, key_column)): row
+                        for row in session.query(model)
+                        .filter(key_attr.in_([k for k, _ in pending_updates]))
+                        .all()
+                    }
+                    for key_value, serialized_data in pending_updates:
+                        row = rows[key_value]
+                        if row.data != serialized_data:
+                            row.data = serialized_data
 
-            session.commit()
-        except Exception:
-            session.rollback()
-            raise
-        finally:
-            session.close()
+                to_delete = existing_keys - incoming_keys
+                if to_delete:
+                    session.query(model).filter(key_attr.in_(to_delete)).delete(
+                        synchronize_session=False
+                    )
+
+                session.commit()
+            except Exception:
+                session.rollback()
+                raise
+            finally:
+                session.close()
 
     def health_check(self) -> dict[str, Any]:
         """健康检查"""
-        try:
-            session = self.Session()
+        with storage_operation_timer("database", "health_check"):
             try:
-                # 尝试执行简单查询
-                session.execute(text("SELECT 1"))
-                count = session.query(AccountModel).count()
-                auth_key_count = session.query(AuthKeyModel).count()
+                session = self.Session()
+                try:
+                    # 尝试执行简单查询
+                    session.execute(text("SELECT 1"))
+                    count = session.query(AccountModel).count()
+                    auth_key_count = session.query(AuthKeyModel).count()
+                    return {
+                        "status": "healthy",
+                        "backend": "database",
+                        "database_url": self._mask_password(self.database_url),
+                        "account_count": count,
+                        "auth_key_count": auth_key_count,
+                    }
+                finally:
+                    session.close()
+            except Exception as e:
                 return {
-                    "status": "healthy",
+                    "status": "unhealthy",
                     "backend": "database",
-                    "database_url": self._mask_password(self.database_url),
-                    "account_count": count,
-                    "auth_key_count": auth_key_count,
+                    "error": str(e),
                 }
-            finally:
-                session.close()
-        except Exception as e:
-            return {
-                "status": "unhealthy",
-                "backend": "database",
-                "error": str(e),
-            }
 
     def get_backend_info(self) -> dict[str, Any]:
         """获取存储后端信息"""

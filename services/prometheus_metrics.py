@@ -14,6 +14,9 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Iterator
+from contextlib import contextmanager
+from time import perf_counter
 
 from prometheus_client import (
     CONTENT_TYPE_LATEST,
@@ -161,6 +164,43 @@ c2api_upstream_latency_seconds = Histogram(
     ["provider", "endpoint"],
     buckets=(0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0),
 )
+
+# ---- III-04：存储操作延迟（慢查询基准化） ----
+# 覆盖账号/密钥存储后端的 load/save/health_check 关键查询，
+# 用于把「慢查询猎杀」报告的热点从静态审计推进到可观测基准化
+# （Prometheus 直方图可看 P50/P95/P99，跨版本对比延迟漂移）。
+c2api_storage_operation_duration_seconds = Histogram(
+    "c2api_storage_operation_duration_seconds",
+    "Storage backend operation duration in seconds",
+    ["backend", "operation"],
+    buckets=(0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0),
+)
+
+
+@contextmanager
+def storage_operation_timer(backend: str, operation: str) -> Iterator[None]:
+    """记录存储后端操作耗时的上下文管理器。
+
+    用法：with storage_operation_timer("json", "save_accounts"): ...
+    backend: json / database；operation: load_accounts / save_accounts /
+    load_auth_keys / save_auth_keys / health_check。
+    """
+    start = perf_counter()
+    try:
+        yield
+    finally:
+        c2api_storage_operation_duration_seconds.labels(
+            backend=backend,
+            operation=operation,
+        ).observe(perf_counter() - start)
+
+
+def record_storage_operation(backend: str, operation: str, duration_seconds: float) -> None:
+    """记录存储后端操作耗时（供非 context manager 场景手动埋点）。"""
+    c2api_storage_operation_duration_seconds.labels(
+        backend=backend,
+        operation=operation,
+    ).observe(duration_seconds)
 
 
 _PATH_CARDINALITY_PATTERNS = (

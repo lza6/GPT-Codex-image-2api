@@ -205,6 +205,11 @@ class LogService:
         target = self._daily_path(self._today_str())
         with target.open("a", encoding="utf-8") as file:
             file.write(self._serialize_item(item) + "\n")
+        # V-02：日志写入即失效 /api/logs 响应缓存（防止日志页读到缺失新条目的脏数据）。
+        # 懒加载避免 services→api 模块级循环导入（api/__init__ 会拉起 api.app 全链路）。
+        from api.response_cache import response_cache
+
+        response_cache.invalidate("/api/logs")
         # 惰性清理：每 200 条检查一次，避免高频 I/O
         self._add_count += 1
         if self._add_count >= 200:

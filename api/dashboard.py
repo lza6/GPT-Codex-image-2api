@@ -388,16 +388,29 @@ def create_router() -> APIRouter:
         return result
 
     @router.get("/api/dashboard/usage")
-    async def usage_stats(authorization: str | None = Header(default=None), hours: int = 24):
+    async def usage_stats(authorization: str | None = Header(default=None), hours: int = 24, refresh: bool = False, response: Response = None):
         """用量统计：指定小时窗口内调用量 + 按类型分布 + 最近记录。
 
         支持 hours 参数控制窗口：1/6/24/168(7d)/720(30d)，默认 24。
+
+        V-02：TTL 15s 缓存（键含窗口）；写侧失效——usage_agg.ingest 增量
+        摄入到新日志时 invalidate，防止读脏。
         """
         require_admin(authorization)
         from services.usage_agg import usage_agg
 
         window = max(1, min(int(hours), 720))
+        _cache_key = f"h{window}"
+        if not refresh:
+            cached = response_cache.get("/api/dashboard/usage", key=_cache_key)
+            if cached is not None:
+                if response is not None:
+                    apply_cache_headers("/api/dashboard/usage", response)
+                return cached
         data = await run_in_threadpool(usage_agg.stats_for_window, window)
+        response_cache.set("/api/dashboard/usage", data, key=_cache_key)
+        if response is not None:
+            apply_cache_headers("/api/dashboard/usage", response)
         return data
 
     @router.get("/api/dashboard/usage-totals")
@@ -498,11 +511,26 @@ def create_router() -> APIRouter:
         )
 
     @router.get("/api/dashboard/events")
-    async def dashboard_events(authorization: str | None = Header(default=None), limit: int = 50):
-        """看板事件流：最近系统事件（从 events.jsonl 读取，SSE 事件频道同源）。"""
+    async def dashboard_events(authorization: str | None = Header(default=None), limit: int = 50, refresh: bool = False, response: Response = None):
+        """看板事件流：最近系统事件（从 events.jsonl 读取，SSE 事件频道同源）。
+
+        V-02：TTL 5s 缓存（键含 limit）；写侧失效——api/app.py 事件持久化
+        订阅 _append_event_jsonl 写入后 invalidate，防止读脏。
+        """
         require_admin(authorization)
+        _cache_key = f"limit={limit}"
+        if not refresh:
+            cached = response_cache.get("/api/dashboard/events", key=_cache_key)
+            if cached is not None:
+                if response is not None:
+                    apply_cache_headers("/api/dashboard/events", response)
+                return cached
         events = await run_in_threadpool(_fetch_recent_events, limit)
-        return {"events": events}
+        result = {"events": events}
+        response_cache.set("/api/dashboard/events", result, key=_cache_key)
+        if response is not None:
+            apply_cache_headers("/api/dashboard/events", response)
+        return result
 
     @router.get("/api/events/stream", include_in_schema=False)
     async def events_stream(authorization: str | None = Header(default=None), token: str = ""):

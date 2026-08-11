@@ -37,6 +37,7 @@ PROVIDER_HEALTH_CHANGED = "provider.health_changed"
 IMAGE_TASK_COMPLETED = "image.task_completed"
 # 会话事件
 SESSION_DEGRADED = "session.degraded"
+SESSION_POOL_LEAK = "session_pool.leak"
 # 熔断器事件
 CIRCUIT_OPEN = "circuit.open"
 CIRCUIT_HALF_OPEN = "circuit.half_open"
@@ -56,6 +57,7 @@ ALL_EVENTS = frozenset({
     PROVIDER_HEALTH_CHANGED,
     IMAGE_TASK_COMPLETED,
     SESSION_DEGRADED,
+    SESSION_POOL_LEAK,
 })
 
 # ---------------------------------------------------------------------------

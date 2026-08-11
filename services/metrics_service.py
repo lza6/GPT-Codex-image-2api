@@ -153,6 +153,30 @@ class RequestMetrics:
             lines.append("# HELP chatgpt2api_uptime_seconds Process uptime")
             lines.append("# TYPE chatgpt2api_uptime_seconds gauge")
             lines.append(f"chatgpt2api_uptime_seconds {int(time.time() - self._start_time)}")
+            # III-05：连接池 stats 导出（Prometheus gauge）。池不可用时静默降级。
+            try:
+                from services.session_pool import session_pool
+                _sp = session_pool.stats()
+                lines.append("# HELP chatgpt2api_session_pool_pooled Current pooled sessions")
+                lines.append("# TYPE chatgpt2api_session_pool_pooled gauge")
+                lines.append(f"chatgpt2api_session_pool_pooled {_sp.get('pooled_sessions', 0)}")
+                lines.append("# HELP chatgpt2api_session_pool_idle Idle sessions in pool")
+                lines.append("# TYPE chatgpt2api_session_pool_idle gauge")
+                lines.append(f"chatgpt2api_session_pool_idle {_sp.get('idle_sessions', 0)}")
+                lines.append("# HELP chatgpt2api_session_pool_in_use Sessions borrowed (in use)")
+                lines.append("# TYPE chatgpt2api_session_pool_in_use gauge")
+                lines.append(f"chatgpt2api_session_pool_in_use {_sp.get('in_use', 0)}")
+                lines.append("# HELP chatgpt2api_session_pool_hit_rate Session pool cache hit rate")
+                lines.append("# TYPE chatgpt2api_session_pool_hit_rate gauge")
+                lines.append(f"chatgpt2api_session_pool_hit_rate {_sp.get('hit_rate', 0.0)}")
+                lines.append("# HELP chatgpt2api_session_pool_configured_total Total configured pool keys")
+                lines.append("# TYPE chatgpt2api_session_pool_configured_total gauge")
+                lines.append(f"chatgpt2api_session_pool_configured_total {_sp.get('configured_count', 0)}")
+                lines.append("# HELP chatgpt2api_session_pool_idle_stale Idle sessions over leak threshold")
+                lines.append("# TYPE chatgpt2api_session_pool_idle_stale gauge")
+                lines.append(f"chatgpt2api_session_pool_idle_stale {_sp.get('idle_stale', 0)}")
+            except Exception:
+                pass
         return "\n".join(lines) + "\n"
 
 
