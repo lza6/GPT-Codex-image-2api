@@ -91,6 +91,22 @@ import { useAuthGuard } from "@/lib/use-auth-guard";
 import { cn } from "@/lib/utils";
 import { useKeyboard } from "@/hooks/use-keyboard";
 
+// 批量操作增强：队列面板 / 结果弹窗 / 历史弹窗 + batch-queue store + 通知
+import { BatchQueuePanel } from "@/components/batch-queue-panel";
+import { BatchResultDialog } from "@/components/batch-result-dialog";
+import { BatchHistoryDialog } from "@/components/batch-history-dialog";
+import {
+  cancel as cancelBatchItem,
+  enqueue as enqueueBatchItem,
+  getAbortController as getBatchAbortController,
+  resume as resumeBatchItem,
+  updateItemProgress as updateBatchItemProgress,
+  updateItemResult as updateBatchItemResult,
+  useBatchQueue,
+  type BatchQueueItem,
+} from "@/store/batch-queue";
+import { addNotification, addOperationResult } from "@/store/notifications";
+
 import { AccountImportDialog } from "./components/account-import-dialog";
 import { AccountTableRow } from "./components/accounts-table-row";
 
@@ -172,6 +188,9 @@ const COLUMN_DEFINITIONS: { key: keyof AccountColumnVisibility; label: string }[
 ];
 
 const COLUMN_VISIBILITY_KEY = "accounts-column-visibility";
+
+// 选中项持久化 key
+const SELECTED_IDS_KEY = "accounts-selected-ids";
 
 // 列显隐默认值（全部可见）
 const DEFAULT_COLUMN_VISIBILITY: AccountColumnVisibility = {
@@ -289,7 +308,16 @@ function AccountsPageContent() {
   const didLoadRef = useRef(false);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [availableModels, setAvailableModels] = useState<Model[]>([]);
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  // 选中项：从 localStorage 恢复（key: accounts-selected-ids）
+  const [selectedIds, setSelectedIds] = useState<string[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const stored = localStorage.getItem(SELECTED_IDS_KEY);
+      return stored ? (JSON.parse(stored) as string[]) : [];
+    } catch {
+      return [];
+    }
+  });
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<AccountStatus | "all">("all");
@@ -353,6 +381,12 @@ function AccountsPageContent() {
   });
   const progressRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [refreshSummary, setRefreshSummary] = useState<Record<string, number | string> | null>(null);
+
+  // ── 批量操作增强 ──
+  // batch-queue 订阅：每次 store 变更触发重渲染，queue() 返回最新活跃队列
+  const { queue: batchQueueSnapshot } = useBatchQueue();
+  const [batchResultItem, setBatchResultItem] = useState<BatchQueueItem | null>(null);
+  const [batchHistoryOpen, setBatchHistoryOpen] = useState(false);
 
   // 列显隐
   const [columnVisibility, setColumnVisibility] = useState<AccountColumnVisibility>(loadColumnVisibility);
@@ -425,6 +459,26 @@ function AccountsPageContent() {
       setIsLoadingModels(false);
     }
   };
+
+  // 选中项持久化到 localStorage（key: accounts-selected-ids）
+  useEffect(() => {
+    try {
+      localStorage.setItem(SELECTED_IDS_KEY, JSON.stringify(selectedIds));
+    } catch {
+      // 存储失败忽略
+    }
+  }, [selectedIds]);
+
+  // batch-queue 辅助：判断任务是否已被用户取消（用于轮询中止与静默返回）
+  const isBatchAborted = useCallback((id: string) => getBatchAbortController(id)?.signal.aborted ?? false, []);
+
+  // batch-queue 辅助：重试失败项（面板/结果弹窗的「重试」）
+  const handleBatchResume = useCallback((item: BatchQueueItem) => {
+    const failedTokens = item.tokens.filter((token) => item.results[token]?.success === false);
+    if (failedTokens.length > 0) {
+      resumeBatchItem(item.id, failedTokens);
+    }
+  }, []);
 
   useEffect(() => {
     if (didLoadRef.current) {
@@ -652,11 +706,29 @@ function AccountsPageContent() {
       description: `将对选中的 ${selectedTokens.length} 个账号执行失效驱逐（仅处理状态为「异常」的），不可恢复。`,
       run: async () => {
         setIsBatchAction(true);
+        const tokens = selectedTokens;
+        // 批量队列：入队驱逐任务（仅状态为「异常」的账号会被处理）
+        const batchId = enqueueBatchItem({ action: "evict", label: "批量驱逐失效 token", tokens });
         try {
-          const data = await batchAccounts("evict_stale", selectedTokens);
-          toast.success(`已处理 ${data.processed} 个，驱逐 ${data.evicted ?? 0} 个失效 token`);
+          const data = await batchAccounts("evict_stale", tokens);
+          const processed = data.processed;
+          const evicted = data.evicted ?? 0;
+          // 批量队列：仅异常账号视为成功（接口无逐项结果），非异常视为跳过（不记录）
+          const abnormalInSelection = tokens.filter(
+            (t) => accounts.find((a) => a.access_token === t)?.status === "异常",
+          );
+          for (const t of abnormalInSelection) {
+            updateBatchItemResult(batchId, t, true);
+          }
+          addOperationResult("批量驱逐完成", `已处理 ${processed} 个，驱逐 ${evicted} 个失效 token`, processed, 0);
+          toast.success(`已处理 ${processed} 个，驱逐 ${evicted} 个失效 token`);
           await loadAccounts(true);
         } catch (error) {
+          if (isBatchAborted(batchId)) return;
+          for (const t of tokens) {
+            updateBatchItemResult(batchId, t, false, extractErrorMessage(error));
+          }
+          addOperationResult("批量驱逐失败", extractErrorMessage(error), 0, tokens.length);
           toastError(error, "批量驱逐失败");
         } finally {
           setIsBatchAction(false);
@@ -677,13 +749,28 @@ function AccountsPageContent() {
       return;
     }
     setIsBatchAction(true);
+    const tokens = selectedTokens;
+    // 批量队列：入队打标签任务
+    const batchId = enqueueBatchItem({ action: "label", label: `标签「${label}」`, tokens });
     try {
-      const data = await batchAccounts("label", selectedTokens, label);
-      toast.success(`已为 ${data.updated ?? 0}/${data.processed} 个账号设置标签「${label}」`);
+      const data = await batchAccounts("label", tokens, label);
+      const updated = data.updated ?? 0;
+      const processed = data.processed;
+      // 批量队列：接口无逐项结果，整体成功则全部标记成功
+      for (const t of tokens) {
+        updateBatchItemResult(batchId, t, true);
+      }
+      addOperationResult("批量打标签完成", `已为 ${updated}/${processed} 个账号设置标签「${label}」`, updated, processed - updated);
+      toast.success(`已为 ${updated}/${processed} 个账号设置标签「${label}」`);
       setLabelDialogOpen(false);
       setLabelValue("");
       await loadAccounts(true);
     } catch (error) {
+      if (isBatchAborted(batchId)) return;
+      for (const t of tokens) {
+        updateBatchItemResult(batchId, t, false, extractErrorMessage(error));
+      }
+      addOperationResult("批量打标签失败", extractErrorMessage(error), 0, tokens.length);
       toastError(error, "批量打标签失败");
     } finally {
       setIsBatchAction(false);
@@ -724,12 +811,27 @@ function AccountsPageContent() {
         if (busyRef.current) return;
         busyRef.current = true;
         setIsDeleting(true);
+        // 批量队列：入队删除任务
+        const batchId = enqueueBatchItem({ action: "delete", label: `删除 ${tokens.length} 个账户`, tokens });
         try {
           const data = await deleteAccounts(tokens);
           setAccounts(data.items);
           setSelectedIds((prev) => prev.filter((id) => data.items.some((item) => item.access_token === id)));
-          toast.success(`删除 ${data.removed ?? 0} 个账户`);
+          // 批量队列：被移除的 token 视为成功，其余视为失败
+          const remainingTokens = new Set(data.items.map((item) => item.access_token));
+          for (const t of tokens) {
+            const deleted = !remainingTokens.has(t);
+            updateBatchItemResult(batchId, t, deleted, deleted ? undefined : "账号未被删除");
+          }
+          const removed = data.removed ?? 0;
+          addOperationResult("批量删除完成", `删除 ${removed} 个账户`, removed, tokens.length - removed);
+          toast.success(`删除 ${removed} 个账户`);
         } catch (error) {
+          if (isBatchAborted(batchId)) return;
+          for (const t of tokens) {
+            updateBatchItemResult(batchId, t, false, extractErrorMessage(error));
+          }
+          addOperationResult("批量删除失败", extractErrorMessage(error), 0, tokens.length);
           toastError(error, "删除账户失败");
         } finally {
           busyRef.current = false;
@@ -745,18 +847,44 @@ function AccountsPageContent() {
       return;
     }
 
+    // 批量队列：入队本次刷新任务（单账号/多账号统一走队列）
+    const batchId = enqueueBatchItem({ action: "refresh", label: "刷新账号信息", tokens: accessTokens });
+    const isAborted = () => isBatchAborted(batchId);
+
     if (accessTokens.length === 1) {
       setRefreshingTokens((prev) => new Set([...prev, accessTokens[0]]));
+      let okCount = 0;
+      let failCount = 0;
       try {
         const { progress_id } = await refreshAccounts(accessTokens);
-        // 单账号：轮询等待完成
-        await pollRefreshProgress(progress_id, (progress) => {
-          if (progress.done && progress.result) {
-            setAccounts(progress.result.items);
-            setSelectedIds((prev) => prev.filter((id) => progress.result!.items.some((item) => item.access_token === id)));
-          }
-        });
+        // 单账号：轮询等待完成，同时收集结果
+        await pollRefreshProgress(
+          progress_id,
+          (progress) => {
+            if (progress.done && progress.result) {
+              setAccounts(progress.result.items);
+              setSelectedIds((prev) => prev.filter((id) => progress.result!.items.some((item) => item.access_token === id)));
+            }
+            updateBatchItemProgress(batchId, 100);
+            const err = progress.result?.errors?.find((e) => e.access_token === accessTokens[0]);
+            const success = !err;
+            if (success) okCount += 1; else failCount += 1;
+            updateBatchItemResult(batchId, accessTokens[0], success, err?.error ?? undefined);
+          },
+          isAborted,
+        );
+        if (!isAborted()) {
+          addOperationResult(
+            "批量刷新完成",
+            okCount > 0 ? "刷新成功 1 个账户" : failCount > 0 ? "刷新失败" : "刷新完成",
+            okCount,
+            failCount,
+          );
+        }
       } catch (error) {
+        if (isAborted()) return;
+        updateBatchItemResult(batchId, accessTokens[0], false, extractErrorMessage(error));
+        addOperationResult("批量刷新失败", extractErrorMessage(error), 0, 1);
         toastError(error, "刷新账户失败");
       } finally {
         setRefreshingTokens((prev) => {
@@ -802,6 +930,11 @@ function AccountsPageContent() {
       const data = await new Promise<AccountRefreshResponse>((resolve, reject) => {
         const pollTimer = setInterval(async () => {
           try {
+            if (isAborted()) {
+              clearInterval(pollTimer);
+              reject(new DOMException("Aborted", "AbortError"));
+              return;
+            }
             const p = await fetchRefreshProgress(progress_id);
             if (p.done) {
               clearInterval(pollTimer);
@@ -812,6 +945,12 @@ function AccountsPageContent() {
               if (!p.result) {
                 reject(new Error("刷新结果为空"));
                 return;
+              }
+              // 记录逐项结果（errors 中为失败项）
+              const errorMap = new Map((p.result.errors ?? []).map((e) => [e.access_token, e.error]));
+              for (const token of accessTokens) {
+                const err = errorMap.get(token);
+                updateBatchItemResult(batchId, token, !err, err ?? undefined);
               }
               // 更新最终进度显示
               setProgress((prev) => ({
@@ -828,6 +967,8 @@ function AccountsPageContent() {
                 ...prev,
                 current: p.processed,
               }));
+              // batch 队列进度
+              updateBatchItemProgress(batchId, p.total > 0 ? Math.round((p.processed / p.total) * 100) : 0);
               // 实时更新统计卡片：基数 + 已刷新的累加结果
               const runningActive = baseActive + ((p.status_counts?.["正常"]) ?? 0);
               const runningLimited = baseLimited + ((p.status_counts?.["限流"]) ?? 0);
@@ -875,17 +1016,30 @@ function AccountsPageContent() {
         setTimeout(() => setProgress({ visible: false, current: 0, total: 0, message: "", email: "" }), 800);
       }
 
-      if ((data.errors ?? []).length > 0) {
+      const refreshed = data.refreshed ?? 0;
+      const failedCount = (data.errors ?? []).length;
+      if (failedCount > 0) {
         const firstError = data.errors?.[0]?.error;
         toast.error(
-          `刷新成功 ${data.refreshed} 个，失败 ${(data.errors ?? []).length} 个${firstError ? `，首个错误：${firstError}` : ""}`,
+          `刷新成功 ${refreshed} 个，失败 ${failedCount} 个${firstError ? `，首个错误：${firstError}` : ""}`,
         );
       } else {
-        toast.success(`刷新成功 ${data.refreshed} 个账户${relogined > 0 ? `，已触发 ${relogined} 个账号重新登录` : ""}`);
+        toast.success(`刷新成功 ${refreshed} 个账户${relogined > 0 ? `，已触发 ${relogined} 个账号重新登录` : ""}`);
       }
+      addOperationResult(
+        "批量刷新完成",
+        `刷新成功 ${refreshed} 个账户${relogined > 0 ? `，已触发 ${relogined} 个账号重新登录` : ""}`,
+        refreshed,
+        failedCount,
+      );
     } catch (error) {
       setProgress({ visible: false, current: 0, total: 0, message: "", email: "" });
       setRefreshSummary(null);
+      if (isAborted()) return;
+      for (const token of accessTokens) {
+        updateBatchItemResult(batchId, token, false, extractErrorMessage(error));
+      }
+      addOperationResult("批量刷新失败", extractErrorMessage(error), 0, accessTokens.length);
       toastError(error, "刷新账户失败");
     } finally {
       busyRef.current = false;
@@ -896,10 +1050,16 @@ function AccountsPageContent() {
   const pollRefreshProgress = async (
     progressId: string,
     onUpdate: (p: RefreshProgressResponse) => void,
+    isAborted?: () => boolean,
   ): Promise<void> => {
     return new Promise<void>((resolve, reject) => {
       const timer = setInterval(async () => {
         try {
+          if (isAborted?.()) {
+            clearInterval(timer);
+            reject(new DOMException("Aborted", "AbortError"));
+            return;
+          }
           const p = await fetchRefreshProgress(progressId);
           if (p.done) {
             clearInterval(timer);
@@ -942,6 +1102,13 @@ function AccountsPageContent() {
     // v2.9.0：第一阶段——先调 recover（refresh_token 换 token 路径，覆盖纯 token 账号）
     setIsRelogining(true);
     let remainingAbnormalTokens = abnormalTokens;
+
+    // 批量队列：入队本次恢复任务（recover + re-login 两阶段统一收集结果）
+    const batchId = enqueueBatchItem({ action: "relogin", label: "恢复异常账号", tokens: abnormalTokens });
+    const isAborted = () => isBatchAborted(batchId);
+    let stageSuccess = 0;
+    let stageFail = 0;
+
     try {
       toast.info(`正在尝试恢复 ${abnormalTokens.length} 个异常账号（refresh_token 路径）...`);
       const recoverResult = await recoverAbnormalAccounts(abnormalTokens);
@@ -958,7 +1125,14 @@ function AccountsPageContent() {
             .filter((a) => a.status === "异常" && abnormalTokens.includes(a.access_token))
             .map((a) => a.access_token)
         : abnormalTokens;
+      // 批量队列：refresh_token 路径恢复成功的账号标记为成功
+      const recoveredTokens = abnormalTokens.filter((t) => !remainingAbnormalTokens.includes(t));
+      for (const t of recoveredTokens) {
+        updateBatchItemResult(batchId, t, true);
+        stageSuccess += 1;
+      }
       if (remainingAbnormalTokens.length === 0) {
+        addOperationResult("批量恢复完成", `refresh_token 路径恢复成功 ${recoveredCount} 个账号`, stageSuccess, stageFail);
         toast.success(`全部 ${abnormalTokens.length} 个异常账号已恢复`);
         setIsRelogining(false);
         await loadAccounts();
@@ -969,6 +1143,12 @@ function AccountsPageContent() {
         return a && (a as { password?: string }).password;
       });
       if (hasPassword.length === 0) {
+        // 批量队列：无法恢复的账号标记失败
+        for (const t of remainingAbnormalTokens) {
+          updateBatchItemResult(batchId, t, false, "无邮箱密码，refresh_token 已失效");
+          stageFail += 1;
+        }
+        addOperationResult("批量恢复完成", `仍有 ${remainingAbnormalTokens.length} 个异常账号无法恢复（无邮箱密码）`, stageSuccess, stageFail);
         toast.warning(`仍有 ${remainingAbnormalTokens.length} 个异常账号无法恢复（无邮箱密码，refresh_token 已失效）`);
         setIsRelogining(false);
         await loadAccounts();
@@ -999,6 +1179,11 @@ function AccountsPageContent() {
       await new Promise<void>((resolve, reject) => {
         const pollTimer = setInterval(async () => {
           try {
+            if (isAborted()) {
+              clearInterval(pollTimer);
+              reject(new DOMException("Aborted", "AbortError"));
+              return;
+            }
             const p = await fetchReLoginProgress(progress_id);
             if (p.done) {
               clearInterval(pollTimer);
@@ -1006,11 +1191,20 @@ function AccountsPageContent() {
                 reject(new Error(p.error));
                 return;
               }
+              // 批量队列：记录逐项结果（status === "成功" 视为成功，未出现在结果中视为未处理）
+              const resultMap = new Map((p.results ?? []).map((r) => [r.token, r]));
+              for (const t of remainingAbnormalTokens) {
+                const r = resultMap.get(t);
+                const ok = r ? r.status === "成功" : false;
+                updateBatchItemResult(batchId, t, ok, r?.error ?? (r ? undefined : "未处理"));
+                if (ok) stageSuccess += 1; else stageFail += 1;
+              }
               setProgress((prev) => ({ ...prev, current: prev.total, message: "恢复流程已完成" }));
               setRefreshSummary(null);
               resolve();
             } else {
               // 实时更新进度
+              updateBatchItemProgress(batchId, p.total > 0 ? Math.round((p.processed / p.total) * 100) : 0);
               const results = p.results ?? [];
               const lastErrorResult = [...results].reverse().find((r) => r.error);
               const emailHint = lastErrorResult
@@ -1070,9 +1264,17 @@ function AccountsPageContent() {
       setTimeout(() => setProgress({ visible: false, current: 0, total: 0, message: "", email: "" }), 800);
 
       toast.success(`恢复流程已全部完成`);
+      addOperationResult("批量恢复完成", `恢复流程已全部完成（成功 ${stageSuccess}，失败 ${stageFail}）`, stageSuccess, stageFail);
     } catch (error) {
       setProgress({ visible: false, current: 0, total: 0, message: "", email: "" });
       setRefreshSummary(null);
+      if (isAborted()) return;
+      // 批量队列：剩余的（re-login 未处理）账号标记失败
+      for (const t of remainingAbnormalTokens) {
+        updateBatchItemResult(batchId, t, false, extractErrorMessage(error));
+        stageFail += 1;
+      }
+      addOperationResult("批量恢复失败", extractErrorMessage(error), stageSuccess, stageFail);
       toastError(error, "重新登录失败");
     } finally {
       setIsRelogining(false);
@@ -1235,8 +1437,28 @@ function AccountsPageContent() {
             <Download className="size-4" />
             导出全部 Token
           </Button>
+          <Button
+            variant="outline"
+            className="h-10 rounded-xl border-stone-200 bg-white/80 px-4 text-stone-700 hover:bg-white"
+            onClick={() => setBatchHistoryOpen(true)}
+          >
+            <History className="size-4" />
+            操作历史
+          </Button>
         </div>
       </section>
+
+      {/* 批量操作队列面板（活跃任务 + 查看结果 / 重试 / 取消） */}
+      <BatchQueuePanel
+        queue={batchQueueSnapshot()}
+        onCancel={(id) => {
+          cancelBatchItem(id);
+          addNotification({ type: "operation", title: "批量操作已取消", message: "任务已被手动取消" });
+        }}
+        onViewResult={setBatchResultItem}
+        onResume={handleBatchResume}
+        className="mb-4"
+      />
 
       {/* 进度条 */}
       {progress.visible && (
@@ -2339,6 +2561,21 @@ function AccountsPageContent() {
           ) : null}
         </SheetContent>
       </Sheet>
+
+      {/* 批量操作结果弹窗 */}
+      <BatchResultDialog
+        item={batchResultItem}
+        onClose={() => setBatchResultItem(null)}
+        onRetry={(failedTokens) => {
+          if (batchResultItem) {
+            resumeBatchItem(batchResultItem.id, failedTokens);
+          }
+          setBatchResultItem(null);
+        }}
+      />
+
+      {/* 批量操作历史弹窗 */}
+      <BatchHistoryDialog open={batchHistoryOpen} onOpenChange={setBatchHistoryOpen} />
     </>
   );
 }

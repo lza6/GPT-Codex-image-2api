@@ -11,11 +11,9 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, Header, HTTPException, Response
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import Response as FastAPIResponse
-
-from api.response_cache import response_cache, apply_cache_headers
 from pydantic import BaseModel, Field
 
+from api.response_cache import apply_cache_headers, response_cache
 from api.support import (
     require_admin,
     sanitize_cpa_pool,
@@ -131,6 +129,15 @@ class AccountRefreshRequest(BaseModel):
 class AccountExportRequest(BaseModel):
     access_tokens: list[str] = Field(default_factory=list)
     format: Literal["json", "zip"] = "json"
+
+
+class AccountDetailRequest(BaseModel):
+    access_token: str = ""
+
+
+class AccountBatchExportCSVRequest(BaseModel):
+    format: str = "csv"
+    ids: list[str] = Field(default_factory=list)
 
 
 class AccountBatchRequest(BaseModel):
@@ -521,6 +528,74 @@ def create_router() -> APIRouter:
             media_type="application/json",
             headers={"Content-Disposition": f'attachment; filename="codex-accounts-{timestamp}.json"'},
         )
+
+    @router.post("/api/accounts/export-csv")
+    async def export_accounts_csv(body: AccountBatchExportCSVRequest, authorization: str | None = Header(default=None)):
+        """批量导出选中账号为 CSV（前端触发浏览器下载）。"""
+        require_admin(authorization)
+        access_tokens = _unique_tokens(body.ids)
+        items = account_service.build_export_items(access_tokens)
+        if not items:
+            raise HTTPException(
+                status_code=400,
+                detail={"error": "没有可导出的完整账号，需要同时有 access_token、refresh_token 和 id_token"},
+            )
+        # 仅导出非敏感字段（access_token 完整/type/status/quota/email），避免 CSV 泄露 refresh_token
+        rows = [
+            {
+                "access_token": it.get("access_token", ""),
+                "email": it.get("email", ""),
+                "type": it.get("type", ""),
+                "status": it.get("status", ""),
+                "quota": it.get("quota", ""),
+            }
+            for it in items
+        ]
+        import csv as _csv
+
+        buf = io.StringIO()
+        writer = _csv.DictWriter(buf, fieldnames=list(rows[0].keys()) if rows else [])
+        writer.writeheader()
+        writer.writerows(rows)
+        return Response(
+            buf.getvalue(),
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="accounts-{_download_timestamp()}.csv"'},
+        )
+
+    @router.get("/api/accounts/tags")
+    async def account_tags(authorization: str | None = Header(default=None)):
+        """获取所有账号标签（去重后的 label 字段列表）。"""
+        require_admin(authorization)
+        accounts = account_service.list_accounts()
+        seen: dict[str, int] = {}
+        for account in accounts:
+            label = str(account.get("label") or "").strip()
+            if label:
+                seen[label] = seen.get(label, 0) + 1
+        tags = [{"name": name, "color": "", "count": cnt} for name, cnt in seen.items()]
+        return {"tags": tags}
+
+    @router.post("/api/accounts/detail")
+    async def account_detail(body: AccountDetailRequest, authorization: str | None = Header(default=None)):
+        """获取指定账号完整信息（含敏感字段，供详情侧栏）。"""
+        require_admin(authorization)
+        token = str(body.access_token or "").strip()
+        if not token:
+            raise HTTPException(status_code=400, detail={"error": "access_token 不能为空"})
+        account = account_service.get_account(token)
+        if account is None:
+            raise HTTPException(status_code=404, detail={"error": "账号不存在或已被移除"})
+        # 附带熔断状态（枚举转字符串，避免前端收到 Enum 对象）
+        from services.circuit_breaker import circuit_breaker_registry as _cbr
+
+        detail = dict(account)
+        try:
+            breaker = _cbr.get(token)
+            detail["breaker_state"] = str(breaker.state.value if hasattr(breaker.state, "value") else breaker.state)
+        except Exception:
+            pass
+        return {"item": detail}
 
     @router.post("/api/accounts/batch")
     async def batch_accounts(body: AccountBatchRequest, authorization: str | None = Header(default=None)):
