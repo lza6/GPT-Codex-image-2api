@@ -53,6 +53,7 @@ const setSchedulerAdaptiveIntervalSeconds = useSettingsStore((state) => state.se
   const setAlertWebhookUrl = useSettingsStore((state) => state.setAlertWebhookUrl);
   const setAlertWebhookTimeout = useSettingsStore((state) => state.setAlertWebhookTimeout);
   const toggleAlertEvent = useSettingsStore((state) => state.toggleAlertEvent);
+  const setAlertChannelField = useSettingsStore((state) => state.setAlertChannelField);
   const setLogLevel = useSettingsStore((state) => state.setLogLevel);
   const setProxy = useSettingsStore((state) => state.setProxy);
   const setBaseUrl = useSettingsStore((state) => state.setBaseUrl);
@@ -67,6 +68,20 @@ const setSchedulerAdaptiveIntervalSeconds = useSettingsStore((state) => state.se
   const isTestingImageStorage = useSettingsStore((state) => state.isTestingImageStorage);
   const isSyncingImageStorage = useSettingsStore((state) => state.isSyncingImageStorage);
   const saveConfig = useSettingsStore((state) => state.saveConfig);
+
+  const storageMode: ImageStorageMode = config?.image_storage?.enabled
+    ? (config.image_storage.mode as ImageStorageMode)
+    : "local";
+  const alertChannel = (name: string) => config?.alert_channels?.[name] || {};
+  const isWebdavMode = storageMode === "webdav" || storageMode === "both";
+  const isR2Mode = storageMode === "r2" || storageMode === "r2_local";
+  const STORAGE_MODE_LABEL: Record<ImageStorageMode, string> = {
+    local: "仅本机",
+    webdav: "仅 WebDAV",
+    both: "本机 + WebDAV",
+    r2: "仅 R2",
+    r2_local: "本机 + R2",
+  };
 
   const handleTestProxy = async () => {
     const candidate = String(config?.proxy || "").trim();
@@ -431,6 +446,159 @@ const setSchedulerAdaptiveIntervalSeconds = useSettingsStore((state) => state.se
               ))}
             </div>
           </div>
+          <div className="space-y-4 rounded-xl border border-stone-200 bg-white px-4 py-3 md:col-span-2">
+            <div>
+              <label className="text-sm text-stone-700">告警多通道</label>
+              <p className="mt-1 text-xs text-stone-500">
+                可多通道并存，同一事件分发到所有启用通道；任一通道失败不影响其他通道。开关打开后需填写对应参数，参数不全的通道自动跳过。
+              </p>
+            </div>
+            <div className="space-y-2 rounded-lg border border-stone-100 bg-stone-50 p-3">
+              <label className="flex items-center gap-3 text-sm text-stone-700">
+                <Checkbox
+                  checked={Boolean(alertChannel("telegram_ops").enabled)}
+                  onCheckedChange={(checked) => setAlertChannelField("telegram_ops", "enabled", Boolean(checked))}
+                />
+                Telegram Bot
+              </label>
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="space-y-1">
+                  <label className="text-xs text-stone-500">Bot Token</label>
+                  <Input
+                    type="password"
+                    value={String(alertChannel("telegram_ops").bot_token || "")}
+                    onChange={(event) => setAlertChannelField("telegram_ops", "bot_token", event.target.value)}
+                    placeholder="123456:ABC-DEF..."
+                    className="h-10 rounded-xl border-stone-200 bg-white"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-stone-500">Chat ID</label>
+                  <Input
+                    value={String(alertChannel("telegram_ops").chat_id || "")}
+                    onChange={(event) => setAlertChannelField("telegram_ops", "chat_id", event.target.value)}
+                    placeholder="@channel 或 -100xxxxxxxxxx"
+                    className="h-10 rounded-xl border-stone-200 bg-white"
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="space-y-2 rounded-lg border border-stone-100 bg-stone-50 p-3">
+              <label className="flex items-center gap-3 text-sm text-stone-700">
+                <Checkbox
+                  checked={Boolean(alertChannel("wecom_ops").enabled)}
+                  onCheckedChange={(checked) => setAlertChannelField("wecom_ops", "enabled", Boolean(checked))}
+                />
+                企业微信机器人
+              </label>
+              <div className="space-y-1">
+                <label className="text-xs text-stone-500">Webhook URL</label>
+                <Input
+                  value={String(alertChannel("wecom_ops").webhook_url || "")}
+                  onChange={(event) => setAlertChannelField("wecom_ops", "webhook_url", event.target.value)}
+                  placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..."
+                  className="h-10 rounded-xl border-stone-200 bg-white"
+                />
+              </div>
+            </div>
+            <div className="space-y-2 rounded-lg border border-stone-100 bg-stone-50 p-3">
+              <label className="flex items-center gap-3 text-sm text-stone-700">
+                <Checkbox
+                  checked={Boolean(alertChannel("dingtalk_ops").enabled)}
+                  onCheckedChange={(checked) => setAlertChannelField("dingtalk_ops", "enabled", Boolean(checked))}
+                />
+                钉钉机器人
+              </label>
+              <div className="space-y-1">
+                <label className="text-xs text-stone-500">Webhook URL</label>
+                <Input
+                  value={String(alertChannel("dingtalk_ops").webhook_url || "")}
+                  onChange={(event) => setAlertChannelField("dingtalk_ops", "webhook_url", event.target.value)}
+                  placeholder="https://oapi.dingtalk.com/robot/send?access_token=..."
+                  className="h-10 rounded-xl border-stone-200 bg-white"
+                />
+              </div>
+            </div>
+            <div className="space-y-2 rounded-lg border border-stone-100 bg-stone-50 p-3">
+              <label className="flex items-center gap-3 text-sm text-stone-700">
+                <Checkbox
+                  checked={Boolean(alertChannel("email_ops").enabled)}
+                  onCheckedChange={(checked) => setAlertChannelField("email_ops", "enabled", Boolean(checked))}
+                />
+                SMTP 邮件
+              </label>
+              <div className="grid gap-3 md:grid-cols-3">
+                <div className="space-y-1 md:col-span-2">
+                  <label className="text-xs text-stone-500">SMTP 主机</label>
+                  <Input
+                    value={String(alertChannel("email_ops").smtp_host || "")}
+                    onChange={(event) => setAlertChannelField("email_ops", "smtp_host", event.target.value)}
+                    placeholder="smtp.example.com"
+                    className="h-10 rounded-xl border-stone-200 bg-white"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-stone-500">端口</label>
+                  <Input
+                    value={String(alertChannel("email_ops").smtp_port ?? 465)}
+                    onChange={(event) => setAlertChannelField("email_ops", "smtp_port", event.target.value)}
+                    placeholder="465"
+                    className="h-10 rounded-xl border-stone-200 bg-white"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-stone-500">用户名</label>
+                  <Input
+                    value={String(alertChannel("email_ops").smtp_user || "")}
+                    onChange={(event) => setAlertChannelField("email_ops", "smtp_user", event.target.value)}
+                    className="h-10 rounded-xl border-stone-200 bg-white"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-stone-500">密码</label>
+                  <Input
+                    type="password"
+                    value={String(alertChannel("email_ops").smtp_password || "")}
+                    onChange={(event) => setAlertChannelField("email_ops", "smtp_password", event.target.value)}
+                    className="h-10 rounded-xl border-stone-200 bg-white"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-stone-500">发件人地址</label>
+                  <Input
+                    value={String(alertChannel("email_ops").from_addr || "")}
+                    onChange={(event) => setAlertChannelField("email_ops", "from_addr", event.target.value)}
+                    placeholder="留空时使用用户名"
+                    className="h-10 rounded-xl border-stone-200 bg-white"
+                  />
+                </div>
+                <div className="flex items-end pb-1">
+                  <label className="flex items-center gap-2 text-sm text-stone-700">
+                    <Checkbox
+                      checked={Boolean(alertChannel("email_ops").use_tls !== false)}
+                      onCheckedChange={(checked) => setAlertChannelField("email_ops", "use_tls", Boolean(checked))}
+                    />
+                    SSL / TLS
+                  </label>
+                </div>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-stone-500">收件人（逗号分隔，支持多个）</label>
+                <Input
+                  value={(alertChannel("email_ops").to_addrs || []).join(",")}
+                  onChange={(event) =>
+                    setAlertChannelField(
+                      "email_ops",
+                      "to_addrs",
+                      event.target.value.split(",").map((item) => item.trim()),
+                    )
+                  }
+                  placeholder="ops@example.com,admin@example.com"
+                  className="h-10 rounded-xl border-stone-200 bg-white"
+                />
+              </div>
+            </div>
+          </div>
           <div className="space-y-2">
             <div className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-4 py-3">
               <Checkbox
@@ -559,7 +727,7 @@ const setSchedulerAdaptiveIntervalSeconds = useSettingsStore((state) => state.se
                   checked={Boolean(config?.image_storage?.enabled)}
                   onCheckedChange={(checked) => setImageStorageField("enabled", Boolean(checked))}
                 />
-                启用 WebDAV 图片存储
+                启用远端图片存储（WebDAV / R2）
               </label>
               <div className="flex flex-wrap gap-2">
                 <Button
@@ -570,14 +738,14 @@ const setSchedulerAdaptiveIntervalSeconds = useSettingsStore((state) => state.se
                   disabled={isTestingImageStorage || !config?.image_storage?.enabled}
                 >
                   {isTestingImageStorage ? <LoaderCircle className="size-4 animate-spin" /> : <Cloud className="size-4" />}
-                  测试 WebDAV
+                  {isR2Mode ? "测试 R2" : "测试 WebDAV"}
                 </Button>
                 <Button
                   type="button"
                   variant="outline"
                   className="h-9 rounded-xl border-stone-200 bg-white px-4 text-stone-700"
                   onClick={() => void syncImagesToWebDAV()}
-                  disabled={isSyncingImageStorage || !config?.image_storage?.enabled || config?.image_storage?.mode === "local"}
+                  disabled={isSyncingImageStorage || !config?.image_storage?.enabled || storageMode === "local"}
                 >
                   {isSyncingImageStorage ? <LoaderCircle className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
                   全量同步
@@ -585,19 +753,11 @@ const setSchedulerAdaptiveIntervalSeconds = useSettingsStore((state) => state.se
               </div>
             </div>
             <p className="text-xs leading-6 text-stone-500">
-              生成时只处理本次新图片；全量同步用于把已有本地图片补传到 WebDAV。
+              生成时只处理本次新图片；全量同步用于把已有本地图片补传到远端存储（WebDAV / R2）。
             </p>
             <div className="rounded-lg border border-stone-100 bg-stone-50 px-3 py-2 text-xs text-stone-600">
               当前待保存模式：
-              <span className="ml-1 font-medium text-stone-900">
-                {config?.image_storage?.enabled
-                  ? config.image_storage.mode === "both"
-                    ? "本机 + WebDAV"
-                    : config.image_storage.mode === "webdav"
-                      ? "仅 WebDAV"
-                      : "仅本机"
-                  : "仅本机"}
-              </span>
+              <span className="ml-1 font-medium text-stone-900">{STORAGE_MODE_LABEL[storageMode]}</span>
               <span className="ml-2 text-stone-400">修改后需要点保存，或通过测试/同步按钮自动保存。</span>
             </div>
             <div className="grid gap-4 md:grid-cols-3">
@@ -615,48 +775,109 @@ const setSchedulerAdaptiveIntervalSeconds = useSettingsStore((state) => state.se
                     <SelectItem value="local">仅本机</SelectItem>
                     <SelectItem value="webdav">仅 WebDAV</SelectItem>
                     <SelectItem value="both">本机 + WebDAV</SelectItem>
+                    <SelectItem value="r2">仅 R2</SelectItem>
+                    <SelectItem value="r2_local">本机 + R2</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2 md:col-span-2">
-                <label className="text-sm text-stone-700">WebDAV URL</label>
-                <Input
-                  value={String(config?.image_storage?.webdav_url || "")}
-                  onChange={(event) => setImageStorageField("webdav_url", event.target.value)}
-                  placeholder="https://example.com/dav"
-                  className="h-10 rounded-xl border-stone-200 bg-white"
-                  disabled={!config?.image_storage?.enabled}
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm text-stone-700">用户名</label>
-                <Input
-                  value={String(config?.image_storage?.webdav_username || "")}
-                  onChange={(event) => setImageStorageField("webdav_username", event.target.value)}
-                  className="h-10 rounded-xl border-stone-200 bg-white"
-                  disabled={!config?.image_storage?.enabled}
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm text-stone-700">密码</label>
-                <Input
-                  type="password"
-                  value={String(config?.image_storage?.webdav_password || "")}
-                  onChange={(event) => setImageStorageField("webdav_password", event.target.value)}
-                  className="h-10 rounded-xl border-stone-200 bg-white"
-                  disabled={!config?.image_storage?.enabled}
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm text-stone-700">远端目录</label>
-                <Input
-                  value={String(config?.image_storage?.webdav_root_path || "")}
-                  onChange={(event) => setImageStorageField("webdav_root_path", event.target.value)}
-                  placeholder="chatgpt2api/images"
-                  className="h-10 rounded-xl border-stone-200 bg-white"
-                  disabled={!config?.image_storage?.enabled}
-                />
-              </div>
+              {isWebdavMode ? (
+                <>
+                  <div className="space-y-2 md:col-span-2">
+                    <label className="text-sm text-stone-700">WebDAV URL</label>
+                    <Input
+                      value={String(config?.image_storage?.webdav_url || "")}
+                      onChange={(event) => setImageStorageField("webdav_url", event.target.value)}
+                      placeholder="https://example.com/dav"
+                      className="h-10 rounded-xl border-stone-200 bg-white"
+                      disabled={!config?.image_storage?.enabled}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm text-stone-700">用户名</label>
+                    <Input
+                      value={String(config?.image_storage?.webdav_username || "")}
+                      onChange={(event) => setImageStorageField("webdav_username", event.target.value)}
+                      className="h-10 rounded-xl border-stone-200 bg-white"
+                      disabled={!config?.image_storage?.enabled}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm text-stone-700">密码</label>
+                    <Input
+                      type="password"
+                      value={String(config?.image_storage?.webdav_password || "")}
+                      onChange={(event) => setImageStorageField("webdav_password", event.target.value)}
+                      className="h-10 rounded-xl border-stone-200 bg-white"
+                      disabled={!config?.image_storage?.enabled}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm text-stone-700">远端目录</label>
+                    <Input
+                      value={String(config?.image_storage?.webdav_root_path || "")}
+                      onChange={(event) => setImageStorageField("webdav_root_path", event.target.value)}
+                      placeholder="chatgpt2api/images"
+                      className="h-10 rounded-xl border-stone-200 bg-white"
+                      disabled={!config?.image_storage?.enabled}
+                    />
+                  </div>
+                </>
+              ) : isR2Mode ? (
+                <>
+                  <div className="space-y-2 md:col-span-3">
+                    <label className="text-sm text-stone-700">R2 Account ID</label>
+                    <Input
+                      value={String(config?.image_storage?.r2_account_id || "")}
+                      onChange={(event) => setImageStorageField("r2_account_id", event.target.value)}
+                      placeholder="Cloudflare 账号 ID（endpoint 域名前缀）"
+                      className="h-10 rounded-xl border-stone-200 bg-white"
+                      disabled={!config?.image_storage?.enabled}
+                    />
+                  </div>
+                  <div className="space-y-2 md:col-span-3">
+                    <label className="text-sm text-stone-700">Access Key ID</label>
+                    <Input
+                      value={String(config?.image_storage?.r2_access_key_id || "")}
+                      onChange={(event) => setImageStorageField("r2_access_key_id", event.target.value)}
+                      placeholder="R2 API Token Access Key ID"
+                      className="h-10 rounded-xl border-stone-200 bg-white"
+                      disabled={!config?.image_storage?.enabled}
+                    />
+                  </div>
+                  <div className="space-y-2 md:col-span-3">
+                    <label className="text-sm text-stone-700">Secret Access Key</label>
+                    <Input
+                      type="password"
+                      value={String(config?.image_storage?.r2_secret_access_key || "")}
+                      onChange={(event) => setImageStorageField("r2_secret_access_key", event.target.value)}
+                      placeholder="R2 API Token Secret Access Key"
+                      className="h-10 rounded-xl border-stone-200 bg-white"
+                      disabled={!config?.image_storage?.enabled}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm text-stone-700">Bucket</label>
+                    <Input
+                      value={String(config?.image_storage?.r2_bucket || "")}
+                      onChange={(event) => setImageStorageField("r2_bucket", event.target.value)}
+                      placeholder="bucket 名"
+                      className="h-10 rounded-xl border-stone-200 bg-white"
+                      disabled={!config?.image_storage?.enabled}
+                    />
+                  </div>
+                  <div className="space-y-2 md:col-span-2">
+                    <label className="text-sm text-stone-700">对象前缀</label>
+                    <Input
+                      value={String(config?.image_storage?.r2_prefix || "images")}
+                      onChange={(event) => setImageStorageField("r2_prefix", event.target.value)}
+                      placeholder="images"
+                      className="h-10 rounded-xl border-stone-200 bg-white"
+                      disabled={!config?.image_storage?.enabled}
+                    />
+                    <p className="text-xs text-stone-500">对象键前缀，与公开直链路径一致（public_base_url 后拼接）。</p>
+                  </div>
+                </>
+              ) : null}
               <div className="space-y-2 md:col-span-3">
                 <label className="text-sm text-stone-700">公开访问前缀</label>
                 <Input
@@ -666,7 +887,9 @@ const setSchedulerAdaptiveIntervalSeconds = useSettingsStore((state) => state.se
                   className="h-10 rounded-xl border-stone-200 bg-white"
                   disabled={!config?.image_storage?.enabled}
                 />
-                <p className="text-xs text-stone-500">留空时返回本应用 /images/... 代理地址；填入后直接返回公开图片地址。</p>
+                <p className="text-xs text-stone-500">
+                  留空时返回本应用 /images/... 代理地址；填入后直接返回公开图片地址（R2 模式下自动拼接对象前缀）。
+                </p>
               </div>
             </div>
           </div>

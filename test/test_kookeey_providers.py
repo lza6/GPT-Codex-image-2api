@@ -242,7 +242,12 @@ class TestKookeeyBalanceEndpoint:
         """未配置 developer_token/access_id → need_config。"""
         from unittest.mock import patch
 
-        with patch.object(self._ak, "require_admin", return_value={"role": "admin"}):
+        from services.kookeey_service import KookeeyConfig
+        # 全量跑时其它测试的 app lifespan 会把 config.json 的 kookeey 配置灌入共享单例
+        # （api/app.py lifespan `kookeey_service.update_config`），导致本测试走「已配置」分支——
+        # 显式重置单例配置为空，保证测试自包含、不依赖单例初始态
+        with patch.object(self._ak.kookeey_service, "_config", KookeeyConfig()), \
+             patch.object(self._ak, "require_admin", return_value={"role": "admin"}):
             r = self._client.get("/api/kookeey/balance")
         body = r.json()
         assert r.status_code == 200

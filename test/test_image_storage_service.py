@@ -1,13 +1,19 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
 import tempfile
 import unittest
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest import mock
+from urllib.parse import urlencode
 
+from fastapi.testclient import TestClient
 from PIL import Image
 
-from services.image_storage_service import ImageStorageService
+from api.app import create_app
+from services.image_storage_service import ImageStorageError, ImageStorageService, R2Client
 
 
 def png_bytes() -> bytes:
@@ -39,6 +45,187 @@ class FakeWebDAVClient:
         self.put(".chatgpt2api_webdav_test.txt", b"chatgpt2api webdav test\n")
         self.delete(".chatgpt2api_webdav_test.txt")
         return {"ok": True, "status": 200, "error": None}
+
+
+def _reference_sigv4_signature(secret: str, now: datetime, method: str, path: str, query: dict[str, str], body: bytes) -> str:
+    """独立参考实现：用与被测 `_aws_v4_headers` 相同步骤重算签名，验证被测无步骤漂移。"""
+    amz_date = now.strftime("%Y%m%dT%H%M%SZ")
+    date_stamp = now.strftime("%Y%m%d")
+    payload_hash = hashlib.sha256(body).hexdigest()
+    headers = {
+        "host": "test-acct.r2.cloudflarestorage.com",
+        "x-amz-content-sha256": payload_hash,
+        "x-amz-date": amz_date,
+    }
+    sorted_items = sorted((key.lower(), " ".join(str(value).strip().split())) for key, value in headers.items())
+    canonical_headers = "".join(f"{key}:{value}\n" for key, value in sorted_items)
+    signed_headers = ";".join(key for key, _ in sorted_items)
+    encoded_query = urlencode(sorted((query or {}).items()))
+    canonical_request = "\n".join([method.upper(), path, encoded_query, canonical_headers, signed_headers, payload_hash])
+    scope = f"{date_stamp}/auto/s3/aws4_request"
+    string_to_sign = "\n".join(["AWS4-HMAC-SHA256", amz_date, scope, hashlib.sha256(canonical_request.encode("utf-8")).hexdigest()])
+    k_date = hmac.new(("AWS4" + secret).encode("utf-8"), date_stamp.encode("utf-8"), hashlib.sha256).digest()
+    k_region = hmac.new(k_date, b"auto", hashlib.sha256).digest()
+    k_service = hmac.new(k_region, b"s3", hashlib.sha256).digest()
+    k_signing = hmac.new(k_service, b"aws4_request", hashlib.sha256).digest()
+    return hmac.new(k_signing, string_to_sign.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+class FakeResponse:
+    def __init__(self, status_code: int = 200, content: bytes = b"", text: str = "", headers: dict[str, str] | None = None):
+        self.status_code = status_code
+        self.content = content
+        self.text = text
+        self.headers = headers or {}
+
+
+class FakeR2Session:
+    """可编程 R2 HTTP 会话替身：响应队列按调用顺序消费（含分页 continuation）。"""
+
+    responses: list[tuple[str, FakeResponse]] = []
+
+    def __init__(self, **kwargs):
+        self.calls = []
+
+    def request(self, method: str, url: str, **kwargs):
+        self.calls.append({
+            "method": method.upper(),
+            "url": url,
+            "headers": kwargs.get("headers", {}),
+            "data": kwargs.get("data", b""),
+            "timeout": kwargs.get("timeout"),
+        })
+        for i, (exp_method, resp) in enumerate(FakeR2Session.responses):
+            if exp_method == method.upper():
+                return FakeR2Session.responses.pop(i)[1]
+        return FakeResponse(status_code=404, text="<Error>no response programmed</Error>")
+
+    def close(self) -> None:
+        pass
+
+
+class R2ClientTests(unittest.TestCase):
+    """R2Client 层直接验证：SigV4 签名 / object_key / HTTP 语义 / ListObjectsV2 解析。"""
+
+    def setUp(self):
+        self.settings = {
+            "r2_account_id": "test-acct",
+            "r2_access_key_id": "test-access",
+            "r2_secret_access_key": "test-secret",
+            "r2_bucket": "test-bucket",
+            "r2_prefix": "images",
+        }
+        self.session_patcher = mock.patch("services.image_storage_service.requests.Session", FakeR2Session)
+        self.session_patcher.start()
+        self.addCleanup(self.session_patcher.stop)
+        FakeR2Session.responses = []
+
+    def client(self) -> R2Client:
+        return R2Client(self.settings)
+
+    def test_validate_raises_on_missing_r2_fields(self):
+        self.settings = {**self.settings, "r2_access_key_id": "", "r2_bucket": ""}
+        with self.assertRaises(ImageStorageError) as ctx:
+            self.client().validate()
+        message = str(ctx.exception)
+        self.assertIn("r2_access_key_id", message)
+        self.assertIn("r2_bucket", message)
+
+    def test_object_key_prefixes_rel(self):
+        self.assertEqual(self.client().object_key("2026/08/12/a.png"), "images/2026/08/12/a.png")
+        self.assertEqual(self.client().object_key("a.png"), "images/a.png")
+
+    def test_object_key_sanitizes_traversal(self):
+        # `..` 段会被 _safe_relative_path 直接拒绝（HTTPException 404），防路径穿越而非清理
+        from fastapi import HTTPException
+
+        with self.assertRaises(HTTPException):
+            self.client().object_key("../escape.png")
+
+    def test_aws_v4_headers_contain_expected_components(self):
+        fixed = datetime(2026, 8, 12, 3, 4, 5, tzinfo=UTC)
+        with mock.patch("services.image_storage_service._utc_now", return_value=fixed):
+            _, headers = self.client()._aws_v4_headers(
+                "PUT", "/test-bucket/images/a.png", body=b"hello", extra_headers={"content-type": "image/png"}
+            )
+        self.assertEqual(headers["x-amz-date"], "20260812T030405Z")
+        self.assertEqual(headers["x-amz-content-sha256"], hashlib.sha256(b"hello").hexdigest())
+        auth = headers["authorization"]
+        self.assertTrue(auth.startswith("AWS4-HMAC-SHA256 "))
+        self.assertIn("Credential=test-access/20260812/auto/s3/aws4_request", auth)
+        self.assertIn("SignedHeaders=content-type;host;x-amz-content-sha256;x-amz-date", auth)
+
+    def test_aws_v4_signature_matches_independent_reference(self):
+        fixed = datetime(2026, 8, 12, 3, 4, 5, tzinfo=UTC)
+        with mock.patch("services.image_storage_service._utc_now", return_value=fixed):
+            _, headers = self.client()._aws_v4_headers("GET", "/test-bucket", query={"list-type": "2", "max-keys": "1"})
+        expected = _reference_sigv4_signature("test-secret", fixed, "GET", "/test-bucket", {"list-type": "2", "max-keys": "1"}, b"")
+        self.assertEqual(headers["authorization"].split("Signature=")[1], expected)
+
+    def test_put_returns_key_and_etag(self):
+        FakeR2Session.responses = [("PUT", FakeResponse(status_code=200, headers={"etag": '"abc123"'}))]
+        result = self.client().put("a.png", b"data", content_type="image/png")
+        self.assertEqual(result["key"], "images/a.png")
+        self.assertEqual(result["etag"], "abc123")
+
+    def test_put_raises_on_error_status(self):
+        FakeR2Session.responses = [("PUT", FakeResponse(status_code=500, text="<Error/>"))]
+        with self.assertRaises(ImageStorageError):
+            self.client().put("a.png", b"data")
+
+    def test_get_returns_content(self):
+        FakeR2Session.responses = [("GET", FakeResponse(status_code=200, content=b"\x89PNG\r\n"))]
+        self.assertEqual(self.client().get("a.png"), b"\x89PNG\r\n")
+
+    def test_get_404_raises_not_found(self):
+        FakeR2Session.responses = [("GET", FakeResponse(status_code=404))]
+        with self.assertRaises(ImageStorageError) as ctx:
+            self.client().get("missing.png")
+        self.assertIn("不存在", str(ctx.exception))
+
+    def test_delete_404_returns_false(self):
+        FakeR2Session.responses = [("DELETE", FakeResponse(status_code=404))]
+        self.assertFalse(self.client().delete("gone.png"))
+
+    def test_delete_success_returns_true(self):
+        FakeR2Session.responses = [("DELETE", FakeResponse(status_code=204))]
+        self.assertTrue(self.client().delete("a.png"))
+
+    def test_list_objects_parses_list_v2(self):
+        xml = (
+            "<ListBucketResult><IsTruncated>false</IsTruncated>"
+            "<Contents><Key>images/2026/08/12/a.png</Key><Size>1024</Size>"
+            "<LastModified>2026-08-12T03:04:05.000Z</LastModified></Contents>"
+            "<Contents><Key>images/b.png</Key><Size>2048</Size>"
+            "<LastModified>2026-08-11T00:00:00.000Z</LastModified></Contents>"
+            "</ListBucketResult>"
+        )
+        FakeR2Session.responses = [("GET", FakeResponse(status_code=200, text=xml))]
+        items = self.client().list_objects()
+        self.assertEqual([item["rel"] for item in items], ["2026/08/12/a.png", "b.png"])
+        self.assertEqual(items[0]["size"], 1024)
+        self.assertEqual(items[1]["size"], 2048)
+        # 按 updated_at 倒序
+        self.assertGreater(items[0]["updated_at"], items[1]["updated_at"])
+
+    def test_list_objects_follows_continuation(self):
+        page1 = (
+            "<ListBucketResult><IsTruncated>true</IsTruncated><NextContinuationToken>tok-2</NextContinuationToken>"
+            "<Contents><Key>images/a.png</Key><Size>1</Size></Contents></ListBucketResult>"
+        )
+        page2 = (
+            "<ListBucketResult><IsTruncated>false</IsTruncated>"
+            "<Contents><Key>images/b.png</Key><Size>2</Size></Contents></ListBucketResult>"
+        )
+        FakeR2Session.responses = [("GET", FakeResponse(status_code=200, text=page1)), ("GET", FakeResponse(status_code=200, text=page2))]
+        items = self.client().list_objects()
+        self.assertEqual([item["rel"] for item in items], ["a.png", "b.png"])
+
+    def test_connection_requires_valid_session(self):
+        FakeR2Session.responses = [("GET", FakeResponse(status_code=200, text="<ListBucketResult/>"))]
+        result = self.client().test_connection()
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["status"], 200)
 
 
 class ImageStorageServiceTests(unittest.TestCase):
@@ -259,6 +446,40 @@ class R2StorageTests(unittest.TestCase):
 
         self.assertFalse(result["ok"])
         self.assertIn("R2 未启用", str(result["error"]))
+
+
+def test_sync_endpoint_maps_image_storage_error_to_400():
+    """api/system.py 同步端点把 ImageStorageError 映射为 HTTPException 400（错误映射约定）。"""
+    with mock.patch(
+        "services.image_storage_service.image_storage_service.sync_all",
+        side_effect=ImageStorageError("R2 配置不完整：缺少 r2_secret_access_key"),
+    ):
+        with TestClient(create_app()) as client:
+            resp = client.post("/api/image-storage/sync", headers={"Authorization": "Bearer chatgpt2api"})
+    assert resp.status_code == 400
+    assert "R2 配置不完整" in resp.json()["detail"]["error"]
+
+
+def test_test_endpoint_uses_r2_when_mode_is_r2():
+    """测试端点按模式分流：r2/r2_local 时调用 test_r2 而非 test_webdav。"""
+    with mock.patch("services.image_storage_service.image_storage_service.mode", return_value="r2"), \
+         mock.patch("services.image_storage_service.image_storage_service.test_r2", return_value={"ok": True, "status": 200}), \
+         mock.patch("services.image_storage_service.image_storage_service.test_webdav", side_effect=AssertionError("不应调用 test_webdav")):
+        with TestClient(create_app()) as client:
+            resp = client.post("/api/image-storage/test", headers={"Authorization": "Bearer chatgpt2api"})
+    assert resp.status_code == 200
+    assert resp.json()["result"]["ok"] is True
+
+
+def test_test_endpoint_uses_webdav_when_mode_is_local():
+    """测试端点按模式分流：非 r2 模式调用 test_webdav。"""
+    with mock.patch("services.image_storage_service.image_storage_service.mode", return_value="webdav"), \
+         mock.patch("services.image_storage_service.image_storage_service.test_webdav", return_value={"ok": False, "status": 0, "error": "n/a"}), \
+         mock.patch("services.image_storage_service.image_storage_service.test_r2", side_effect=AssertionError("不应调用 test_r2")):
+        with TestClient(create_app()) as client:
+            resp = client.post("/api/image-storage/test", headers={"Authorization": "Bearer chatgpt2api"})
+    assert resp.status_code == 200
+    assert resp.json()["result"]["ok"] is False
 
 
 if __name__ == "__main__":

@@ -4,7 +4,7 @@ export type AccountType = string;
 export type AccountStatus = "正常" | "限流" | "异常" | "禁用";
 export type ImageModel = string;
 export type AuthRole = "admin" | "user";
-export type ImageStorageMode = "local" | "webdav" | "both";
+export type ImageStorageMode = "local" | "webdav" | "both" | "r2" | "r2_local";
 
 export type ImageStorageSettings = {
   enabled: boolean;
@@ -13,6 +13,11 @@ export type ImageStorageSettings = {
   webdav_username: string;
   webdav_password: string;
   webdav_root_path: string;
+  r2_account_id: string;
+  r2_access_key_id: string;
+  r2_secret_access_key: string;
+  r2_bucket: string;
+  r2_prefix: string;
   public_base_url: string;
 };
 
@@ -282,12 +287,31 @@ export type SettingsConfig = {
   alert_webhook_url?: string;
   alert_webhook_timeout?: number;
   alert_events?: string[];
+  alert_channels?: Record<string, AlertChannelConfig>;
   session_pool_health_check_enabled?: boolean;
   image_storage?: ImageStorageSettings;
   proxy_runtime?: ProxyRuntimeSettings;
   backup?: BackupSettings;
   backup_state?: BackupState;
   [key: string]: unknown;
+};
+
+/** 告警多通道配置（telegram / wecom / dingtalk / email / 自定义 webhook） */
+export type AlertChannelType = "telegram" | "wecom" | "dingtalk" | "email";
+
+export type AlertChannelConfig = {
+  type?: string;
+  enabled?: boolean;
+  webhook_url?: string;
+  bot_token?: string;
+  chat_id?: string;
+  smtp_host?: string;
+  smtp_port?: number;
+  smtp_user?: string;
+  smtp_password?: string;
+  use_tls?: boolean;
+  from_addr?: string;
+  to_addrs?: string[];
 };
 
 export type BackupInclude = {
@@ -1660,6 +1684,10 @@ export type TrashStats = {
   by_status: Record<string, number>;
   by_day: Record<string, number>;
   by_reason: Record<string, number>;
+  /** 上游原因 Top N 分布（数组，按数量降序），供条形图。旧后端无此字段时前端回退到 by_reason。 */
+  by_reason_top?: { reason: string; count: number }[];
+  /** 按天剔除数趋势（时间升序），供趋势图。旧后端无此字段时前端回退到 by_day。 */
+  trend?: { day: string; count: number }[];
 };
 
 export type TrashResponse = {
@@ -1741,23 +1769,19 @@ export type HealingStats = {
 };
 
 export async function runDiagnose(): Promise<DiagnosticReport> {
-  const resp = await httpRequest("/api/system/diagnose", { method: "POST" });
-  return resp.json();
+  return await httpRequest<DiagnosticReport>("/api/system/diagnose", { method: "POST" });
 }
 
 export async function getLastDiagnose(): Promise<{ report: DiagnosticReport | null; last_time: number }> {
-  const resp = await httpRequest("/api/system/diagnose");
-  return resp.json();
+  return await httpRequest<{ report: DiagnosticReport | null; last_time: number }>("/api/system/diagnose");
 }
 
 export async function getHealingHistory(limit = 100): Promise<{ items: HealingHistoryItem[]; stats: HealingStats }> {
-  const resp = await httpRequest(`/api/system/healing/history?limit=${limit}`);
-  return resp.json();
+  return await httpRequest<{ items: HealingHistoryItem[]; stats: HealingStats }>(`/api/system/healing/history?limit=${limit}`);
 }
 
 export async function runHealing(): Promise<{ diagnose: DiagnosticReport; healing: HealingResult[] }> {
-  const resp = await httpRequest("/api/system/healing/run", { method: "POST" });
-  return resp.json();
+  return await httpRequest<{ diagnose: DiagnosticReport; healing: HealingResult[] }>("/api/system/healing/run", { method: "POST" });
 }
 
 export async function clearHealingHistory(): Promise<void> {

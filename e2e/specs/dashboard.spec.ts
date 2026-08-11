@@ -8,7 +8,7 @@ import { DashboardPage } from "../pages/DashboardPage";
  * 注意：请设置环境变量 E2E_AUTH_KEY 为有效的管理员密钥，
  * 或在 test.use 中直接配置。
  */
-const AUTH_KEY = process.env.E2E_AUTH_KEY || "sk-test-key";
+const AUTH_KEY = process.env.E2E_AUTH_KEY || "cg2api-8tbkFwuqBPLZ2cUuA12f8Ldvt2mkYNlO";
 
 test.describe("运维看板", () => {
   let dashboardPage: DashboardPage;

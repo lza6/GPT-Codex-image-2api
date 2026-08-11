@@ -16,7 +16,7 @@ description: ChatGPT2API 项目的完整开发工作流。用于新功能开发�
 - 修改启动脚本/部署配置
 - 新增后端模块或修改架构层（事件总线/任务队列/Provider 路由/ORM 存储/共享状态）
 
-## 项目架构（当前真实状态，v2.32.0）
+## 项目架构（当前真实状态，v2.33.0）
 
 ```
 chatgpt2api/
@@ -155,11 +155,17 @@ chatgpt2api/
 │   ├── golden-examples.md    # 黄金范例
 │   ├── onboarding/           # 新人文档
 │   └── ...
+├── e2e/                      # Playwright E2E 全链路（真实前后端 + 系统 Edge；使用说明见 docs/e2e.md）
+│   ├── specs/                # 用例：login / dashboard / accounts / batch-notify
+│   ├── pages/                # Page Object（LoginPage/DashboardPage/AccountsPage/SettingsPage）
+│   ├── global-setup.ts       # 起后端(23456)+前端(3000)并轮询等就绪，进程退出时清理
+│   ├── playwright.config.ts  # testDir/globalSetup/单 worker/msedge/CI 开关
+│   └── package.json          # test/test:headed/report 脚本（独立依赖）
 ├── config.json               # 运行时配置 (启动时 schema 校验)
 ├── main.py                   # 启动入口 (多 worker, JSON 存储自动回退 workers=1)
 ├── 启动chatgpt2api.bat        # Windows 一键启动 (GBK+CRLF 无 BOM)
 ├── 停止chatgpt2api.bat        # Windows 停止服务
-├── VERSION                   # 当前版本号 (v2.32.0)
+├── VERSION                   # 当前版本号 (v2.33.0)
 ├── CHANGELOG.md              # 变更日志
 └── workflow_status.md        # 工作流状态（当前轮次完成清单+防线状态）
 ```
@@ -479,6 +485,7 @@ chatgpt2api/
 | 粘性 IP 配置与行为脱节（v2.32.0 警示） | services/proxy_service.py | `get_profile` 粘性 IP 仅 `kookeey.proxy_enabled=true` 生效，默认 false 行为不变——配置项必须接线验证，不能只看代码 |
 | 事件流端点鉴权（v2.31.0 警示） | api/dashboard.py `/api/events/stream` | SSE 无法传 header，必须 `?token=` 查询参数鉴权（复用 dashboard/stream 模式） |
 | R2 图片存储凭证缺失 | services/image_storage_service.py | R2 模式需 r2_account_id/access_key/secret/bucket 四配置齐全，缺配置应降级 local 而非 500 |
+| diagnose/healing 前端 .json() 误用（已修 v2.33.0） | web/src/lib/api.ts | `httpRequest` 已返回 axios 解析后的 data，封装函数再 `resp.json()` 运行时必崩（TS 因 unknown 拦截）。封装函数直接返回 data + 显式泛型，禁止把 data 当 Response 二次 .json() |
 
 ## 关键文件速查
 

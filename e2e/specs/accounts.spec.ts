@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { LoginPage } from "../pages/LoginPage";
 import { AccountsPage } from "../pages/AccountsPage";
 
-const AUTH_KEY = process.env.E2E_AUTH_KEY || "sk-test-key";
+const AUTH_KEY = process.env.E2E_AUTH_KEY || "cg2api-8tbkFwuqBPLZ2cUuA12f8Ldvt2mkYNlO";
 
 test.describe("号池管理", () => {
   let accountsPage: AccountsPage;

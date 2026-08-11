@@ -1,6 +1,6 @@
 {
   "name": "chatgpt2api-e2e",
-  "version": "2.30.0",
+  "version": "2.33.0",
   "private": true,
   "description": "Playwright E2E 全链路测试（登录/看板/账号/设置）",
   "scripts": {

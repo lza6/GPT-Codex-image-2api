@@ -1,5 +1,26 @@
 # Changelog
 
+## 2.33.0 - 2026-08-12 (R2 图片存储配置接线闭环 + E2E 体系 + 变异探针增强)
+
+**R2 图片存储前端配置接线（6 步闭环）：**
++ [新增] `web/src/lib/api.ts` — `ImageStorageMode` 新增 `r2`/`r2_local`；`ImageStorageSettings` 补 `r2_account_id`/`r2_access_key_id`/`r2_secret_access_key`/`r2_bucket`/`r2_prefix` 五字段
++ [新增] `web/src/app/settings/store.ts` — normalizeConfig/saveConfig 补 r2 字段与默认值；模式白名单放开 `r2`/`r2_local`；测试按钮 toast 按模式显示「R2 / WebDAV」
++ [新增] `web/src/app/settings/components/config-card.tsx` — 保存模式新增「仅 R2」「本机 + R2」；R2 五字段表单（Account ID / Access Key / Secret / Bucket / 对象前缀）；连接测试按钮按模式显示「测试 R2 / 测试 WebDAV」；当前模式文案覆盖 5 种模式
++ [变更] `api/system.py` — `/api/image-storage/test` 按保存模式分流：r2/r2_local 调 `image_storage_service.test_r2`，否则 `test_webdav`
++ [修复] `web/src/lib/api.ts` — diagnose/healing 4 个封装函数 `resp.json()` 误用（`httpRequest` 已返回 axios 解析后的 data，运行时必崩）→ 直接返回 + 显式泛型
++ [测试] `test/test_image_storage_service.py` — 新增 R2Client 层 16 项 + API 端点 3 项：validate 缺字段 / object_key 前缀与路径穿越拒绝 / SigV4 签名结构 + 独立参考实现重算对比 / put/get/delete HTTP 语义 / ListObjectsV2 解析 + continuation 分页 / 连接测试 / sync 错误映射 400 / 测试端点按模式分流
+
+**E2E 体系纳入版本控制：**
++ [新增] `e2e/` — Playwright 全链路（login/dashboard/accounts/batch-notify 4 spec + Page Object + global-setup 自动起真实前后端 + 系统 Edge）
++ [新增] `docs/e2e.md` — 前置/运行/结构/覆盖范围/产物清理/CI 决策说明
++ [变更] `.gitignore` — 排除 `e2e/test-results/`、`e2e/playwright-report/`、`e2e/node_modules/`
+
+**变异探针增强：**
++ [增强] `scripts/mutation_probe.py` — 锚点覆盖扩展至 14 个测试文件（282 行增量）
++ [测试] 锚点断言入 test_circuit_breaker/test_account_scheduler 等（熔断阈值/半开恢复/超时、重试预算、限流窗口、调度分、淘汰方向）
+
+**测试：** R2 存储 29 项；全量回归见 `workflow_status.md` 第二十二轮。
+
 ## 2.32.0 - 2026-08-11 (账号回收站 + 雨露均沾调度 + 粘性 IP)
 
 **账号回收站（可视化剔除记录）：**

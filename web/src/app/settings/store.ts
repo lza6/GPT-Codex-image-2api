@@ -19,6 +19,7 @@ import {
   testImageStorageConnection,
   updateCPAPool,
   updateSettingsConfig,
+  type AlertChannelConfig,
   type BackupItem,
   type BackupSettings,
   type BackupState,
@@ -101,6 +102,50 @@ function normalizeProxyRuntime(value: unknown): ProxyRuntimeSettings {
   };
 }
 
+const DEFAULT_ALERT_CHANNELS: Record<string, AlertChannelConfig> = {
+  telegram_ops: { type: "telegram", enabled: false, bot_token: "", chat_id: "" },
+  wecom_ops: { type: "wecom", enabled: false, webhook_url: "" },
+  dingtalk_ops: { type: "dingtalk", enabled: false, webhook_url: "" },
+  email_ops: {
+    type: "email",
+    enabled: false,
+    smtp_host: "",
+    smtp_port: 465,
+    smtp_user: "",
+    smtp_password: "",
+    use_tls: true,
+    from_addr: "",
+    to_addrs: [],
+  },
+};
+
+function normalizeAlertChannels(value: unknown): Record<string, AlertChannelConfig> {
+  const source = typeof value === "object" && value !== null
+    ? value as Record<string, Partial<AlertChannelConfig>>
+    : {};
+  const result: Record<string, AlertChannelConfig> = {};
+  for (const [name, def] of Object.entries(DEFAULT_ALERT_CHANNELS)) {
+    const cfg = source[name] || {};
+    result[name] = {
+      ...def,
+      ...cfg,
+      enabled: Boolean(cfg.enabled),
+      smtp_port: Number(cfg.smtp_port ?? def.smtp_port ?? 465),
+      to_addrs: Array.isArray(cfg.to_addrs) ? cfg.to_addrs.map((item) => String(item).trim()).filter(Boolean) : [],
+    };
+  }
+  for (const [name, cfg] of Object.entries(source)) {
+    if (!(name in DEFAULT_ALERT_CHANNELS) && cfg && typeof cfg === "object") {
+      result[name] = {
+        ...(cfg as AlertChannelConfig),
+        enabled: Boolean(cfg.enabled),
+        to_addrs: Array.isArray(cfg.to_addrs) ? cfg.to_addrs.map((item) => String(item).trim()).filter(Boolean) : [],
+      };
+    }
+  }
+  return result;
+}
+
 function normalizeConfig(config: SettingsConfig): SettingsConfig {
   const defaultThinkingEffort = ["standard", "extended", "max"].includes(String(config.default_thinking_effort))
     ? config.default_thinking_effort as "standard" | "extended" | "max"
@@ -114,13 +159,16 @@ function normalizeConfig(config: SettingsConfig): SettingsConfig {
       webdav_username: "",
       webdav_password: "",
       webdav_root_path: "chatgpt2api/images",
+      r2_account_id: "",
+      r2_access_key_id: "",
+      r2_secret_access_key: "",
+      r2_bucket: "",
+      r2_prefix: "images",
       public_base_url: "",
     };
-  const imageStorageMode: ImageStorageMode = imageStorage.enabled && imageStorage.mode === "both"
-    ? "both"
-    : imageStorage.enabled && imageStorage.mode === "webdav"
-      ? "webdav"
-      : "local";
+  const imageStorageMode: ImageStorageMode = imageStorage.enabled && ["both", "webdav", "r2", "r2_local"].includes(imageStorage.mode)
+    ? (imageStorage.mode as ImageStorageMode)
+    : "local";
   const backup = typeof config.backup === "object" && config.backup
     ? config.backup as BackupSettings
     : {
@@ -179,6 +227,7 @@ function normalizeConfig(config: SettingsConfig): SettingsConfig {
     alert_webhook_url: typeof config.alert_webhook_url === "string" ? config.alert_webhook_url : "",
     alert_webhook_timeout: Number(config.alert_webhook_timeout ?? 10),
     alert_events: Array.isArray(config.alert_events) ? config.alert_events : ["circuit_breaker_open", "circuit_breaker_closed", "backup_failure", "account_invalid", "account_recovered", "quota_exhausted", "quota_forecast_depletion"],
+    alert_channels: normalizeAlertChannels(config.alert_channels),
     log_levels: Array.isArray(config.log_levels) ? config.log_levels : [],
     proxy: typeof config.proxy === "string" ? config.proxy : "",
     base_url: typeof config.base_url === "string" ? config.base_url : "",
@@ -201,6 +250,11 @@ function normalizeConfig(config: SettingsConfig): SettingsConfig {
       webdav_username: String(imageStorage.webdav_username || ""),
       webdav_password: String(imageStorage.webdav_password || ""),
       webdav_root_path: String(imageStorage.webdav_root_path || "chatgpt2api/images"),
+      r2_account_id: String(imageStorage.r2_account_id || ""),
+      r2_access_key_id: String(imageStorage.r2_access_key_id || ""),
+      r2_secret_access_key: String(imageStorage.r2_secret_access_key || ""),
+      r2_bucket: String(imageStorage.r2_bucket || ""),
+      r2_prefix: String(imageStorage.r2_prefix || "images"),
       public_base_url: String(imageStorage.public_base_url || ""),
     },
     proxy_runtime: normalizeProxyRuntime(config.proxy_runtime),
@@ -320,6 +374,7 @@ type SettingsStore = {
   setAlertWebhookUrl: (value: string) => void;
   setAlertWebhookTimeout: (value: string) => void;
   toggleAlertEvent: (event: string, enabled: boolean) => void;
+  setAlertChannelField: (channel: string, key: keyof AlertChannelConfig, value: string | boolean | string[]) => void;
   setLogLevel: (level: string, enabled: boolean) => void;
   setProxy: (value: string) => void;
   setBaseUrl: (value: string) => void;
@@ -464,11 +519,16 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         },
         image_storage: {
           enabled: Boolean(config.image_storage?.enabled),
-          mode: config.image_storage?.enabled && ["webdav", "both"].includes(String(config.image_storage?.mode)) ? config.image_storage.mode : "local",
+          mode: config.image_storage?.enabled && ["webdav", "both", "r2", "r2_local"].includes(String(config.image_storage?.mode)) ? config.image_storage.mode : "local",
           webdav_url: String(config.image_storage?.webdav_url || "").trim(),
           webdav_username: String(config.image_storage?.webdav_username || "").trim(),
           webdav_password: String(config.image_storage?.webdav_password || "").trim(),
           webdav_root_path: String(config.image_storage?.webdav_root_path || "chatgpt2api/images").trim(),
+          r2_account_id: String(config.image_storage?.r2_account_id || "").trim(),
+          r2_access_key_id: String(config.image_storage?.r2_access_key_id || "").trim(),
+          r2_secret_access_key: String(config.image_storage?.r2_secret_access_key || "").trim(),
+          r2_bucket: String(config.image_storage?.r2_bucket || "").trim(),
+          r2_prefix: String(config.image_storage?.r2_prefix || "images").trim(),
           public_base_url: String(config.image_storage?.public_base_url || "").trim(),
         },
         proxy_runtime: {
@@ -673,6 +733,22 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     });
   },
 
+  setAlertChannelField: (channel, key, value) => {
+    set((state) => {
+      if (!state.config) return {};
+      const channels = { ...(state.config.alert_channels || {}) };
+      const cfg: AlertChannelConfig = { ...(channels[channel] || {}) };
+      (cfg as Record<string, unknown>)[key] = value;
+      if (key === "to_addrs") {
+        cfg.to_addrs = Array.isArray(value)
+          ? value.map((item) => String(item).trim()).filter(Boolean)
+          : [];
+      }
+      channels[channel] = cfg;
+      return { config: { ...state.config, alert_channels: channels } };
+    });
+  },
+
   setLogLevel: (level, enabled) => {
     set((state) => {
       if (!state.config) return {};
@@ -825,14 +901,16 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       if (!saved) {
         return;
       }
+      const mode = get().config?.image_storage?.mode;
+      const label = mode === "r2" || mode === "r2_local" ? "R2" : "WebDAV";
       const data = await testImageStorageConnection();
       if (data.result.ok) {
-        toast.success(`WebDAV 连接可用：HTTP ${data.result.status}`);
+        toast.success(`${label} 连接可用：HTTP ${data.result.status}`);
       } else {
-        toast.error(`WebDAV 连接失败：${data.result.error ?? `HTTP ${data.result.status}`}`);
+        toast.error(`${label} 连接失败：${data.result.error ?? `HTTP ${data.result.status}`}`);
       }
     } catch (error) {
-      toastError(error, "测试 WebDAV 失败");
+      toastError(error, "测试图片存储失败");
     } finally {
       set({ isTestingImageStorage: false });
     }

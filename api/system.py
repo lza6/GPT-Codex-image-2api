@@ -324,7 +324,12 @@ def create_router(app_version: str) -> APIRouter:
     @router.post("/api/image-storage/test")
     async def test_image_storage_endpoint(authorization: str | None = Header(default=None)):
         require_admin(authorization)
-        return {"result": await run_in_threadpool(image_storage_service.test_webdav)}
+        # 按当前保存模式分流：r2/r2_local 测 R2 连通性，否则测 WebDAV
+        if image_storage_service.mode() in {"r2", "r2_local"}:
+            result = await run_in_threadpool(image_storage_service.test_r2)
+        else:
+            result = await run_in_threadpool(image_storage_service.test_webdav)
+        return {"result": result}
 
     @router.post("/api/image-storage/sync")
     async def sync_image_storage_endpoint(authorization: str | None = Header(default=None)):

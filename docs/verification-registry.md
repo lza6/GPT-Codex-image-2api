@@ -9,11 +9,11 @@
 
 ---
 
-## 一、当前验证基线（最新一轮：v2.32.0 文档同步 + 源码树清理）
+## 一、当前验证基线（最新一轮：v2.33.0 R2 接线闭环 + E2E 体系）
 
 | 项 | 结果 | 范围/说明 | 日期 | 证据 |
 |----|------|-----------|------|------|
-| 全量单测 | **1162 passed / 0 failed**（33 live/redis 排除） | 全 test/（修复 openapi.json 过期后干净跑，真实 exit 0） | 2026-08-12 | `pytest -q` |
+| 全量单测 | **1179 passed / 0 failed**（33 live/redis 排除，真实 exit 0） | 全 test/（干净跑；本轮 +17：R2Client 层 16 + API 端点 3 - 复用；openapi.json 重生成） | 2026-08-12 | `pytest -q` |
 | 六道防线·契约守卫 | PASS（断链=0 漂移=0） | 本轮涉 R2/回收站/least_used/粘性IP 区域 | 2026-08-12 | reports/contract/ |
 | 六道防线·SQL 审查 | PASS（P0=0 P1=0） | 修 `text(` 启发式误报（write_text 撞 text(f），加负向后瞻 | 2026-08-12 | reports/sqlaudit/ |
 | 六道防线·慢查询 | PASS | | 2026-08-12 | reports/slowquery/ |
@@ -21,14 +21,18 @@
 | 六道防线·变异探针 | PASS（caught=33 escaped=0） | mutation_probe.py 本轮增强后 | 2026-08-12 | reports/mutation/ |
 | 六道防线·文档同步 | PASS | docs_sync_check.py 首跑（VERSION 与 4 文档一致） | 2026-08-12 | reports/docs_sync/ |
 | 前端 | tsc 0 错误 + build 成功 | npm run build（含类型检查） | 2026-08-12 | `npm run build` |
-| E2E | **16 passed / 0 failed**（2 skipped 容错） | e2e/ Playwright 真实前后端（登录/看板/账号/批量通知 4 spec）；修复 cost 3s 超时 + networkidle→确定性等待 | 2026-08-12 | `playwright test` |
+| E2E | **16 passed / 0 failed**（2 skipped 容错） | e2e/ Playwright 真实前后端（登录/看板/账号/批量通知 4 spec）；v2.33.0 重跑确认（accounts/dashboard spec 默认 AUTH_KEY 对齐 config） | 2026-08-12 | `playwright test` |
 
 ## 二、本轮新增/改动区域 → 对应验证
 
 | 区域 | 改动 | 验证 | 状态 |
 |------|------|------|------|
-| R2 图片存储 | `services/image_storage_service.py` R2Client（AWS SigV4，纯 Python）+ config r2_* 四字段 | `test/test_image_storage_service.py`（新增 126 行，覆盖签名/上传/读取/删除/列对象/降级） | ⏳ 验收后回填 |
-| 变异探针增强 | `scripts/mutation_probe.py`（282 行增量） | `pytest` 全量 + 防线变异 | ⏳ 回填 |
+| R2 图片存储后端 | `services/image_storage_service.py` R2Client（AWS SigV4，纯 Python）+ config r2_* 四字段 | `test/test_image_storage_service.py`（覆盖签名/上传/读取/删除/列对象/降级） | ✅（第二十一轮闭环） |
+| 变异探针增强 | `scripts/mutation_probe.py`（282 行增量，锚点覆盖 14 测试文件） | `pytest` 全量 + 防线变异（caught=33 escaped=0） | ✅（第二十一轮闭环） |
+| R2 前端配置接线（v2.33.0） | `web/src/lib/api.ts`（ImageStorageMode 加 r2/r2_local + 五字段）+ `settings/store.ts`（normalize/save 补 r2）+ `config-card.tsx`（R2 表单 + 按模式测试按钮）+ `api/system.py`（image-storage/test 按 mode 分流） | `npx tsc --noEmit` 0 错误 + `npm run build` 成功 + `test_image_storage_service.py` 端点 3 项 | ✅（本轮闭环） |
+| R2Client 层测试（v2.33.0） | `test/test_image_storage_service.py` 新增 16 项：validate 缺字段 / object_key / SigV4 参考重算 / put-get-delete / ListObjectsV2+continuation / 连接测试 | 存储单测 29 passed | ✅（本轮闭环） |
+| e2e/ 纳入版本控制（v2.33.0） | `e2e/` 14 文件 + `.gitignore` 排除产物 + `docs/e2e.md` 使用说明 | `git ls-files e2e/`=14；E2E 基线 16 passed/0 failed（v2.32.0 记录） | ✅（本轮闭环） |
+| diagnose/healing .json() 修复（v2.33.0） | `web/src/lib/api.ts` 4 个封装函数去掉 `resp.json()` 误用 + 补泛型 | `npx tsc --noEmit`（此前 5 错，现 0） | ✅（本轮闭环） |
 | 回收站/least_used/粘性IP | `services/trash_service.py` + `account_service._pick_least_used` + `proxy_service.get_profile`（v2.32.0 已提交） | `test/test_trash_scheduler_sticky.py` 等 11 项 | ✅（v2.32.0 闭环） |
 | 事件流 SSE | `/api/events/stream` + `/api/dashboard/events` + events.jsonl 持久化（v2.31.0 已提交） | `test/test_events_stream.py` 8 项 | ✅（v2.31.0 闭环） |
 | 文档同步 | SKILL.md/workflow_status/verification-registry/CLAUDE.md/project-spec + docs_sync_check.py | 本表 + `run_all_guards.py` 第六道防线 | ⏳ 回填 |
@@ -56,7 +60,8 @@ v2.9.0（24 确认已修 / 8 驳回）与更早轮次的审计明细见 git hist
 
 ## 五、各区域"最近改动"速记（下次只重测这些）
 
-- 2026-08-12（第二十一轮）：`services/image_storage_service.py`（R2Client）、`scripts/mutation_probe.py`、`scripts/docs_sync_check.py`、`scripts/run_all_guards.py`、`.gitignore`、SKILL.md、workflow_status.md、verification-registry.md、CLAUDE.md、docs/project-spec.md → 重跑：image_storage/mutation 相关测试 + 六道防线全量。
+- 2026-08-12（第二十二轮）：`api/system.py`（image-storage/test 按 mode 分流）、`web/src/lib/api.ts` + `settings/store.ts` + `config-card.tsx`（R2 接线 + diagnose/healing .json() 修复）、`test/test_image_storage_service.py`（R2Client 层 16+3）、`docs/e2e.md`、CHANGELOG/VERSION（v2.33.0）→ 重跑：image_storage/config 相关测试 + 前端 build/tsc + 防线全量 + E2E。
+- 2026-08-12（第二十一轮）：`services/image_storage_service.py`（R2Client）、`scripts/mutation_probe.py`、`scripts/docs_sync_check.py`、`scripts/run_all_guards.py`、`.gitignore`、SKILL.md、workflow_status.md、verification-registry.md、CLAUDE.md、docs/project-spec.md → 已验证，重跑沿用。
 - 2026-08-11（v2.32.0）：`services/trash_service.py`、`account_service.py`（least_used）、`proxy_service.py`（get_profile）、`config.py`（scheduler_mode）、`api/accounts.py`（trash 端点）→ 已验证，重跑沿用。
 
 ---
