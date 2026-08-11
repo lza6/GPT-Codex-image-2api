@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from services.config import config
 from services.storage.base import StorageBackend
 from services.storage.database_storage import DatabaseStorageBackend
 from services.storage.git_storage import GitStorageBackend
@@ -23,6 +22,7 @@ def create_storage_backend(data_dir: Path) -> StorageBackend:
     - GIT_BRANCH: Git 分支 (默认 main)
     - GIT_FILE_PATH: Git 仓库中的文件路径 (默认 accounts.json)
     """
+    from services.config import config
     backend_type = os.getenv("STORAGE_BACKEND", "json").lower().strip()
     async_enabled = _is_async_enabled()
 
@@ -96,6 +96,7 @@ def create_storage_backend(data_dir: Path) -> StorageBackend:
 
 def _is_async_enabled() -> bool:
     """检查是否启用异步存储后端。"""
+    from services.config import config
     env_val = os.getenv("STORAGE_ASYNC_ENABLED")
     if env_val is not None:
         return env_val.strip().lower() in ("1", "true", "yes", "on")

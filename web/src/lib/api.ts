@@ -1424,6 +1424,58 @@ export function fetchMetricsSummary() {
   return httpRequest<MetricsSummary>("/api/dashboard/metrics_summary");
 }
 
+// ──────────────────────── 5.1.1 容量规划 ────────────────────────
+
+export interface CapacityStats {
+  days: number;
+  avg_daily_requests: number;
+  active_accounts: number;
+  per_account_daily: number;
+  growth_rate: number;
+  suggested_new_accounts: number;
+  series: { date: string; calls: number }[];
+}
+
+export function fetchCapacity(days?: number) {
+  return httpRequest<CapacityStats>(`/api/dashboard/capacity?days=${days ?? 7}`);
+}
+
+// ──────────────────────── 5.1.2 成本优化 ────────────────────────
+
+export interface CostOverview {
+  total_requests: number;
+  total_success: number;
+  total_fail: number;
+  by_type: Record<string, { success: number; fail: number }>;
+  provider_distribution: {
+    name: string;
+    display_name: string;
+    total_accounts: number;
+    available_accounts: number;
+    quota_remaining: number;
+  }[];
+  kookeey_traffic: {
+    need_config?: boolean;
+    balance_mb?: number | null;
+    today_use_mb?: number | null;
+    month_use_mb?: number | null;
+    package?: {
+      traffic_left_gb?: number | null;
+      traffic_total_gb?: number | null;
+      thread_left?: number | null;
+      thread_total?: number | null;
+      expire_time?: number | null;
+      name?: string | null;
+    };
+    error?: string;
+  } | null;
+  daily_trend: { date: string; calls: number }[];
+}
+
+export function fetchCostOverview() {
+  return httpRequest<CostOverview>("/api/dashboard/cost");
+}
+
 /** 看板事件流：最近系统事件。 */
 export type DashboardEvent = {
   id: string;

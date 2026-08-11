@@ -1,6 +1,24 @@
 # Changelog
 
-## 3.0.0 - 2026-08-11 (架构深度优化：异步化存储层)
+## 2.25.0 - 2026-08-11 (智能诊断引擎 + 自动修复 2.0)
+
+**4.2.2 智能诊断引擎：**
++ [新增] `services/diagnostic_engine.py` — DiagnosticCheck ABC + 7 诊断检查器（熔断器/账号健康/代理连通/存储空间/限流/连接池/配置一致性）+ DiagnosticEngine
++ [新增] `api/system.py` — `POST /api/system/diagnose` 运行诊断、`GET /api/system/diagnose` 获取上次诊断
++ [新增] `test/test_diagnostic_engine.py` — 13 个测试覆盖数据模型 + 引擎 + 7 检查器
++ [新增] `web/src/app/system/diagnose/page.tsx` — 诊断报告页面（摘要卡片 + 逐项详情 + 严重级别图标）
++ [新增] `web/src/app/system/page.tsx` — 系统主页面（重定向到诊断）
+
+**4.2.3 自动修复 2.0：**
++ [新增] `services/auto_healer.py` — HealingHandler ABC + 6 修复器（会话重建/磁盘清理/内存缓解/配置恢复/代理切换/熔断探测）+ AutoHealer + 成功率统计
++ [新增] `api/system.py` — `GET /api/system/healing/history` 修复历史、`POST /api/system/healing/run` 一键修复、`POST /api/system/healing/clear-history` 清除历史
++ [新增] `test/test_auto_healer.py` — 11 个测试覆盖数据模型 + 6 修复器 + 统计
++ [新增] `web/src/app/system/healing/page.tsx` — 修复历史页面（统计卡片 + 逐条记录）
++ [新增] `web/src/lib/api.ts` — 诊断/修复类型定义 + 5 个请求函数
++ [新增] `web/src/components/top-nav.tsx` — 导航栏加"系统诊断"项
++ [新增] `services/config.py` — `auto_heal_enabled`（默认 true）、`auto_diagnose_interval_minutes`（默认 60）配置项
++ [新增] `config.json` — 默认配置值
++ [测试] 24 测试全绿 + 前端构建成功
 
 **存储层异步化：**
 + [新增] `services/storage/base.py` — `AsyncStorageBackend` 异步存储后端基类（所有方法 async）

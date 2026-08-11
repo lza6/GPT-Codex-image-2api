@@ -21,6 +21,7 @@ const adminNavItems = [
   { href: "/logs", label: "日志管理" },
   { href: "/debug", label: "调试" },
   { href: "/settings", label: "设置" },
+  { href: "/system", label: "系统诊断" },
 ];
 
 const userNavItems = [{ href: "/image", label: "画图" }];
