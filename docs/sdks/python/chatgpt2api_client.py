@@ -1,5 +1,5 @@
 """
-chatgpt2api SDK — 自动生成 (v2.24.0)
+chatgpt2api SDK — 自动生成 (v2.27.0)
 
 用法：
     client = Chatgpt2apiClient(base_url='/', api_key='your-key')
@@ -13,7 +13,7 @@ from typing import Any
 import httpx
 
 
-VERSION = "2.24.0"
+VERSION = "2.27.0"
 
 
 class Chatgpt2apiClient:
@@ -262,9 +262,13 @@ class Chatgpt2apiClient:
 
     # --- AI ---
 
-    def list_models_v1_models_get(self):
+    def list_models_v1_models_get(self, refresh: Any = None):
         """List Models"""
         url = self.base_url + "/v1/models"
+        params = {k: v for k, v in locals().items() if k in ['refresh'] and v is not None}
+        if params:
+            from urllib.parse import urlencode
+            url += '?' + urlencode(params)
         resp = self._client.get(url)
         resp.raise_for_status()
         return resp.json()
@@ -373,10 +377,10 @@ class Chatgpt2apiClient:
         resp.raise_for_status()
         return resp.json()
 
-    def get_accounts_api_accounts_get(self, page: Any = None, page_size: Any = None, provider: Any = None):
+    def get_accounts_api_accounts_get(self, page: Any = None, page_size: Any = None, provider: Any = None, refresh: Any = None):
         """Get Accounts"""
         url = self.base_url + "/api/accounts"
-        params = {k: v for k, v in locals().items() if k in ['page', 'page_size', 'provider'] and v is not None}
+        params = {k: v for k, v in locals().items() if k in ['page', 'page_size', 'provider', 'refresh'] and v is not None}
         if params:
             from urllib.parse import urlencode
             url += '?' + urlencode(params)
@@ -644,9 +648,13 @@ class Chatgpt2apiClient:
 
     # --- Dashboard ---
 
-    def scheduler_dashboard_api_dashboard_scheduler_get(self):
+    def scheduler_dashboard_api_dashboard_scheduler_get(self, refresh: Any = None):
         """Scheduler Dashboard"""
         url = self.base_url + "/api/dashboard/scheduler"
+        params = {k: v for k, v in locals().items() if k in ['refresh'] and v is not None}
+        if params:
+            from urllib.parse import urlencode
+            url += '?' + urlencode(params)
         resp = self._client.get(url)
         resp.raise_for_status()
         return resp.json()
@@ -658,9 +666,13 @@ class Chatgpt2apiClient:
         resp.raise_for_status()
         return resp.json()
 
-    def ops_overview_api_dashboard_ops_get(self):
+    def ops_overview_api_dashboard_ops_get(self, refresh: Any = None):
         """Ops Overview"""
         url = self.base_url + "/api/dashboard/ops"
+        params = {k: v for k, v in locals().items() if k in ['refresh'] and v is not None}
+        if params:
+            from urllib.parse import urlencode
+            url += '?' + urlencode(params)
         resp = self._client.get(url)
         resp.raise_for_status()
         return resp.json()
@@ -704,6 +716,13 @@ class Chatgpt2apiClient:
         if params:
             from urllib.parse import urlencode
             url += '?' + urlencode(params)
+        resp = self._client.get(url)
+        resp.raise_for_status()
+        return resp.json()
+
+    def cost_overview_api_dashboard_cost_get(self):
+        """Cost Overview"""
+        url = self.base_url + "/api/dashboard/cost"
         resp = self._client.get(url)
         resp.raise_for_status()
         return resp.json()
@@ -841,9 +860,13 @@ class Chatgpt2apiClient:
 
     # --- Providers ---
 
-    def get_providers_api_providers_get(self):
+    def get_providers_api_providers_get(self, refresh: Any = None):
         """Get Providers"""
         url = self.base_url + "/api/providers"
+        params = {k: v for k, v in locals().items() if k in ['refresh'] and v is not None}
+        if params:
+            from urllib.parse import urlencode
+            url += '?' + urlencode(params)
         resp = self._client.get(url)
         resp.raise_for_status()
         return resp.json()
@@ -1195,6 +1218,45 @@ class Chatgpt2apiClient:
         if params:
             from urllib.parse import urlencode
             url += '?' + urlencode(params)
+        resp = self._client.post(url, json=body)
+        resp.raise_for_status()
+        return resp.json()
+
+    def get_last_diagnose_api_system_diagnose_get(self):
+        """Get Last Diagnose"""
+        url = self.base_url + "/api/system/diagnose"
+        resp = self._client.get(url)
+        resp.raise_for_status()
+        return resp.json()
+
+    def run_diagnose_api_system_diagnose_post(self):
+        """Run Diagnose"""
+        url = self.base_url + "/api/system/diagnose"
+        resp = self._client.post(url, json=body)
+        resp.raise_for_status()
+        return resp.json()
+
+    def get_healing_history_api_system_healing_history_get(self, limit: Any = None):
+        """Get Healing History"""
+        url = self.base_url + "/api/system/healing/history"
+        params = {k: v for k, v in locals().items() if k in ['limit'] and v is not None}
+        if params:
+            from urllib.parse import urlencode
+            url += '?' + urlencode(params)
+        resp = self._client.get(url)
+        resp.raise_for_status()
+        return resp.json()
+
+    def run_healing_api_system_healing_run_post(self):
+        """Run Healing"""
+        url = self.base_url + "/api/system/healing/run"
+        resp = self._client.post(url, json=body)
+        resp.raise_for_status()
+        return resp.json()
+
+    def clear_healing_history_api_system_healing_clear_history_post(self):
+        """Clear Healing History"""
+        url = self.base_url + "/api/system/healing/clear-history"
         resp = self._client.post(url, json=body)
         resp.raise_for_status()
         return resp.json()

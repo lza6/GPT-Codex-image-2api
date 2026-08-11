@@ -1,5 +1,5 @@
 /**
- * chatgpt2api SDK — 自动生成 (v2.24.0)
+ * chatgpt2api SDK — 自动生成 (v2.27.0)
  *
  * 用法：
  *   const client = new Chatgpt2apiClient('/', 'your-api-key');
@@ -7,7 +7,7 @@
  */
 
 export class Chatgpt2apiClient {
-  VERSION = "2.24.0";
+  VERSION = "2.27.0";
 
   constructor(baseUrl = "/", apiKey = null) {
     this.baseUrl = baseUrl.replace(/\/$/, "");
@@ -49,7 +49,8 @@ export class Chatgpt2apiClient {
   /** List Models */
   async listModelsV1ModelsGet() {
     const path = `/v1/models`;
-    return this.request('GET', path);
+    const params = { refresh };
+    return this.request('GET', path, { params: params });
   }
 
   /** Generate Images */
@@ -142,7 +143,7 @@ export class Chatgpt2apiClient {
   /** Get Accounts */
   async getAccountsApiAccountsGet() {
     const path = `/api/accounts`;
-    const params = { page, page_size, provider };
+    const params = { page, page_size, provider, refresh };
     return this.request('GET', path, { params: params });
   }
 
@@ -370,7 +371,8 @@ export class Chatgpt2apiClient {
   /** Scheduler Dashboard */
   async schedulerDashboardApiDashboardSchedulerGet() {
     const path = `/api/dashboard/scheduler`;
-    return this.request('GET', path);
+    const params = { refresh };
+    return this.request('GET', path, { params: params });
   }
 
   /** Circuit Breakers */
@@ -382,7 +384,8 @@ export class Chatgpt2apiClient {
   /** Ops Overview */
   async opsOverviewApiDashboardOpsGet() {
     const path = `/api/dashboard/ops`;
-    return this.request('GET', path);
+    const params = { refresh };
+    return this.request('GET', path, { params: params });
   }
 
   /** Usage Stats */
@@ -415,6 +418,12 @@ export class Chatgpt2apiClient {
     const path = `/api/dashboard/capacity`;
     const params = { days };
     return this.request('GET', path, { params: params });
+  }
+
+  /** Cost Overview */
+  async costOverviewApiDashboardCostGet() {
+    const path = `/api/dashboard/cost`;
+    return this.request('GET', path);
   }
 
   /** Latency Stats */
@@ -530,7 +539,8 @@ export class Chatgpt2apiClient {
   /** Get Providers */
   async getProvidersApiProvidersGet() {
     const path = `/api/providers`;
-    return this.request('GET', path);
+    const params = { refresh };
+    return this.request('GET', path, { params: params });
   }
 
   // --- Proxy Pool ---
@@ -813,6 +823,37 @@ export class Chatgpt2apiClient {
     const path = `/api/images/storage/cleanup-to-target`;
     const params = { target_free_mb, dry_run };
     return this.request('POST', path, { params: params });
+  }
+
+  /** Get Last Diagnose */
+  async getLastDiagnoseApiSystemDiagnoseGet() {
+    const path = `/api/system/diagnose`;
+    return this.request('GET', path);
+  }
+
+  /** Run Diagnose */
+  async runDiagnoseApiSystemDiagnosePost() {
+    const path = `/api/system/diagnose`;
+    return this.request('POST', path);
+  }
+
+  /** Get Healing History */
+  async getHealingHistoryApiSystemHealingHistoryGet() {
+    const path = `/api/system/healing/history`;
+    const params = { limit };
+    return this.request('GET', path, { params: params });
+  }
+
+  /** Run Healing */
+  async runHealingApiSystemHealingRunPost() {
+    const path = `/api/system/healing/run`;
+    return this.request('POST', path);
+  }
+
+  /** Clear Healing History */
+  async clearHealingHistoryApiSystemHealingClearHistoryPost() {
+    const path = `/api/system/healing/clear-history`;
+    return this.request('POST', path);
   }
 
   /** Health Dashboard */
