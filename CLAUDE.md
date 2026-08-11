@@ -81,9 +81,9 @@ docker compose up -d             # 端口 23456:80
 2. **codegraph MCP**（`.codegraph/` 存在）：结构性问题用 `codegraph_context`/`codegraph_callers`
 3. Grep/Read 仅在上述未覆盖时使用；`graft/INDEX.md` 可浏览全部节点
 
-## 当前状态（2026-08-02，v2.0.0 已发版）
+## 当前状态（2026-08-12，v2.32.0 已发版）
 
-N1–N28 闭环、S1–S8 核验、七轮终局审计完成（182 测试全绿）。日常维护遵循：
-改动 → 契约探测 → 测试 → **五道防线**（`scripts/run_all_guards.py`：契约/SQL/慢查询/变异/压测）→ `workflow_status.md` 更新。
+v2.32.0 已闭环并部署：账号回收站 + 雨露均沾调度（least_used）+ 粘性 IP 常规请求接入。v2.18→v2.32 完成矩阵见 `workflow_status.md`（第二十一轮），验证基线见 `docs/verification-registry.md`。日常维护遵循：
+改动 → 契约探测 → 测试 → **六道防线**（`scripts/run_all_guards.py`：契约/SQL/慢查询/变异/压测/文档同步）→ `workflow_status.md` 更新。
 
 **会话启动协议**：动手前先读 `.claude/skills/chatgpt2api-workflow/SKILL.md` → 判过时（对照代码抽查）→ 过时先更新再编码；验收门禁见该技能"终局交付门禁"。

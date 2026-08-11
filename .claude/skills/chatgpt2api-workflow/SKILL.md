@@ -16,45 +16,53 @@ description: ChatGPT2API 项目的完整开发工作流。用于新功能开发�
 - 修改启动脚本/部署配置
 - 新增后端模块或修改架构层（事件总线/任务队列/Provider 路由/ORM 存储/共享状态）
 
-## 项目架构（当前真实状态，v2.13.0）
+## 项目架构（当前真实状态，v2.32.0）
 
 ```
 chatgpt2api/
 ├── api/                      # FastAPI 路由层
 │   ├── app.py                # 应用入口 + CORS 中间件 + 限流中间件 + 路由注册 + lifespan
 │   ├── ai.py                 # OpenAI 兼容 AI 接口 (/v1/*)
-│   ├── accounts.py           # 账号管理 CRUD + 刷新 + 批量操作 + 分组
-│   ├── dashboard.py          # 看板 API (scheduler/ops/usage/latency/stream/metrics/capacity)
+│   ├── accounts.py           # 账号管理 CRUD + 刷新 + 批量操作 + 分组 + 回收站(trash/restore/clear) + 详情/tags/export-csv
+│   ├── dashboard.py          # 看板 API (scheduler/ops/usage/latency/stream/metrics/capacity + events/adaptive_scheduler/cost)
 │   ├── image_inputs.py       # 图片输入解析/校验/SSRF 防护消费
 │   ├── image_tasks.py        # 图片任务提交/轮询
 │   ├── kookeey.py            # kookeey 代理流量看板 API
 │   ├── providers.py          # Provider 列表 API（get /api/providers）
 │   ├── proxy_pool.py         # 代理池管理 API (proxies/egress-ip/probe-ip)
 │   ├── rate_limit.py         # 限流中间件（Local/Redis 双实现，默认 0 关闭）
+│   ├── response_cache.py     # 请求级响应缓存（TTL+Cache-Control+?refresh=1+写操作 invalidate，预注册 5 端点）
 │   ├── support.py            # 鉴权(require_identity/require_admin) + 工具函数
 │   ├── system.py             # 设置/日志/图片/备份/健康端点
 │   └── errors.py             # 异常处理器
 ├── services/                 # 业务逻辑层
-│   ├── account_service.py    # 账号池 + 智能调度(健康档位/调度分) + 熔断器接入 + provider 过滤
+│   ├── account_service.py    # 账号池 + 智能调度(健康档位/调度分/least_used) + 熔断器接入 + provider 过滤 + 回收站联动
+│   ├── account_warmup.py     # 新账号预热（首次登录/冷却后重新激活）
 │   ├── account_lifetime.py   # 账号寿命预测（EWMA 失败率+连续失效窗口双信号）
+│   ├── adaptive_scheduler.py # 自适应调度器（按运行指标自动切换调度模式，最短驻留守卫防抖动）
 │   ├── alert_service.py      # 告警服务（去重窗口+多通道+恢复事件）
+│   ├── auto_healer.py        # 自动修复引擎（Auto-Healing 2.0：会话重建/磁盘清理/熔断探测等 6 修复器）
 │   ├── audit_service.py      # 审计日志（独立天文件+按天轮转+require_admin 统一埋点）
 │   ├── auth_service.py       # 认证服务（admin/user 双角色，hmac 密钥验证）
 │   ├── backup_service.py     # 备份服务（CF R2/WebDAV）
 │   ├── circuit_breaker.py    # 上游熔断器状态机（CLOSED/OPEN/HALF_OPEN）
 │   ├── config.py             # 配置加载 + schema 校验（1071行）
+│   ├── config_watcher.py     # 配置热加载（mtime 轮询 + CONFIG_CHANGED 事件）
 │   ├── content_filter.py     # 内容过滤
+│   ├── cost_service.py       # 成本优化（usage_agg 用量+provider 分布+kookeey 流量三源合并）
 │   ├── cpa_service.py        # CPA 服务
+│   ├── diagnostic_engine.py  # 智能诊断引擎（ABC + 7 诊断检查器 + DiagnosticEngine）
 │   ├── editable_file_task_service.py  # 可编辑文件任务服务
 │   ├── event_bus.py          # 事件总线（同步/异步双模式，死信队列，线程安全）
 │   ├── event_bus_init.py     # 事件总线订阅注册
 │   ├── image_failure.py      # 图片失败分类中枢（classify_image_exception 熔断判定单一来源）
 │   ├── image_pipeline.py     # 异步图片处理管道（下载+处理+缓存+并发限流）
 │   ├── image_service.py      # 图片服务
-│   ├── image_storage_service.py  # 图片存储服务
+│   ├── image_storage_service.py  # 图片存储服务（local/R2/WebDAV 多后端，R2 用 AWS SigV4 签名）
 │   ├── image_tags_service.py # 图片标签服务
 │   ├── image_task_service.py # 图片任务服务（状态机+resume_poll+in-flight 守卫）
 │   ├── kookeey_service.py    # kookeey 代理流量/出口IP探测/画像
+│   ├── log_index.py          # 日志倒排索引（增量构建，加速查询）
 │   ├── log_service.py        # 日志服务（按天轮转切分+多文件增量+惰性迁移）
 │   ├── metrics_service.py    # 指标收集 + Prometheus 导出
 │   ├── model_service.py      # 模型服务
@@ -65,16 +73,20 @@ chatgpt2api/
 │   ├── prometheus_metrics.py # Prometheus 指标定义
 │   ├── provider_scheduler.py # 各 Provider 独立调度池（Phase 2：调度分池）
 │   ├── proxy_pool.py         # 代理池管理(持久化到 data/proxies.json)
-│   ├── proxy_service.py      # 代理配置/CF clearance/kookeey 每号住宅 IP
+│   ├── proxy_service.py      # 代理配置/CF clearance/kookeey 每号住宅 IP + 常规请求粘性 IP（get_profile）
+│   ├── quota_service.py      # 配额服务
 │   ├── request_context.py    # 请求上下文
 │   ├── retry_budget.py       # 统一重试预算（幂等 GET 指数退避/流式首字节前换号至多1次）
 │   ├── router_service.py     # 模型→Provider 路由分发（Phase 3，前缀匹配+精确匹配）
+│   ├── session_cache.py      # 三级会话缓存（L1 内存 LRU + L2 Redis + L3 存储层）
 │   ├── session_pool.py       # TLS 连接池复用（自适应扩容/缩容，key 含账号标识+指纹）
 │   ├── shared_state.py       # 多 worker 共享状态抽象层（Local/Redis 双实现）
 │   ├── ssrf_guard.py         # SSRF 防护（协议白名单+内网 IP 段校验）
 │   ├── sub2api_service.py    # Sub2API 服务
 │   ├── task_queue.py         # 轻量异步任务队列（优先级调度+FIFO+状态查询+取消）
 │   ├── task_queue_init.py    # 任务队列处理器注册
+│   ├── tracing.py            # 轻量请求追踪（trace_id 全链路 + 慢请求告警）
+│   ├── trash_service.py      # 账号回收站（剔除/删除记录 + 统计 + 原因，线程安全原子落盘）
 │   ├── usage_agg.py          # 日志聚合缓存（按小时桶增量聚合+90天窗口+原子落盘）
 │   ├── usage_forecast.py     # 用量预测
 │   ├── protocol/             # 协议层
@@ -93,9 +105,11 @@ chatgpt2api/
 │   │   ├── base.py           # ProviderMeta 元信息模型
 │   │   └── registry.py       # 注册表+归一化+校验
 │   └── storage/              # 存储后端
-│       ├── base.py           # 泛型仓储接口（Repository Protocol）
+│       ├── base.py           # 泛型仓储接口（Repository Protocol）+ AsyncStorageBackend 异步基类
 │       ├── json_storage.py   # JSON 文件存储（含原子写）
 │       ├── database_storage.py # SQLite/Postgres 存储（含 ORM 层）
+│       ├── async_database.py # 异步数据库后端（sqlalchemy.ext.asyncio + aiosqlite/asyncpg）
+│       ├── async_bridge.py   # 同步→异步桥接适配器（STORAGE_ASYNC_ENABLED 启用）
 │       ├── git_storage.py    # Git 仓库存储
 │       └── factory.py        # 工厂模式创建存储后端
 ├── web/                      # Next.js 前端 (webpack 构建，中文路径必须 --webpack)
@@ -126,7 +140,8 @@ chatgpt2api/
 │   ├── slow_query_report.py  # 慢查询报告
 │   ├── mutation_probe.py     # 变异探针
 │   ├── stress_test.py        # 极限施压
-│   ├── run_all_guards.py     # 五道防线一键执行
+│   ├── run_all_guards.py     # 六道防线一键执行（契约/SQL/慢查询/变异/压测/文档同步）
+│   ├── docs_sync_check.py    # 文档同步检查：VERSION 与 SKILL/CLAUDE/workflow_status/verification-registry 内嵌版本号一致性
 │   ├── e2e_smoke.cjs         # E2E 冒烟 (playwright-core + 系统 Edge)
 │   ├── refresh_spec.py       # 规格保鲜
 │   ├── verify_backup_roundtrip.py # 备份往返验证
@@ -144,7 +159,7 @@ chatgpt2api/
 ├── main.py                   # 启动入口 (多 worker, JSON 存储自动回退 workers=1)
 ├── 启动chatgpt2api.bat        # Windows 一键启动 (GBK+CRLF 无 BOM)
 ├── 停止chatgpt2api.bat        # Windows 停止服务
-├── VERSION                   # 当前版本号 (v2.13.0)
+├── VERSION                   # 当前版本号 (v2.32.0)
 ├── CHANGELOG.md              # 变更日志
 └── workflow_status.md        # 工作流状态（当前轮次完成清单+防线状态）
 ```
@@ -156,6 +171,8 @@ chatgpt2api/
 - 健康档位：healthy / warm / risky（状态 + 错误率 + 配额 + 近期错误）
 - 调度分：基础分 + 配额占比 + 成功加成 - 失败惩罚 - 冷却惩罚
 - 选取顺序：优先级 > 档位 > 调度分
+- **v2.32.0 least_used（雨露均沾）**：`scheduler_mode=least_used` 时选 `last_used_at` 最久远账号，避免集中突刺单号，让免费号分布更接近真人
+- **v2.30.0 自适应调度器**：`scheduler_adaptive_enabled=true` 时 `AdaptiveScheduler.tick()` 按运行指标（并发/成功率/模型多样性）自动切 weighted_random/least_load/predictive/affinity，最短驻留 120s 防抖动
 - **熔断器接入**：`get_available_access_token` 里，熔断账号跳过；`record_success` **必须在 `_is_image_account_available` 确认后调用**（历史 bug：在返回后立即调用导致误判）
 - **Provider 过滤**：`_account_matches_provider` 按 provider 字段过滤调度池
 - **账号分组**：支持 group 分组字段（JSON/SQLite 自动持久化）
@@ -204,12 +221,12 @@ chatgpt2api/
 - **弱口令检测**：auth-key 常见弱口令或 <12 位，development 警告、production（`CHATGPT2API_ENV=production`）拒绝启动
 - **限流中间件**：默认 0 关闭；配置 rpm>0 且 Redis 可用时跨进程精确限流；Redis 断连自动降级本地滑窗，不 500 不崩
 
-### 8. 事件总线（services/event_bus.py）
+### 8. 事件总线（services/event_bus.py，v2.24.0 Pub/Sub 增强）
 
-- 同步/异步双模式发布，无外部依赖
-- 事件类型：账号事件（invalid/recovered/quota_exhausted）、熔断器事件（open/half_open/closed）、备份失败、配置变更
-- 死信队列：handler 抛异常时写入 `data/event_dead_letter.jsonl`
-- 线程安全（sync_handler 用 threading.Lock 保护）
+- EventType 枚举（26 事件类型）+ Event.source/severity 增强字段 + subscribe_all 通配符订阅
+- 异步消费者（asyncio.Queue + 后台协程），publish_async 入队 / publish_sync 同步；死信队列 `data/event_dead_letter.jsonl`
+- 事件统计（发布计数/severity 分布/handler 耗时/死信计数/消费者深度）+ Prometheus 4 指标
+- **v2.31.0 持久化**：`api/app.py` 事件订阅写入 `data/events.jsonl`（行数裁剪），`GET /api/events/stream` SSE 实时推送 + `GET /api/dashboard/events` 读取最近事件（同源）
 - **初始化**：`api/app.py` lifespan 调用 `event_bus_init.register_subscribers()` 注册所有订阅
 
 ### 9. 任务队列（services/task_queue.py）
@@ -349,13 +366,26 @@ chatgpt2api/
 - [ ] 多 worker 共享状态走 shared_state 层，不跨请求持有模块级全局变量
 - [ ] 时间比较统一 aware(UTC)，禁止 naive/aware 混合（历史 OTP 静默吞 bug）
 
-### 五道防线（每次改动后跑 `scripts/run_all_guards.py` 一键全过 — 仅重跑改动区域，未碰区域沿用验证登记表结论）
+### v2.18+ 新增功能专项检查（涉及下列区域时必做）
+
+- [ ] **回收站**（`services/trash_service.py` + `api/accounts.py` trash/restore/clear）：剔除/删除账号有记录；恢复回池；上限裁剪生效；新端点已 git add 且契约守卫覆盖
+- [ ] **雨露均沾调度**（`_pick_least_used`）：`scheduler_mode=least_used` 生效，last_used_at 最久远者优先；与其它模式互斥
+- [ ] **粘性 IP**（`proxy_service.get_profile`）：仅 `kookeey.proxy_enabled=true` 生效；常规对话/生图请求自动接入；按量计费提示保留
+- [ ] **R2 图片存储**（`image_storage_service.R2Client`）：r2_* 四配置齐全才启用，缺配置降级 local 不 500；SigV4 签名上传/读取/删除/列对象
+- [ ] **事件流 SSE**（`/api/events/stream` + `/api/dashboard/events`）：`?token=` 鉴权；events.jsonl 持久化 + 行数裁剪
+- [ ] **响应缓存**（`api/response_cache.py`）：预注册 5 端点 TTL 生效；`?refresh=1` 强刷；写操作 invalidate
+- [ ] **自适应调度器**（`adaptive_scheduler.py`）：最短驻留守卫防抖动；模式切换有指标
+- [ ] **配置热加载**（`config_watcher.py`）：config.json mtime 变化触发 CONFIG_CHANGED 事件
+- [ ] **智能诊断/自动修复**（`diagnostic_engine.py` + `auto_healer.py`）：诊断 7 检查器 + 修复 6 修复器有测试
+
+### 六道防线（每次改动后跑 `scripts/run_all_guards.py` 一键全过 — 仅重跑改动区域，未碰区域沿用验证登记表结论）
 
 1. **契约守卫** `scripts/contract_guard.py`：前端 /api 引用与后端路由差集（断链检测）+ 端点字段签名快照 diff。改 API 字段后必跑；新增端点加进 SNAPSHOT_ENDPOINTS 或 DYNAMIC_KEY_ENDPOINTS
 2. **SQL 安全审查** `scripts/sql_audit.py`：注入面/事务边界/多 worker 守卫静态扫描
 3. **慢查询猎杀** `scripts/slow_query_report.py`：data/ 规模盘点 × 全量扫描热点交叉
 4. **变异探针** `scripts/mutation_probe.py`：对关键阈值/判断做种子变异，验证测试真能抓住回归（抓不住的补测试，不许直接跳过）
 5. **极限施压** `scripts/stress_test.py`：并发突刺 + 慢存储注入 + 存储并发写一致性（TestClient 进程内，不影响生产）
+6. **文档同步** `scripts/docs_sync_check.py`：VERSION 与 SKILL.md/CLAUDE.md/workflow_status/verification-registry 内嵌版本号一致，防 bump VERSION 漏同步文档
 
 报告落盘 `reports/<防线>/`（已 gitignore）。任何防线 FAIL 不许交付。
 
@@ -373,7 +403,7 @@ chatgpt2api/
 - [ ] **需求追踪**：本轮需求在 workflow_status.md 有矩阵行，每行有证据（文件/命令/测试），无证据标"未闭环"
 - [ ] **反向批判**：主动写出"我自己最可能错在哪"，至少攻击 3 个假设并逐一验证或修复
 - [ ] **假功能扫描**：前端新增按钮/开关/菜单必须有点击后的真实后端调用证据（契约守卫断链=0）
-- [ ] **五道防线全绿**：run_all_guards.py PASS（仅重跑改动区域）
+- [ ] **六道防线全绿**：run_all_guards.py PASS（仅重跑改动区域）
 - [ ] **回归全绿**：pytest 全量（排除 live）passed/0 failed；前端 tsc 0 错误 + build 成功
 - [ ] **文档同步**：README/CHANGELOG/onboarding/workflow_status/verification-registry 与新行为一致；新脚本进 docs
 - [ ] **无伪实现**：TODO/FIXME/占位返回/mock 充数 = 未闭环；做不到的写明外部限制与降级行为
@@ -445,6 +475,10 @@ chatgpt2api/
 | 熔断判定双源不一致（已修 v2.10.0） | services/protocol/conversation.py + openai_search.py | 文本链路和搜索链路各有自己的熔断判定逻辑，导致同一异常分类不同结果。统一走 `image_failure.classify_image_exception` + `should_record_circuit_failure` |
 | 图片透传 resume-poll 漏接（已修 v2.9.2） | services/image_task_service.py | 透传启用后，resume-poll 续轮询仍走老下载逻辑，透传分流没覆盖 resume 路径。评审补充后发现并修复 |
 | config 环境变量覆盖不生效 | services/config.py | 环境变量 `CHATGPT2API_*` 必须在 `@property` 的 getter 中实时读取 `os.environ`，不能开局读一次缓存——配置热更新后环境变量覆盖失效（影响 docker compose 运行时改配置） |
+| 回收站端点漏提交（已修 v2.32.0） | api/accounts.py | 新端点实现后 `git add` 漏文件 → 部署后 404。新端点入库立即 `git status` 核对已暂存 |
+| 粘性 IP 配置与行为脱节（v2.32.0 警示） | services/proxy_service.py | `get_profile` 粘性 IP 仅 `kookeey.proxy_enabled=true` 生效，默认 false 行为不变——配置项必须接线验证，不能只看代码 |
+| 事件流端点鉴权（v2.31.0 警示） | api/dashboard.py `/api/events/stream` | SSE 无法传 header，必须 `?token=` 查询参数鉴权（复用 dashboard/stream 模式） |
+| R2 图片存储凭证缺失 | services/image_storage_service.py | R2 模式需 r2_account_id/access_key/secret/bucket 四配置齐全，缺配置应降级 local 而非 500 |
 
 ## 关键文件速查
 
@@ -480,14 +514,27 @@ chatgpt2api/
 | 图片透传 | services/protocol/conversation.py（build_passthrough_items 等）+ config.image_passthrough_enabled |
 | 健康端点 | api/system.py `GET /api/system/healthz` + `/api/system/health/ready` |
 | API 文档 | docs/api/* |
-| 五道防线 | scripts/run_all_guards.py（contract_guard/sql_audit/slow_query_report/mutation_probe/stress_test，带执行锁防双跑） |
+| 六道防线 | scripts/run_all_guards.py（contract_guard/sql_audit/slow_query_report/mutation_probe/stress_test/docs_sync_check，带执行锁防双跑） |
 | 号池救活 | services/otp_login_service.py（Graph 取件优先/98faka 兜底）+ services/account_service.py（watcher 重登+导入两处 OTP 降级）+ scripts/revive_abnormal.py |
 | 每号住宅 IP | services/proxy_service.py `kookeey_proxy_for(email)`（md5[:8] 粘性 session→同号固定 IP） |
+| 常规请求粘性 IP | services/proxy_service.py `get_profile`（对话/生图自动接入，需 kookeey proxy_enabled=true） |
+| 雨露均沾调度 | services/account_service.py `_pick_least_used`（scheduler_mode=least_used） |
+| 账号回收站 | services/trash_service.py + api/accounts.py（GET trash + POST clear/restore） |
+| 请求级响应缓存 | api/response_cache.py（预注册 5 端点 TTL + ?refresh=1 + 写操作 invalidate） |
+| 自适应调度器 | services/adaptive_scheduler.py + /api/dashboard/adaptive_scheduler |
+| 配置热加载 | services/config_watcher.py（mtime 轮询 + CONFIG_CHANGED 事件） |
+| 智能诊断/自动修复 | services/diagnostic_engine.py + auto_healer.py + /api/system/diagnose + /api/system/healing/* |
+| 成本优化 | services/cost_service.py + /api/dashboard/cost（usage_agg+provider+kookeey 三源） |
+| 三级会话缓存 | services/session_cache.py（L1 LRU + L2 Redis + L3 存储层） |
+| 事件流 SSE | api/dashboard.py GET /api/events/stream + GET /api/dashboard/events（events.jsonl 持久化） |
+| R2 图片存储 | services/image_storage_service.py R2Client（AWS SigV4 签名，纯 Python 无 boto3） |
+| 异步存储层 | services/storage/async_database.py + async_bridge.py（STORAGE_ASYNC_ENABLED 启用） |
 | 多提供商地基 | services/providers/（ProviderMeta+注册表，chatgpt 默认/grok 占位未启用） |
 | 前端智能重建 | scripts/web_stamp.ps1（对 web/src+配置+VERSION+CHANGELOG 算指纹）+ 启动bat 按指纹决定重建 |
 | 备份演练 | scripts/verify_backup_roundtrip.py（打包/解包 sha256 往返，不触网） |
 | live 测试 | scripts/run_live_tests.py（dry-run 预检 + --go 执行，防误跑烧配额） |
 | 规格保鲜 | scripts/refresh_spec.py（生成 docs/project-spec.md，会话启动判断过时） |
+| 文档同步检查 | scripts/docs_sync_check.py（VERSION 与 4 文档内嵌版本号一致性，防 bump 漏同步） |
 | 验证登记表 | docs/verification-registry.md（当前已验证基线+已知 flaky/边界+各区域最近改动） |
 | 黄金范例 | docs/golden-examples.md |
 | 产品策略 | docs/product-strategy.md |

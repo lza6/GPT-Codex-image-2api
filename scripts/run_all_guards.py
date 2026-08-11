@@ -46,6 +46,7 @@ GUARDS = [
     ("慢查询猎杀", "scripts/slow_query_report.py", []),
     ("变异探针", "scripts/mutation_probe.py", []),
     ("极限施压", "scripts/stress_test.py", ["--requests", "200", "--concurrency", "15"]),
+    ("文档同步", "scripts/docs_sync_check.py", []),
 ]
 
 

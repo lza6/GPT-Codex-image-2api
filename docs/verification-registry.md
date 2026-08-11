@@ -9,62 +9,55 @@
 
 ---
 
-## 一、当前验证基线（最新一轮：v2.9.0 号池救活 + 版本对齐 + 智能重建）
+## 一、当前验证基线（最新一轮：v2.32.0 文档同步 + 源码树清理）
 
 | 项 | 结果 | 范围/说明 | 日期 | 证据 |
 |----|------|-----------|------|------|
-| 全量单测 | **458 passed / 0 failed**（33 live/redis 排除） | 全 test/（test_full_login_flow_mocked 40s 空转已修→整套 66s→26s） | 2026-08-07 | `pytest -q` |
-| 五道防线·契约守卫 | PASS（断链=0 漂移=0） | provider/mail_credential 新字段为增量、向后兼容 | 2026-08-07 | reports/contract/ |
-| 五道防线·SQL 审查 | PASS（P0=0 P1=0） | 曾误报 `_extract_code_from_text(f"..")` 撞 `text(f"` 启发式→改名 `_extract_otp_code` 消除 | 2026-08-07 | reports/sqlaudit/ |
-| 五道防线·慢查询 | PASS（热点 2 处，P3 既有） | 账号/DB 两处长尾，非本轮引入 | 2026-08-07 | reports/slowquery/ |
-| 五道防线·极限施压 | PASS（8/8） | 并发突刺/慢存储/存储并发写一致性 | 2026-08-07 | reports/stress/ |
-| 五道防线·变异探针 | PASS（caught=6 escaped=0 还原后全量=OK） | **长期 flaky 已根治**：子进程强制 UTF-8（PYTHONIOENCODING+errors=replace） | 2026-08-07 | reports/mutation/ |
-| 前端 | tsc 0 错误 + build 成功 | 本轮未改前端逻辑 | 2026-08-07 | `npm run build` |
-| lint | ruff 0 错误（改动文件） | 本轮全部改动文件；存量 24 处为既有技术债（utils/pow 等，非本轮） | 2026-08-07 | `ruff check` |
-| 六维独立审计 | 24 确认 / 8 驳回，确认项已修 | 多 agent 审查（逻辑/批判/安全/契约/测试/需求）+ 对抗验证 | 2026-08-07 | 见下「审计修复」 |
+| 全量单测 | **1162 passed / 0 failed**（33 live/redis 排除） | 全 test/（修复 openapi.json 过期后干净跑，真实 exit 0） | 2026-08-12 | `pytest -q` |
+| 六道防线·契约守卫 | PASS（断链=0 漂移=0） | 本轮涉 R2/回收站/least_used/粘性IP 区域 | 2026-08-12 | reports/contract/ |
+| 六道防线·SQL 审查 | PASS（P0=0 P1=0） | 修 `text(` 启发式误报（write_text 撞 text(f），加负向后瞻 | 2026-08-12 | reports/sqlaudit/ |
+| 六道防线·慢查询 | PASS | | 2026-08-12 | reports/slowquery/ |
+| 六道防线·极限施压 | PASS（8/8） | | 2026-08-12 | reports/stress/ |
+| 六道防线·变异探针 | PASS（caught=33 escaped=0） | mutation_probe.py 本轮增强后 | 2026-08-12 | reports/mutation/ |
+| 六道防线·文档同步 | PASS | docs_sync_check.py 首跑（VERSION 与 4 文档一致） | 2026-08-12 | reports/docs_sync/ |
+| 前端 | tsc 0 错误 + build 成功 | npm run build（含类型检查） | 2026-08-12 | `npm run build` |
+| E2E | **16 passed / 0 failed**（2 skipped 容错） | e2e/ Playwright 真实前后端（登录/看板/账号/批量通知 4 spec）；修复 cost 3s 超时 + networkidle→确定性等待 | 2026-08-12 | `playwright test` |
 
 ## 二、本轮新增/改动区域 → 对应验证
 
 | 区域 | 改动 | 验证 | 状态 |
 |------|------|------|------|
-| 取件 Graph 迁移 | `otp_login_service._fetch_otp_code` 改 Graph 优先/98faka 兜底 + `_graph_access_token/_graph_list_mails/_poll_graph_otp/_graph_code_from_full_body` | `test_otp_graph_fetch.py` 12 项（调度/全文兜底/token失败回退/无码不双轮询/无凭证直走98faka） | ✅ |
-| passwordless 发码 | `_trigger_passwordless_otp` | 同上（200/非200/异常） | ✅ |
-| 取件时间 UTC | `_mail_time` 统一 aware | 同上（naive/Z/偏移/非法/date键） | ✅ |
-| OTP 降级 | `account_service` watcher重登+导入两处 | `test_otp_login.py` + `test_account_password_import.py` | ✅（既有） |
-| 每号住宅 IP | `proxy_service.kookeey_proxy_for` + `config.get_kookeey_settings` | `test_kookeey_providers.py`（粘性/禁用/缺字段/自定义端口国家） | ✅ |
-| 多提供商地基 | `services/providers/` + normalize 接线 | `test_kookeey_providers.py::TestProvidersRegistry` 8 项 | ✅ |
-| 批量救号脚本 | `scripts/revive_abnormal.py` | 结构/字段校验已核（data 74 条字段齐）；**真实批量跑=用户决定（烧配额+需代理）** | ⚠️ 边界 |
-| 智能重建 | `启动chatgpt2api.bat` + `scripts/web_stamp.ps1` | 指纹脚本稳定性实测（VERSION/CHANGELOG 改动→哈希变）；bat GBK 逐行验证中文完好 | ✅（未整跑 bat，避免中断在跑服务） |
+| R2 图片存储 | `services/image_storage_service.py` R2Client（AWS SigV4，纯 Python）+ config r2_* 四字段 | `test/test_image_storage_service.py`（新增 126 行，覆盖签名/上传/读取/删除/列对象/降级） | ⏳ 验收后回填 |
+| 变异探针增强 | `scripts/mutation_probe.py`（282 行增量） | `pytest` 全量 + 防线变异 | ⏳ 回填 |
+| 回收站/least_used/粘性IP | `services/trash_service.py` + `account_service._pick_least_used` + `proxy_service.get_profile`（v2.32.0 已提交） | `test/test_trash_scheduler_sticky.py` 等 11 项 | ✅（v2.32.0 闭环） |
+| 事件流 SSE | `/api/events/stream` + `/api/dashboard/events` + events.jsonl 持久化（v2.31.0 已提交） | `test/test_events_stream.py` 8 项 | ✅（v2.31.0 闭环） |
+| 文档同步 | SKILL.md/workflow_status/verification-registry/CLAUDE.md/project-spec + docs_sync_check.py | 本表 + `run_all_guards.py` 第六道防线 | ⏳ 回填 |
+| 源码树清理 | 87 ,cover + deploy.tar + web_dist_bak + tmp_pg5 + 根 final-report 移除，.gitignore 收紧 | `git ls-files` 残留=0；`find . -name "*,cover"`=0 | ✅ |
+| 响应缓存 | `api/response_cache.py` 5 端点（v2.30.0 已提交） | `test/test_response_cache.py` 22 项 | ✅（v2.30.0 闭环） |
+| 自适应调度/配置热加载 | `adaptive_scheduler.py` + `config_watcher.py`（v2.30.0 已提交） | `test/test_scheduler_modes.py` 28 项 + `test_config_watcher.py` 7 项 | ✅（v2.30.0 闭环） |
 
 ## 三、已知 flaky / 边界（**不要重复追查**）
 
-- **~~变异探针「还原后全量」偶发 FAIL~~（已根治 v2.9.0）**：原是 Windows GBK 控制台中文日志偶发 `UnicodeEncodeError`。修复：`mutation_probe._run_tests` 子进程强制 `PYTHONIOENCODING=utf-8` + 父进程 `encoding="utf-8", errors="replace"`。已两轮复跑全绿。
+- **~~变异探针「还原后全量」偶发 FAIL~~（已根治 v2.9.0）**：Windows GBK 中文日志偶发 `UnicodeEncodeError`。已强制子进程 UTF-8（PYTHONIOENCODING + errors=replace）。
+- **`test_refresh_error_window_is_600` 偶发 flaky**（本轮记录）：全量顺序跑偶发红、单独跑/单文件跑恒绿、干净全量跑绿（1162 passed）。断言 800s 前刷新错误 → healthy（窗口 600），与防线/并发跑时的状态残留或时序相关。**不阻塞**，已在干净跑验证通过；若再遇，单独复跑该测试确认即可。
 - **真实上游图片/OTP/Graph 联网**：live 测试默认排除，需真实凭证+烧配额，由用户手动 `-m live` 自测。
-- **71 个遗留异常号**：在「mail_credential 入库」功能**之前**导入，池内无取件凭证 → watcher 自动救活对它们无效，**只能 `revive_abnormal.py` + 外部 payload 一次性救**；新导入号才带凭证可被自动救。
-- **代理出口（kookeey/v2ray TUN 分流）**：方案§四未定稿，`gate.kookeey.info:1000` 在本机 TUN 下不可达属**用户网络/基础设施决策**（或按方案用服务器直连 kookeey），代码层 `kookeey_proxy_for` 已就绪待配置。
-- **kookeey 凭据经 /api/settings 返回**：与既有全局 `proxy` 凭据处理一致（均返回供管理员编辑，仅 auth-key 被 pop）。内部管理员工具、需鉴权，符合既有设计。
-- **多提供商为「地基」阶段**：provider 字段 + 注册表已就位；调度分池/路由分发/前端切换器是后续阶段（方案本就定「这次只做地基」）。
+- **71 个遗留异常号**：mail_credential 入库功能之前导入，池内无取件凭证 → watcher 自动救活无效，只能 `revive_abnormal.py` + 外部 payload 一次性救。
+- **代理出口（kookeey/v2ray TUN 分流）**：`gate.kookeey.info:1000` 本机 TUN 下不可达属用户网络/基础设施决策；代码层 `kookeey_proxy_for` 已就绪。
+- **kookeey 凭据经 /api/settings 返回**：与既有全局 `proxy` 凭据处理一致（均返回供管理员编辑，仅 auth-key 被 pop）。内部管理员工具、需鉴权。
+- **多提供商为「地基」阶段**：provider 字段+注册表已就位；调度分池/路由分发/前端切换器是后续阶段。
+- **R2 图片存储无真实凭证**（本轮新增边界）：单测覆盖 SigV4 签名与逻辑降级；真实上传需用户配 r2_account_id/access_key/secret/bucket 后自测。
+- **粘性 IP 依赖 kookeey.proxy_enabled**（本轮新增边界）：默认 false 行为不变，测试用 mock；服务器已开 true。
+- **CHANGELOG 缺版本段**（v2.21/2.22/2.23/2.26–2.29）：git log 有提交但 CHANGELOG 未登记，已记入 workflow_status 矩阵，不重复追查。
+- **e2e/ Playwright 运行前置**：需本机 Edge（msedge channel）+ 起真实前后端（23456/3000），worker=1。
 
-## 四、六维审计修复明细（v2.9.0，24 确认已修 / 8 驳回）
+## 四、历史审计修复明细
 
-| 修复 | 文件 | 说明 |
-|------|------|------|
-| OTP 降级抽公共方法 | services/account_service.py | `_otp_fallback_login` 消除 watcher/导入两处复制粘贴 |
-| 不再泄露 GPT 密码 | services/account_service.py | mail_credential 不塞 GPT 登录密码（Graph 用 refresh_token，防 98faka 兜底发第三方） |
-| 导入路径补每号 IP | services/account_service.py | `add_password_accounts` 也走 `kookeey_proxy_for(email)`，批量导入分摊出口防风控 |
-| kookeey URL 编码 | services/proxy_service.py | security_username/password percent-encode，防凭据含 @ : / 截断代理 URL |
-| 98faka docstring 纠偏 | services/otp_login_service.py | 删「15 分钟兜底」虚假声明 |
-| 指纹排除构建产物 | scripts/web_stamp.ps1 | 排除 next-env.d.ts/*.tsbuildinfo，防误触发重建 |
-| bat 路径加引号 | 启动chatgpt2api.bat | powershell -File 路径含空格也能跑 |
-| 脚本健壮性 | scripts/revive_abnormal.py | with open 关文件 + payload 缺失友好提示 + 去多余 coding 声明 |
-| 变异 flaky 根治 | scripts/mutation_probe.py | 子进程 UTF-8 容错（见上） |
-| 测试提速 | test/test_otp_login.py | test_full_login_flow_mocked 加 use_cf_solver=False，40s→0.2s |
-| mock 签名对齐 | test_otp_login.py + test_account_password_import.py | 补 proxy_url 形参匹配生产签名 |
+v2.9.0（24 确认已修 / 8 驳回）与更早轮次的审计明细见 git history 与旧版 workflow_status；本表聚焦当前基线，历史明细不再全文保留。
 
 ## 五、各区域"最近改动"速记（下次只重测这些）
 
-- 2026-08-07：`services/otp_login_service.py`、`account_service.py`、`proxy_service.py`、`config.py`、`services/providers/`、`scripts/revive_abnormal.py`、`scripts/web_stamp.ps1`、`启动chatgpt2api.bat`、`VERSION`、`CHANGELOG.md` → 重跑：otp/proxy/providers 相关测试 + 五道防线。
-- 前端本轮无逻辑改动（仅文档/版本）→ 前端只需 build，无需重跑 e2e。
+- 2026-08-12（第二十一轮）：`services/image_storage_service.py`（R2Client）、`scripts/mutation_probe.py`、`scripts/docs_sync_check.py`、`scripts/run_all_guards.py`、`.gitignore`、SKILL.md、workflow_status.md、verification-registry.md、CLAUDE.md、docs/project-spec.md → 重跑：image_storage/mutation 相关测试 + 六道防线全量。
+- 2026-08-11（v2.32.0）：`services/trash_service.py`、`account_service.py`（least_used）、`proxy_service.py`（get_profile）、`config.py`（scheduler_mode）、`api/accounts.py`（trash 端点）→ 已验证，重跑沿用。
 
 ---
 
