@@ -109,6 +109,7 @@ import { addNotification, addOperationResult } from "@/store/notifications";
 
 import { AccountImportDialog } from "./components/account-import-dialog";
 import { AccountTableRow } from "./components/accounts-table-row";
+import { TrashDialog } from "@/components/trash-dialog";
 
 // 键盘快捷键：全局导航
 const NAV_SHORTCUTS = [
@@ -401,6 +402,7 @@ function AccountsPageContent() {
   const [detailAccount, setDetailAccount] = useState<AccountDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailPanelOpen, setDetailPanelOpen] = useState(false);
+  const [trashOpen, setTrashOpen] = useState(false);
 
   // 虚拟滚动
   const parentRef = useRef<HTMLDivElement>(null);
@@ -2014,6 +2016,15 @@ function AccountsPageContent() {
                   <Tag className="size-4" />
                   批量打标签
                 </Button>
+                <Button
+                  variant="ghost"
+                  className="h-8 rounded-lg px-3 text-stone-500 hover:bg-stone-100"
+                  onClick={() => setTrashOpen(true)}
+                  title="查看被自动剔除/手动删除的账号记录"
+                >
+                  <History className="size-4" />
+                  回收站
+                </Button>
                 {/* 导出选中下拉（CSV/JSON） */}
                 <Popover open={exportPopoverOpen} onOpenChange={setExportPopoverOpen}>
                   <PopoverTrigger asChild>
@@ -2561,6 +2572,9 @@ function AccountsPageContent() {
           ) : null}
         </SheetContent>
       </Sheet>
+
+      {/* 回收站 */}
+      <TrashDialog open={trashOpen} onOpenChange={setTrashOpen} />
 
       {/* 批量操作结果弹窗 */}
       <BatchResultDialog

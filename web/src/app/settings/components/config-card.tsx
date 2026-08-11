@@ -238,7 +238,7 @@ const setSchedulerAdaptiveIntervalSeconds = useSettingsStore((state) => state.se
           </div>
           <div className="space-y-2">
             <label className="text-sm text-stone-700">调度模式</label>
-            <Select value={config?.scheduler_mode || "round_robin"} onValueChange={(v) => setSchedulerMode(v as "round_robin" | "remaining_quota" | "weighted_random")}>
+            <Select value={config?.scheduler_mode || "round_robin"} onValueChange={(v) => setSchedulerMode(v as "round_robin" | "remaining_quota" | "weighted_random" | "least_load" | "least_used" | "predictive" | "affinity")}>
               <SelectTrigger className="h-10 rounded-xl border-stone-200 bg-white">
                 <SelectValue />
               </SelectTrigger>
@@ -246,9 +246,13 @@ const setSchedulerAdaptiveIntervalSeconds = useSettingsStore((state) => state.se
                 <SelectItem value="round_robin">轮询（round_robin）</SelectItem>
                 <SelectItem value="remaining_quota">按剩余配额（remaining_quota）</SelectItem>
                 <SelectItem value="weighted_random">加权随机（weighted_random）</SelectItem>
+                <SelectItem value="least_load">最少并发（least_load）</SelectItem>
+                <SelectItem value="least_used">雨露均沾（least_used）</SelectItem>
+                <SelectItem value="predictive">预测配额（predictive）</SelectItem>
+                <SelectItem value="affinity">模型亲和（affinity）</SelectItem>
               </SelectContent>
             </Select>
-            <p className="text-xs text-stone-500">账号调度策略：轮询 / 按剩余配额优先 / 档位内按调度分加权随机（摊平磨损）。</p>
+            <p className="text-xs text-stone-500">账号调度策略：轮询 / 按剩余配额 / 加权随机（摊平磨损）/ 最少并发 / 雨露均沾（选最久未用，避免集中突刺单号）/ 预测配额 / 模型亲和。</p>
           </div>
           <div className="space-y-2">
             <label className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-4 py-3 text-sm text-stone-700">

@@ -161,7 +161,7 @@ function normalizeConfig(config: SettingsConfig): SettingsConfig {
     auto_remove_invalid_accounts: Boolean(config.auto_remove_invalid_accounts),
     auto_remove_rate_limited_accounts: Boolean(config.auto_remove_rate_limited_accounts),
     auto_relogin_after_refresh: Boolean(config.auto_relogin_after_refresh),
-    scheduler_mode: ["round_robin", "remaining_quota", "weighted_random"].includes(config.scheduler_mode ?? "") ? (config.scheduler_mode as "round_robin" | "remaining_quota" | "weighted_random") : "round_robin",
+    scheduler_mode: ["round_robin", "remaining_quota", "weighted_random", "least_load", "least_used", "predictive", "affinity"].includes(config.scheduler_mode ?? "") ? (config.scheduler_mode as "round_robin" | "remaining_quota" | "weighted_random" | "least_load" | "least_used" | "predictive" | "affinity") : "round_robin",
     scheduler_adaptive_enabled: Boolean(config.scheduler_adaptive_enabled),
     scheduler_adaptive_interval_seconds: Number(config.scheduler_adaptive_interval_seconds ?? 30),
     proactive_probe_enabled: Boolean(config.proactive_probe_enabled),
@@ -303,7 +303,7 @@ type SettingsStore = {
   setAutoRemoveInvalidAccounts: (value: boolean) => void;
   setAutoRemoveRateLimitedAccounts: (value: boolean) => void;
   setAutoReloginAfterRefresh: (value: boolean) => void;
-  setSchedulerMode: (value: "round_robin" | "remaining_quota" | "weighted_random") => void;
+  setSchedulerMode: (value: "round_robin" | "remaining_quota" | "weighted_random" | "least_load" | "least_used" | "predictive" | "affinity") => void;
   setSchedulerAdaptiveEnabled: (value: boolean) => void;
   setSchedulerAdaptiveIntervalSeconds: (value: string) => void;
   setProactiveProbeEnabled: (value: boolean) => void;

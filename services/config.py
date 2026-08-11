@@ -36,6 +36,12 @@ DEFAULT_IMAGE_STORAGE = {
     "webdav_username": "",
     "webdav_password": "",
     "webdav_root_path": "chatgpt2api/images",
+    # Cloudflare R2（S3 兼容，SigV4 签名）
+    "r2_account_id": "",
+    "r2_access_key_id": "",
+    "r2_secret_access_key": "",
+    "r2_bucket": "",
+    "r2_prefix": "images",
     "public_base_url": "",
 }
 
@@ -138,12 +144,15 @@ def _normalize_backup_state(value: object) -> dict[str, object]:
 def _normalize_image_storage_settings(value: object) -> dict[str, object]:
     source = value if isinstance(value, dict) else {}
     mode = str(source.get("mode") or "local").strip().lower()
-    if mode not in {"local", "webdav", "both"}:
+    if mode not in {"local", "webdav", "r2", "both", "r2_local", "r2local"}:
         mode = "local"
     enabled = _normalize_bool(source.get("enabled"), False)
     if not enabled:
         mode = "local"
     root_path = str(source.get("webdav_root_path") or DEFAULT_IMAGE_STORAGE["webdav_root_path"]).strip().strip("/")
+    # 归一化 r2_local / r2local → r2_local（本地兜底 + R2 主存）
+    if mode in {"r2_local", "r2local"}:
+        mode = "r2_local"
     return {
         "enabled": enabled,
         "mode": mode,
@@ -151,6 +160,13 @@ def _normalize_image_storage_settings(value: object) -> dict[str, object]:
         "webdav_username": str(source.get("webdav_username") or "").strip(),
         "webdav_password": str(source.get("webdav_password") or "").strip(),
         "webdav_root_path": root_path or str(DEFAULT_IMAGE_STORAGE["webdav_root_path"]),
+        # R2 对象存储（Cloudflare R2，S3 兼容，SigV4 签名，无需 boto3）
+        "r2_account_id": str(source.get("r2_account_id") or "").strip(),
+        "r2_access_key_id": str(source.get("r2_access_key_id") or "").strip(),
+        "r2_secret_access_key": str(source.get("r2_secret_access_key") or "").strip(),
+        "r2_bucket": str(source.get("r2_bucket") or "").strip(),
+        "r2_prefix": str(source.get("r2_prefix") or "images").strip().strip("/"),
+        # 公开访问域名：R2 自定义域 / r2.dev 子域，用于拼接永久直链
         "public_base_url": str(source.get("public_base_url") or "").strip().rstrip("/"),
     }
 
@@ -456,7 +472,7 @@ class ConfigStore:
         "model_upstream_map",
     )
     _ENUM_FIELDS: tuple[tuple[str, tuple[str, ...]], ...] = (
-        ("scheduler_mode", ("round_robin", "remaining_quota", "weighted_random", "least_load", "predictive", "affinity")),
+        ("scheduler_mode", ("round_robin", "remaining_quota", "weighted_random", "least_load", "least_used", "predictive", "affinity")),
     )
 
     @staticmethod
@@ -606,7 +622,7 @@ class ConfigStore:
             or self.data.get("scheduler_mode")
             or "round_robin"
         ).strip().lower()
-        return value if value in {"round_robin", "remaining_quota", "weighted_random", "least_load", "predictive", "affinity"} else "round_robin"
+        return value if value in {"round_robin", "remaining_quota", "weighted_random", "least_load", "least_used", "predictive", "affinity"} else "round_robin"
 
     @property
     def scheduler_affinity_ttl_seconds(self) -> float:

@@ -1,5 +1,27 @@
 # Changelog
 
+## 2.32.0 - 2026-08-11 (账号回收站 + 雨露均沾调度 + 粘性 IP)
+
+**账号回收站（可视化剔除记录）：**
++ [新增] `services/trash_service.py` — TrashService 回收站（记录被自动剔除/手动删除账号：email/token/剔除时间/状态/上游返回原因/来源，线程安全 + 原子落盘 + 上限裁剪）
++ [新增] `api/accounts.py` — `GET /api/accounts/trash`（列表+统计）、`POST /api/accounts/trash/clear`（清空）、`POST /api/accounts/trash/restore`（恢复）
++ [新增] `web/src/components/trash-dialog.tsx` — 回收站弹窗（统计卡片 + 原因分布 + 记录列表，含剔除时间/上游原因）
++ [新增] `web/src/app/accounts/page.tsx` — 账户列表工具栏"回收站"按钮
++ [新增] `services/account_service.py` — `delete_accounts`、`account_deactivated` 停用路径自动记入回收站
++ [新增] `web/src/lib/api.ts` — `fetchTrash`/`clearTrash`/`restoreTrash` 类型与函数
++ [测试] `test/test_trash_scheduler_sticky.py` — 回收站增删查/统计/恢复/上限裁剪 + least_used 调度 + 粘性 IP 测试
+
+**雨露均沾调度（least_used）：**
++ [新增] `services/account_service.py` — `_pick_least_used` 调度模式：选最近最少使用的账号（last_used_at 最久远者优先），避免集中突刺单号，让免费号更像真人分布
++ [新增] `services/config.py` — `scheduler_mode` 枚举新增 `least_used`
++ [新增] `web/src/lib/api.ts` + settings UI — 调度模式下拉新增"雨露均沾（least_used）"
+
+**粘性 IP（常规请求路径接入）：**
++ [新增] `services/proxy_service.py` — `get_profile` 账号级 kookeey 粘性代理：同号固定住宅 IP、异号异 IP，常规对话/生图请求自动接入（仅 kookeey proxy_enabled 开启时生效，按量计费）
++ [变更] `config.json` — `kookeey.proxy_enabled: true`（需开启才启用粘性 IP）
+
+**测试：** 回收站 7 + least_used 3 + 粘性 IP 1 + 回归 1161 passed（仅 openapi spec 需重新生成后 15 passed）
+
 ## 2.31.0 - 2026-08-11 (前端深度体验 + SSE 事件流 + 契约断链清零)
 
 **4.3.1 组件交互反馈系统：**

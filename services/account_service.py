@@ -757,7 +757,7 @@ class AccountService:
                     )
                     detail_error = result["detail"].get("error", {})
                     if isinstance(detail_error, dict) and detail_error.get("code") == "account_deactivated":
-                        # 账号已删除/停用 → 标记为禁用
+                        # 账号已删除/停用 → 标记为禁用，并记入回收站（含上游返回原因）
                         self.update_account(access_token, {"status": "禁用", "quota": 0}, quiet=True)
                         log_service.add(
                             LOG_TYPE_ACCOUNT,
@@ -769,6 +769,20 @@ class AccountService:
                                 "detail": result.get("detail", {}),
                             },
                         )
+                        try:
+                            from services.trash_service import trash_service
+                            acct = self.get_account(access_token) or {}
+                            reason = str(detail_error.get("message") or "account_deactivated")[:200]
+                            trash_service.add(
+                                email=str(acct.get("email") or email),
+                                access_token=str(acct.get("access_token") or access_token),
+                                status="禁用",
+                                reason=reason,
+                                source=f"{event}:account_deactivated",
+                                detail={"upstream_error": detail_error},
+                            )
+                        except Exception:
+                            pass  # 回收站记录失败不阻断
                         if progress_id:
                             self.update_relogin_progress(progress_id, access_token, "禁用")
                     else:
@@ -1224,6 +1238,11 @@ class AccountService:
                     elif config.scheduler_mode == "predictive":
                         # Predictive：基于历史用量预测选择配额最充足的账号
                         access_token = self._pick_predictive(tokens)
+                    elif config.scheduler_mode == "least_used":
+                        # 雨露均沾：选最近最少使用的账号（last_used_at 最久远者优先），
+                        # 避免集中突刺单号、让免费号更像真人分布。同未见使用记录者
+                        # 视为最久未用，优先调度。
+                        access_token = self._pick_least_used(tokens)
                     elif config.scheduler_mode == "affinity":
                         # Affinity：同一模型路由到同一账号（5 分钟无请求超时释放）
                         access_token = self._pick_affinity(tokens, model=model)
@@ -1250,7 +1269,28 @@ class AccountService:
         weights = [max(0.0, self._account_dispatch_score(self._accounts.get(t) or {})) + 1.0 for t in tokens]
         return random.choices(tokens, weights=weights, k=1)[0]
 
-    # ---- 智能调度增强：Least-Load / Predictive / Affinity ----
+    # ---- 智能调度增强：Least-Load / Least-Used / Predictive / Affinity ----
+
+    def _pick_least_used(self, tokens: list[str]) -> str:
+        """Least-Used：雨露均沾——选最近最少使用的账号（last_used_at 最久远者优先）。
+
+        避免集中突刺单号：同一批免费号被轮流使用、间隔拉开，更接近真人使用分布，
+        降低上游风控"单号高频调用"批量打死的概率。tokens 已按 优先级>档位>调度分
+        排序，同档内选最久未用者；无 last_used_at 记录的账号视为最久未用优先调度。
+        """
+        if not tokens:
+            raise RuntimeError("no available tokens for least_used pick")
+
+        def _last_used_ts(token: str) -> float:
+            account = self._accounts.get(token) or {}
+            raw = str(account.get("last_used_at") or "").strip()
+            if not raw:
+                # 从未使用 → 视为最久未用（-inf 排最前）
+                return float("-inf")
+            parsed = self._parse_time(raw)
+            return parsed.timestamp() if parsed else float("-inf")
+
+        return min(tokens, key=_last_used_ts)
 
     def _pick_least_load(self, tokens: list[str]) -> str:
         """Least-Load：选择当前负载最低的账号（image_inflight 最小者）。
@@ -1967,6 +2007,10 @@ class AccountService:
             return {"removed": 0, "items": self.list_accounts()}
         with self._lock:
             target_set = {self._resolve_access_token_locked(token) for token in target_set if token}
+            # 记录回收站（删除前快照，保留 email/token/状态/上游原因）
+            removed_accounts = [
+                dict(self._accounts[token]) for token in target_set if token in self._accounts
+            ]
             removed = sum(self._accounts.pop(token, None) is not None for token in target_set)
             for token in target_set:
                 self._image_inflight.pop(token, None)
@@ -1985,6 +2029,17 @@ class AccountService:
                     self._index = 0
                 self._save_accounts()
                 log_service.add(LOG_TYPE_ACCOUNT, f"删除 {removed} 个账号", {"removed": removed})
+                # 回收站记录
+                try:
+                    from services.trash_service import trash_service
+                    for acct in removed_accounts:
+                        trash_service.add_from_account(
+                            acct,
+                            reason=str(acct.get("last_refresh_error") or "manual_delete"),
+                            source="manual_delete",
+                        )
+                except Exception:
+                    pass  # 回收站记录失败不阻断删除
             items = [dict(item) for item in self._accounts.values()]
         return {"removed": removed, "items": items}
 

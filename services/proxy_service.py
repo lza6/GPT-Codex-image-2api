@@ -251,8 +251,21 @@ class ProxySettingsStore:
         elif legacy_proxy:
             selected_proxy = legacy_proxy
             source = "global"
-        elif not account_proxy:
-            # v2.9.0：账号未绑定代理且无 runtime/explicit/global 时，从 IP 池轮询取一个健康代理
+        elif isinstance(account, dict):
+            # v2.31：账号级 kookeey 粘性代理——同号固定住宅 IP、异号异 IP，常规请求路径接入。
+            # 仅在 kookeey proxy_enabled 开启时生效（按量计费，默认关，登录/导入已走此路径）。
+            # 放置于 global 之后、IP 池之前：账号无显式代理时自动获得粘性 IP。
+            try:
+                from services.proxy_service import kookeey_proxy_for
+                email = str(account.get("email") or "").strip()
+                sticky = kookeey_proxy_for(email) if email else ""
+                if sticky:
+                    selected_proxy = sticky
+                    source = "kookeey_sticky"
+            except Exception:
+                pass
+        if not selected_proxy and not account_proxy:
+            # v2.9.0：账号未绑定代理且无 runtime/explicit/global/kookeey 时，从 IP 池轮询取一个健康代理
             # 修复"IP 池设计断层"——proxy_pool.select() 之前业务代码零调用，池是摆设
             try:
                 from services.proxy_pool import proxy_pool

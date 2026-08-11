@@ -264,7 +264,7 @@ export type SettingsConfig = {
   auto_remove_rate_limited_accounts?: boolean;
   auto_relogin_after_refresh?: boolean;
   log_levels?: string[];
-  scheduler_mode?: "round_robin" | "remaining_quota" | "weighted_random";
+  scheduler_mode?: "round_robin" | "remaining_quota" | "weighted_random" | "least_load" | "least_used" | "predictive" | "affinity";
   scheduler_adaptive_enabled?: boolean;
   scheduler_adaptive_interval_seconds?: number;
   scheduler_priority?: Record<string, number>;
@@ -1639,6 +1639,52 @@ export async function exportAccountsCSV(requestBody: AccountBatchExportRequest) 
 /** 获取所有账号标签。 */
 export async function fetchAccountTags() {
   return httpRequest<{ tags: AccountTag[] }>("/api/accounts/tags");
+}
+
+// ── 回收站 ──────────────────────────────────────────────────────
+
+/** 回收站单条记录。 */
+export type TrashItem = {
+  email: string;
+  access_token: string;
+  status: string;
+  reason: string;
+  source: string;
+  removed_at: string;
+  detail?: Record<string, unknown>;
+};
+
+/** 回收站统计。 */
+export type TrashStats = {
+  total: number;
+  by_status: Record<string, number>;
+  by_day: Record<string, number>;
+  by_reason: Record<string, number>;
+};
+
+export type TrashResponse = {
+  items: TrashItem[];
+  stats: TrashStats;
+};
+
+/** 获取回收站列表 + 统计。 */
+export async function fetchTrash(limit = 100) {
+  return httpRequest<TrashResponse>(`/api/accounts/trash?limit=${limit}`);
+}
+
+/** 清空回收站。 */
+export async function clearTrash() {
+  return httpRequest<{ cleared: number }>("/api/accounts/trash/clear", {
+    method: "POST",
+  });
+}
+
+/** 从回收站恢复指定 email 账号。 */
+export async function restoreTrash(emails: string[]) {
+  return httpRequest<{ restored: number; total: number }>("/api/accounts/trash/restore", {
+    method: "POST",
+    body: JSON.stringify({ tokens: emails }),
+  });
 }
 
 // ── 账号详情 ──────────────────────────────────────────────────────
