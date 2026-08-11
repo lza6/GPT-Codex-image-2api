@@ -1,5 +1,37 @@
 # Changelog
 
+## 2.34.0 - 2026-08-12 (里程碑3 稳定性与可观测性 + 里程碑5 性能与容量 + 工程效能 + Provider Phase 4)
+
+> 对应任务文档「4.3 里程碑3（原计划 v3.2.0）」「4.5 里程碑5（原计划 v3.4.0）」「VII 工程效能」「2.6 Provider Phase 4」。本批 11 个并行 agent 交付，八道防线 8/8 PASS。
+
+**Provider Phase 4 + grok（多 Provider 可用化）：**
++ [新增] `services/providers/base.py` — ProviderMeta 加 `capabilities`；`registry.py` grok `enabled=True` + 11 个 models（grok-4/-3/-2 系列 + grok-3-image/grok-2-image）
++ [新增] 生图 provider 透传链路：`api/ai.py` ImageGenerationRequest + `image_tasks`/`image_inputs` 读 provider → `image_task_service` 透传 → `protocol/conversation.py` ConversationRequest + `get_available_access_token(provider=)` 按 provider 过滤账号
++ [新增] 前端三入口切换器：账号列表 provider 筛选（切换即重拉）+ 设置页 ProvidersCard（默认 Provider localStorage）+ 图片工作台提供商下拉 + 模型联动
++ [边界] grok 真实出图需外部上游凭据（xAI API/账号），已标注降级行为
+
+**里程碑3 稳定性与可观测性：**
++ III-01 回收站根因面板：`trash_service.stats()` 加 `by_reason_top`/`trend` + `api/accounts.py` top_reasons query + `trash-dialog.tsx` recharts 分布图
++ III-02 调度 A/B 可观测：`scheduler_pick_total` 加 `mode` 标签 + 补 `record_scheduler_mode_switch`（此前被静默吞掉）+ per-mode 命中/失败率/延迟 + dashboard 模式对比卡
++ III-03 配额预警联动：`account_lifetime` 配额剩余天数第三信号（最小观测窗口防误判）+ 档位降级「≤1 天 risky / ≤3 天 warm，只降不升」
++ III-04 慢查询清零：json/db 存储优化（内容比对跳过覆写 + 键列扫描/定向更新/批量删除）+ `c2api_storage_operation_duration_seconds` 指标 + slow_query JSON 门禁；2 热点 accepted_degradation
++ III-05 连接池泄漏：`session_pool` 借用追踪 + stats + leak_report + cleanup_stale 健康接管 + `session_pool.leak` 告警
++ III-06 备份完整性：上传后读回 sha256 比对三态 + `backup.checksum_mismatch` 告警（不叠加 failure）+ 状态字段
++ III-07 告警多通道：Telegram/SMTP/企微/钉钉通道抽象 + `config.alert_channels`（env 覆盖）+ 前端配置 UI
+
+**里程碑5 性能与容量：**
++ V-01 bundle 优化：recharts 懒加载摘除（dashboard -119KB / accounts -116KB）+ bundle-analyzer + 测量脚本；150/300KB 预算如实说明未达（框架下限）
++ V-02 响应缓存扩展：`/api/logs`、trash、usage、events 4 端点接入（TTL + 写侧 invalidate + ?refresh=1）
++ V-03 虚拟列表：日志/图片/账号三列表 `useVirtualizer` + 滚动位置记忆
++ V-04 性能基准化：`stress_test` JSON 基准 + `benchmark_check` 阈值断言（实测 149.5 rps / p99 334ms）
+
+**工程效能：**
++ VII-01 覆盖率门禁：pytest-cov + `[tool.coverage]` fail_under=55 + `coverage_guard.py`（实测 62%，增量门每档 +5pt）
++ VII-02 防线进 CI：guards job（契约/SQL/变异/文档同步）+ coverage gate + OpenAPI/SDK --check
++ VII-03 文档保鲜：`scripts/hooks/` githooks pre-commit（Node，core.hooksPath）
++ VII-04 OpenAPI/SDK 自动化：`generate_openapi_spec.py --check` + `generate_sdks.py --check`（GBK 安全）
++ 防线扩至**八道**（+性能基准 +覆盖率门禁）；修复 stress_test 慢存储注入空跑 + 补 hypothesis/aiosqlite 预存依赖缺口
+
 ## 2.33.0 - 2026-08-12 (R2 图片存储配置接线闭环 + E2E 体系 + 变异探针增强)
 
 **R2 图片存储前端配置接线（6 步闭环）：**

@@ -9,11 +9,12 @@
 
 ---
 
-## 一、当前验证基线（最新一轮：v2.33.0 R2 接线闭环 + E2E 体系）
+## 一、当前验证基线（最新一轮：v2.34.0 里程碑3/5 + 工程效能 + Phase 4）
 
 | 项 | 结果 | 范围/说明 | 日期 | 证据 |
 |----|------|-----------|------|------|
-| 全量单测 | **1179 passed / 0 failed**（33 live/redis 排除，真实 exit 0） | 全 test/（干净跑；本轮 +17：R2Client 层 16 + API 端点 3 - 复用；openapi.json 重生成） | 2026-08-12 | `pytest -q` |
+| 八道防线 | **8/8 PASS**（契约/SQL/慢查询/变异/施压/文档同步/性能基准/覆盖率门禁） | run_all_guards.py；变异 caught=33 escaped=0 drift=0；施压 8/8；覆盖率门禁 measured=62% ≥ fail_under=55% | 2026-08-12 | reports/* + `run_all_guards.py` |
+| 全量单测 | **覆盖 62% 的全量 pytest 通过**（fail_under=55，真实 exit 0） | 覆盖率门禁内跑全量；此前基线 1179 passed（v2.33.0） | 2026-08-12 | `pytest --cov` |
 | 覆盖率（增量门） | **services+api 行覆盖 60~62%**（门禁 fail_under=55） | VII-01 首次实测：两轮全量 60% / 62%；目标 90%+，每提升一档上调 5pt；`pyproject [tool.coverage.report] fail_under` + CI coverage gate + `scripts/coverage_guard.py` | 2026-08-12 | `pytest --cov=services --cov=api`；reports/coverage/ |
 | 性能基准 | **PASS（8/8）**，实测吞吐 149.5 rps / p99 334.3ms / 慢存储 p99 262.7ms / 错误率 0 | V-04：`docs/benchmark-baseline.json` 阈值（≥30 rps / ≤1500ms / ≤1%）；`scripts/benchmark_check.py` 断言最近施压 JSON | 2026-08-12 | reports/stress/ + reports/benchmark/ |
 | 六道防线·契约守卫 | PASS（断链=0 漂移=0） | 本轮涉 R2/回收站/least_used/粘性IP 区域 | 2026-08-12 | reports/contract/ |
@@ -29,6 +30,7 @@
 
 | 区域 | 改动 | 验证 | 状态 |
 |------|------|------|------|
+| v2.34.0 全批（本轮） | Provider Phase 4 + III-01~07 + V-01~04 + VII-01~04，详见 workflow_status 第二十三轮 A-K 清单 | 八道防线 8/8 PASS + 覆盖率门禁 62% + 变异 caught=33 + 各批 agent 单测全绿（trash 17/scheduler 78/backup 8+41/alert 18+44/session_pool 18+118/cache 21+111/slow_query 90/provider 113+365）+ tsc 0 + build | ✅（本轮闭环） |
 | 工程效能 VII-01~04 + V-04（本轮） | `pyproject.toml`（pytest-cov + [tool.coverage] 门禁 + 补 hypothesis/aiosqlite 声明）、`.github/workflows/ci.yml`（coverage gate + OpenAPI/SDK --check + guards job）、`scripts/coverage_guard.py`、`scripts/benchmark_check.py` + `docs/benchmark-baseline.json`、`generate_openapi_spec.py --check`、`generate_sdks.py --check`（含 GBK 安全输出）、`run_all_guards.py` 扩至八道防线、`stress_test.py` 慢存储注入 marker 修复、`scripts/hooks/`（文档保鲜 git hook） | 各脚本本地实跑：openapi/sdk --check PASS、coverage_guard PASS（62%≥55%）、benchmark PASS、hook 放行/阻塞双路径验证；CI job 需 GitHub Actions 环境 | ✅（本轮） |
 | R2 图片存储后端 | `services/image_storage_service.py` R2Client（AWS SigV4，纯 Python）+ config r2_* 四字段 | `test/test_image_storage_service.py`（覆盖签名/上传/读取/删除/列对象/降级） | ✅（第二十一轮闭环） |
 | 变异探针增强 | `scripts/mutation_probe.py`（282 行增量，锚点覆盖 14 测试文件） | `pytest` 全量 + 防线变异（caught=33 escaped=0） | ✅（第二十一轮闭环） |

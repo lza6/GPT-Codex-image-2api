@@ -81,9 +81,9 @@ docker compose up -d             # 端口 23456:80
 2. **codegraph MCP**（`.codegraph/` 存在）：结构性问题用 `codegraph_context`/`codegraph_callers`
 3. Grep/Read 仅在上述未覆盖时使用；`graft/INDEX.md` 可浏览全部节点
 
-## 当前状态（2026-08-12，v2.33.0 已发版）
+## 当前状态（2026-08-12，v2.34.0 已发版）
 
-v2.33.0 已闭环：R2 图片存储配置接线 6 步齐全（前端 r2/r2_local 模式 + 五字段表单 + 按模式连接测试）+ R2Client 层测试补全 + e2e/ Playwright 体系纳入版本控制 + 变异探针增强。v2.18→v2.32 完成矩阵见 `workflow_status.md`（第二十二轮），验证基线见 `docs/verification-registry.md`。日常维护遵循：
+v2.34.0 已闭环：里程碑3 稳定性与可观测性（III-01~07：回收站根因面板/调度A/B/配额预警/慢查询清零/连接池泄漏/备份校验/告警多通道）+ 里程碑5 性能与容量（V-01~04：bundle/缓存/虚拟列表/基准化）+ 工程效能（VII-01~04：覆盖率门禁/防线进CI/文档钩子/OpenAPI）+ Provider Phase 4（grok 接入）。v2.18→v2.33 完成矩阵见 `workflow_status.md`（第二十三轮），验证基线见 `docs/verification-registry.md`。日常维护遵循：
 改动 → 契约探测 → 测试 → **六道防线**（`scripts/run_all_guards.py`：契约/SQL/慢查询/变异/压测/文档同步）→ `workflow_status.md` 更新。
 
 **会话启动协议**：动手前先读 `.claude/skills/chatgpt2api-workflow/SKILL.md` → 判过时（对照代码抽查）→ 过时先更新再编码；验收门禁见该技能"终局交付门禁"。

@@ -1,15 +1,15 @@
 # ChatGPT2API 项目规格
 
-> 自动生成（2026-08-11 19:47:45 UTC）——由 scripts/refresh_spec.py 保鲜，手动改动会被覆盖。
+> 自动生成（2026-08-11 23:45:04 UTC）——由 scripts/refresh_spec.py 保鲜，手动改动会被覆盖。
 > 保鲜机制：会话启动前跑 `python scripts/refresh_spec.py`，输出 [REFRESHED] 说明已过期需重读。
 
 ## 版本与部署
-- 应用版本：`2.33.0`
+- 应用版本：`2.34.0`
 - 端口：23456（Docker 80 映射）
 - 存储后端：json / sqlite / postgres / git（config.storage_backend）
 - 部署：Windows bat 一键启动 / Docker Compose（非 root + HEALTHCHECK + 优雅停机）
 
-## 配置项（89 个）
+## 配置项（90 个）
 
 | 配置 | 说明 |
 |------|------|
@@ -20,6 +20,7 @@
 | `account_warmup_timeout_secs` | 账号预热超时秒数（默认 60）。 |
 | `accounts_file` |  |
 | `ai_review` |  |
+| `alert_channels` | 告警多通道配置（telegram / wecom / dingtalk / email / 自定义 webhook）。 |
 | `alert_events` | 启用的告警事件列表。 |
 | `alert_webhook_timeout` | 告警 webhook 超时秒数（默认 10）。 |
 | `alert_webhook_url` | 告警 webhook URL（默认空 = 关闭）。 |
@@ -243,7 +244,7 @@
 | `account_service.py` |  |
 | `account_warmup.py` |  |
 | `adaptive_scheduler.py` | 自适应调度器：根据运行指标自动切换调度模式。 |
-| `alert_service.py` | 主动告警 webhook（D18）：熔断/备份失败/账号失效/配额耗尽事件推送到运维通道。 |
+| `alert_service.py` | 主动告警（D18）：熔断/备份失败/账号失效/配额耗尽事件推送到运维通道。 |
 | `audit_service.py` | 3.2 审计日志：管理操作留痕。 |
 | `auth_service.py` |  |
 | `auto_healer.py` | 自动修复引擎（Auto-Healing 2.0）：扩展自动修复能力，覆盖更多故障场景。 |
