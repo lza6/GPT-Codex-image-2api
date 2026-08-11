@@ -140,6 +140,7 @@ class ImageTaskService:
         quality: str = "auto",
         base_url: str = "",
         seed: int | None = None,  # 3.1.3：固定随机种子（实验性）
+        provider: str | None = None,  # Phase 4：生图账号归属提供商，为空自动路由
     ) -> dict[str, Any]:
         payload = {
             "prompt": prompt,
@@ -150,6 +151,7 @@ class ImageTaskService:
             "seed": seed,
             "response_format": "url",
             "base_url": base_url,
+            "provider": provider,
         }
         return self._submit(identity, client_task_id=client_task_id, mode="generate", payload=payload)
 
@@ -166,6 +168,7 @@ class ImageTaskService:
         images: list[tuple[bytes, str, str]] | None = None,
         masks: list[tuple[bytes, str, str]] | None = None,
         seed: int | None = None,  # 3.1.3：固定随机种子（实验性）
+        provider: str | None = None,  # Phase 4：生图账号归属提供商，为空自动路由
     ) -> dict[str, Any]:
         payload = {
             "prompt": prompt,
@@ -178,6 +181,7 @@ class ImageTaskService:
             "seed": seed,
             "response_format": "url",
             "base_url": base_url,
+            "provider": provider,
         }
         return self._submit(identity, client_task_id=client_task_id, mode="edit", payload=payload)
 

@@ -32,6 +32,8 @@ def create_router() -> APIRouter:
                     "display_name": p.display_name,
                     "enabled": p.enabled,
                     "description": p.description,
+                    "models": list(p.models),
+                    "capabilities": list(p.capabilities),
                 }
                 for p in providers
             ],

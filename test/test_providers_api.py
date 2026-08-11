@@ -1,11 +1,11 @@
-"""/api/providers 端点测试：无认证/授权/列表返回三场景。
+""" /api/providers 端点测试：无认证/授权/列表返回三场景。
 
 纯单元不触网。覆盖：
   - 无 Authorization 头 → 401
   - 无效 Authorization → 401
   - 有效管理员密钥 → 200 + 正确结构
-  - 返回列表包含所有已注册提供商（含 disabled grok）
-  - 每个 provider 含 name/display_name/enabled/description
+  - 返回列表包含所有已注册提供商（含已启用的 grok）
+  - 每个 provider 含 name/display_name/enabled/description/models/capabilities
 """
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ class TestProvidersApi:
         assert r.status_code == 200, r.text
 
     def test_providers_contain_required_fields(self) -> None:
-        """每个 provider 应包含 name/display_name/enabled/description 四个字段。"""
+        """每个 provider 应包含 name/display_name/enabled/description/models/capabilities 字段。"""
         client = _client()
         r = client.get("/api/providers", headers=_AUTH)
         body = r.json()
@@ -53,16 +53,27 @@ class TestProvidersApi:
             assert "display_name" in p
             assert "enabled" in p
             assert "description" in p
+            assert "models" in p
+            assert "capabilities" in p
 
-    def test_list_all_includes_disabled_grok(self) -> None:
-        """默认返回全部已注册提供商，含 disabled 的 grok。"""
+    def test_list_all_includes_enabled_grok(self) -> None:
+        """默认返回全部已注册提供商，grok 已启用（enabled=True）。"""
         client = _client()
         r = client.get("/api/providers", headers=_AUTH)
         providers = {p["name"]: p for p in r.json()["providers"]}
         assert "chatgpt" in providers
         assert providers["chatgpt"]["enabled"] is True
         assert "grok" in providers
-        assert providers["grok"]["enabled"] is False
+        assert providers["grok"]["enabled"] is True
+
+    def test_grok_has_models_and_capabilities(self) -> None:
+        """grok 元数据齐全：models 非空、capabilities 含 image。"""
+        client = _client()
+        r = client.get("/api/providers", headers=_AUTH)
+        grok = {p["name"]: p for p in r.json()["providers"]}["grok"]
+        assert len(grok["models"]) > 0
+        assert "grok-3-image" in grok["models"]
+        assert "image" in grok["capabilities"]
 
     def test_chatgpt_is_first_provider(self) -> None:
         """chatgpt 应为默认首个提供商。"""

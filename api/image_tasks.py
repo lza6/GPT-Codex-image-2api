@@ -18,6 +18,7 @@ class ImageGenerationTaskRequest(BaseModel):
     size: str | None = None
     quality: str = "auto"
     seed: int | None = None  # 3.1.3：固定随机种子（实验性）
+    provider: str | None = None  # Phase 4：生图账号归属提供商（chatgpt/grok），为空自动路由
 
 
 class ResumePollRequest(BaseModel):
@@ -65,6 +66,7 @@ def create_router() -> APIRouter:
                 size=body.size,
                 quality=body.quality,
                 seed=body.seed,
+                provider=body.provider,
                 base_url=resolve_image_base_url(request),
             )
         except ValueError as exc:
@@ -104,6 +106,7 @@ def create_router() -> APIRouter:
                 size=payload["size"],
                 quality=payload["quality"],
                 seed=seed,
+                provider=payload.get("provider"),
                 base_url=resolve_image_base_url(request),
                 images=images,
                 masks=masks,

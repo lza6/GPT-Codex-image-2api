@@ -204,6 +204,75 @@ class ImageTaskServiceTests(unittest.TestCase):
             result = service.list_tasks(OWNER, ["save-fail-task"])
             self.assertEqual(result["items"][0]["error"], "manual")
 
+    def test_submit_generation_payload_carries_provider(self):
+        """Phase 4：submit_generation 将 provider 写入 handler payload。"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            seen: list[dict] = []
+
+            def handler(payload):
+                seen.append(payload)
+                return {"data": [{"url": "http://example.test/image.png"}]}
+
+            service = self.make_service(Path(tmp_dir) / "image_tasks.json", handler)
+            service.submit_generation(
+                OWNER,
+                client_task_id="prov-gen-1",
+                prompt="cat",
+                model="grok-3-image",
+                size=None,
+                provider="grok",
+                base_url="http://local.test",
+            )
+            wait_for_task(service, OWNER, "prov-gen-1", "success")
+            self.assertEqual(len(seen), 1)
+            self.assertEqual(seen[0]["provider"], "grok")
+
+    def test_submit_generation_provider_optional_none(self):
+        """Phase 4：不传 provider 时 handler payload 中 provider 为 None。"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            seen: list[dict] = []
+
+            def handler(payload):
+                seen.append(payload)
+                return {"data": [{"url": "http://example.test/image.png"}]}
+
+            service = self.make_service(Path(tmp_dir) / "image_tasks.json", handler)
+            service.submit_generation(
+                OWNER,
+                client_task_id="prov-nop-1",
+                prompt="cat",
+                model="gpt-image-2",
+                size=None,
+                base_url="http://local.test",
+            )
+            wait_for_task(service, OWNER, "prov-nop-1", "success")
+            self.assertEqual(len(seen), 1)
+            self.assertIsNone(seen[0]["provider"])
+
+    def test_submit_edit_payload_carries_provider(self):
+        """Phase 4：submit_edit 将 provider 写入 handler payload。"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            seen: list[dict] = []
+
+            def handler(payload):
+                seen.append(payload)
+                return {"data": [{"url": "http://example.test/edit.png"}]}
+
+            service = self.make_service(Path(tmp_dir) / "image_tasks.json", handler)
+            service.submit_edit(
+                OWNER,
+                client_task_id="prov-edit-1",
+                prompt="edit",
+                model="grok-3-image",
+                size=None,
+                provider="grok",
+                base_url="http://local.test",
+                images=[(b"one", "one.png", "image/png")],
+            )
+            wait_for_task(service, OWNER, "prov-edit-1", "success")
+            self.assertEqual(len(seen), 1)
+            self.assertEqual(seen[0]["provider"], "grok")
+
 
 if __name__ == "__main__":
     unittest.main()

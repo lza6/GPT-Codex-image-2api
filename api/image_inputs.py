@@ -76,6 +76,8 @@ def _payload_from_fields(fields: dict[str, Any]) -> dict[str, Any]:
     }
     if "client_task_id" in fields:
         payload["client_task_id"] = _clean(fields.get("client_task_id"))
+    if "provider" in fields:  # Phase 4：图生图账号归属提供商（chatgpt/grok）
+        payload["provider"] = _clean(fields.get("provider")) or None
     return payload
 
 
@@ -183,7 +185,7 @@ async def parse_image_edit_request(request: Request) -> tuple[dict[str, Any], li
 
     form = await request.form()
     fields: dict[str, Any] = {}
-    for key in ("client_task_id", "prompt", "model", "n", "size", "quality", "response_format", "stream"):
+    for key in ("client_task_id", "prompt", "model", "n", "size", "quality", "response_format", "stream", "provider"):
         value = form.get(key)
         if isinstance(value, str):
             fields[key] = value

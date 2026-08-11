@@ -88,6 +88,63 @@ class ImageTasksApiTests(unittest.TestCase):
         self.assertEqual(payload["status"], "success")
         self.assertEqual(len(self.fake_service.generation_calls), 1)
 
+    def test_create_generation_task_passes_provider(self):
+        """Phase 4：文生图任务带 provider 字段应透传到 submit_generation。"""
+        response = self.client.post(
+            "/api/image-tasks/generations",
+            headers=AUTH_HEADERS,
+            json={"client_task_id": "gen-grok-1", "prompt": "cat", "model": "grok-3-image", "provider": "grok"},
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        kwargs = self.fake_service.generation_calls[-1][1]
+        self.assertEqual(kwargs["provider"], "grok")
+
+    def test_create_generation_task_provider_optional(self):
+        """Phase 4：不传 provider 时 submit_generation 收到 None。"""
+        response = self.client.post(
+            "/api/image-tasks/generations",
+            headers=AUTH_HEADERS,
+            json={"client_task_id": "gen-nop-1", "prompt": "cat", "model": "gpt-image-2"},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        kwargs = self.fake_service.generation_calls[-1][1]
+        self.assertIsNone(kwargs["provider"])
+
+    def test_create_edit_task_passes_provider(self):
+        """Phase 4：图生图任务带 provider 字段应透传到 submit_edit。"""
+        response = self.client.post(
+            "/api/image-tasks/edits",
+            headers=AUTH_HEADERS,
+            data={
+                "client_task_id": "edit-grok-1",
+                "prompt": "edit",
+                "model": "grok-3-image",
+                "provider": "grok",
+            },
+            files=[("image", ("one.png", b"one", "image/png"))],
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        kwargs = self.fake_service.edit_calls[-1][1]
+        self.assertEqual(kwargs["provider"], "grok")
+
+    def test_create_edit_task_provider_optional(self):
+        """Phase 4：图生图不传 provider 时 submit_edit 收到 None。"""
+        response = self.client.post(
+            "/api/image-tasks/edits",
+            headers=AUTH_HEADERS,
+            data={
+                "client_task_id": "edit-nop-1",
+                "prompt": "edit",
+                "model": "gpt-image-2",
+            },
+            files=[("image", ("one.png", b"one", "image/png"))],
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        kwargs = self.fake_service.edit_calls[-1][1]
+        self.assertIsNone(kwargs["provider"])
+
     def test_create_edit_task_accepts_multiple_images(self):
         """测试图片编辑任务接口支持多个上传图片。"""
         response = self.client.post(

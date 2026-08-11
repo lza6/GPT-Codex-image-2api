@@ -13,6 +13,7 @@ import { CPAPoolDialog } from "./components/cpa-pool-dialog";
 import { CPAPoolsCard } from "./components/cpa-pools-card";
 import { ImportBrowserDialog } from "./components/import-browser-dialog";
 import { KookeeyCard } from "./components/kookeey-card";
+import { ProvidersCard } from "./components/providers-card";
 import { ProxyRuntimeCard } from "./components/proxy-runtime-card";
 import { SettingsHeader } from "./components/settings-header";
 import { Sub2APIConnections } from "./components/sub2api-connections";
@@ -105,6 +106,7 @@ function SettingsPageContent() {
         </div>
         <TabsContent value="basic">
           <ConfigCard />
+          <ProvidersCard />
         </TabsContent>
         <TabsContent value="proxy">
           <ProxyRuntimeCard />

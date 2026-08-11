@@ -31,6 +31,7 @@ class ImageGenerationRequest(BaseModel):
     response_format: str = "b64_json"
     history_disabled: bool = True
     stream: bool | None = None
+    provider: str | None = None  # Phase 4：指定生图账号归属提供商（chatgpt/grok），为空自动路由
 
 
 class ChatCompletionRequest(BaseModel):

@@ -411,7 +411,7 @@ function AccountsPageContent() {
   // Shift+Click 范围选择
   const lastClickedIndexRef = useRef<number | null>(null);
 
-  const loadAccounts = async (silent = false) => {
+  const loadAccounts = async (silent = false, providerParam?: string) => {
     if (!silent) {
       setIsLoading(true);
     }
@@ -423,7 +423,9 @@ function AccountsPageContent() {
         return;
       }
 
-      const data = await fetchAccounts(providerFilter !== "all" ? providerFilter : undefined);
+      // Phase 4：providerParam 显式传入时以它为准（切换筛选器立即生效），否则用当前 state
+      const activeProvider = providerParam !== undefined ? providerParam : providerFilter;
+      const data = await fetchAccounts(activeProvider !== "all" ? activeProvider : undefined);
       setAccounts(data.items);
       // 写入缓存
       setCache("accounts", data.items);
@@ -1829,12 +1831,13 @@ function AccountsPageContent() {
                 ))}
               </SelectContent>
             </Select>
-            {/* Phase B：provider 筛选器——从 /api/providers 获取列表，grok 灰显"即将支持" */}
+            {/* Phase B/4：provider 筛选器——切换后立即按所选 provider 重新拉取账号列表 */}
             <Select
               value={providerFilter}
               onValueChange={(value) => {
                 setProviderFilter(value);
                 setPage(1);
+                void loadAccounts(false, value);
               }}
             >
               <SelectTrigger className="h-10 w-full rounded-xl border-stone-200 bg-white/85 lg:w-[130px]">

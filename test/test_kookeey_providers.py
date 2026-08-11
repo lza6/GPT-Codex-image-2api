@@ -133,23 +133,32 @@ class TestProvidersRegistry:
     def test_normalize_unregistered_falls_back_to_default(self) -> None:
         assert normalize_provider("some_unknown") == "chatgpt"
 
-    def test_normalize_registered_but_disabled_preserved(self) -> None:
-        # grok 已注册但 enabled=False：标签保留（不丢账号归属），可用性由 is_valid 拦截
+    def test_normalize_registered_provider_preserved(self) -> None:
+        # grok 已注册且已启用：标签保留（不丢账号归属）
         assert normalize_provider("grok") == "grok"
 
     def test_is_valid_provider(self) -> None:
         assert is_valid_provider("chatgpt") is True
-        assert is_valid_provider("grok") is False  # 已注册但未启用
+        assert is_valid_provider("grok") is True  # Phase 4：grok 已启用
         assert is_valid_provider(None) is False
         assert is_valid_provider("nope") is False
 
-    def test_list_enabled_only_excludes_grok(self) -> None:
-        assert [p.name for p in list_providers(enabled_only=True)] == ["chatgpt"]
+    def test_list_enabled_only_includes_grok(self) -> None:
+        assert [p.name for p in list_providers(enabled_only=True)] == ["chatgpt", "grok"]
 
-    def test_list_all_includes_disabled_grok(self) -> None:
+    def test_list_all_includes_grok(self) -> None:
         providers = {p.name: p for p in list_providers()}
         assert providers["chatgpt"].enabled is True
-        assert providers["grok"].enabled is False
+        assert providers["grok"].enabled is True
+
+    def test_grok_meta_complete(self) -> None:
+        """grok 元数据齐全：display_name/models/capabilities。"""
+        meta = get_provider("grok")
+        assert meta is not None
+        assert meta.display_name == "Grok"
+        assert len(meta.models) > 0
+        assert "grok-3-image" in meta.models
+        assert "image" in meta.capabilities
 
     def test_get_provider_unknown_returns_none(self) -> None:
         assert get_provider("does-not-exist") is None

@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import type { ImageModel } from "@/lib/api";
+import type { ImageModel, ProviderInfo } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 type ImageComposerProps = {
@@ -20,6 +20,8 @@ type ImageComposerProps = {
   imageQuality: string;
   imageModel: ImageModel;
   imageModels: ImageModel[];
+  imageProvider: string;
+  imageProviders: ProviderInfo[];
   imageSeed: string;
   imageNegativePrompt: string;
   availableQuota: string;
@@ -35,6 +37,7 @@ type ImageComposerProps = {
   onImageHeightChange: (value: string) => void;
   onImageQualityChange: (value: string) => void;
   onImageModelChange: (value: ImageModel) => void;
+  onImageProviderChange: (value: string) => void;
   onImageSeedChange: (value: string) => void;
   onImageNegativePromptChange: (value: string) => void;
   onSubmit: () => void | Promise<void>;
@@ -94,6 +97,8 @@ export function ImageComposer({
   imageQuality,
   imageModel,
   imageModels,
+  imageProvider,
+  imageProviders,
   imageSeed,
   imageNegativePrompt,
   availableQuota,
@@ -109,6 +114,7 @@ export function ImageComposer({
   onImageHeightChange,
   onImageQualityChange,
   onImageModelChange,
+  onImageProviderChange,
   onImageSeedChange,
   onImageNegativePromptChange,
   onSubmit,
@@ -363,6 +369,36 @@ export function ImageComposer({
                         }}
                       >
                         <h3 className="mb-3 text-base font-semibold text-stone-950">图像设置</h3>
+                        <div className="mb-3">
+                          <div className="mb-2 flex items-center gap-1.5 text-sm font-medium text-stone-900">
+                            提供商 <Info className="size-3.5 text-stone-400" />
+                          </div>
+                          <Select
+                            value={imageProvider}
+                            onValueChange={(value) => {
+                              onImageProviderChange(value);
+                            }}
+                          >
+                            <SelectTrigger className="h-10 rounded-xl border-stone-200 bg-white text-sm shadow-none">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent className="z-[120]">
+                              {imageProviders.map((p) => (
+                                <SelectItem key={p.name} value={p.name} disabled={!p.enabled}>
+                                  {p.display_name}
+                                </SelectItem>
+                              ))}
+                              {imageProviders.length === 0 && (
+                                <SelectItem value={imageProvider} disabled>
+                                  {imageProvider}
+                                </SelectItem>
+                              )}
+                            </SelectContent>
+                          </Select>
+                          <p className="mt-1.5 text-[11px] leading-4 text-stone-400">
+                            生图账号按所选提供商过滤。grok 上游未接入时，选择 grok 图片模型会返回明确错误。
+                          </p>
+                        </div>
                         <div className="mb-3">
                           <div className="mb-2 text-sm font-medium text-stone-900">模型</div>
                           <Select

@@ -333,6 +333,7 @@ class ConversationRequest:
     size: str | None = None
     quality: str = "auto"
     seed: int | None = None  # 3.1.3：固定随机种子（best-effort 透传上游，实验性）
+    provider: str | None = None  # Phase 4：账号归属提供商（chatgpt/grok），为空自动路由
     response_format: str = "b64_json"
     base_url: str | None = None
     message_as_error: bool = False
@@ -1484,6 +1485,7 @@ def _generate_single_image(
                 plan_type=plan_type,
                 source_type="codex" if codex_model else None,
                 plan_types=("plus", "team", "pro") if codex_model and not plan_type else None,
+                provider=request.provider,  # Phase 4：按所选 provider 过滤生图账号，None 自动路由
             )
         except RuntimeError as exc:
             _record_upstream("error")

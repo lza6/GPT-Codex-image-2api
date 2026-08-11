@@ -40,6 +40,9 @@ def handle(body: dict[str, Any]) -> dict[str, Any] | Iterator[dict[str, Any]]:
             seed = None
     if seed is not None and seed < 0:
         seed = None  # -1 表示随机
+    # Phase 4：生图账号归属提供商（chatgpt/grok），为空时后端按模型自动路由
+    provider_raw = body.get("provider")
+    provider = str(provider_raw).strip().lower() or None if provider_raw not in (None, "") else None
     outputs = stream_image_outputs_with_pool(ConversationRequest(
         prompt=prompt,
         model=model,
@@ -47,6 +50,7 @@ def handle(body: dict[str, Any]) -> dict[str, Any] | Iterator[dict[str, Any]]:
         size=size,
         quality=quality,
         seed=seed,
+        provider=provider,
         response_format=response_format,
         base_url=base_url,
         message_as_error=True,

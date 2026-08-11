@@ -194,11 +194,10 @@ class TestProviderScheduler:
         from services.config import config
 
         monkeypatch.setitem(config.data, "provider_weights", {"chatgpt": 0, "grok": 3})
-        # grok 未启用
         ps = ProviderScheduler()
         result = ps._pick_provider_by_weight()
-        # grok 未启用，chatgpt 权重为 0，候选为空
-        assert result is None
+        # grok 已启用且权重为正，chatgpt 权重为 0 → 选 grok
+        assert result == "grok"
 
     def test_get_weighted_providers_no_config(self, monkeypatch):
         """无配置时返回默认 provider。"""
@@ -213,11 +212,11 @@ class TestProviderScheduler:
         """只返回已启用且正权重的 provider。"""
         from services.config import config
 
-        monkeypatch.setitem(config.data, "provider_weights", {"chatgpt": 3, "grok": 1})
+        monkeypatch.setitem(config.data, "provider_weights", {"chatgpt": 3, "grok": 1, "nope": 5})
         ps = ProviderScheduler()
         providers = ps._get_weighted_providers()
-        # grok 未启用，所以只有 chatgpt
-        assert providers == ["chatgpt"]
+        # grok 已启用且权重为正 → 两个都在；nope 未注册被过滤
+        assert providers == ["chatgpt", "grok"]
 
     # ──── 8.2：Provider 熔断器 ────
 

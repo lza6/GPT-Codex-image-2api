@@ -31,11 +31,12 @@ class TestRouterService:
         """claude- 前缀路由到 chatgpt（当前 chatgpt provider 承载）。"""
         assert RouterService().route_for_model("claude-3-opus") == "chatgpt"
 
-    def test_grok_prefix_routes_to_chatgpt(self):
-        """grok- 前缀目前路由到 chatgpt（grok provider 未启用时回退）。"""
-        # grok provider 未启用（enabled=False），is_valid_provider 返回 False
-        # 前缀匹配时 isValidProvider 不通过，回退到 chatgpt
-        assert RouterService().route_for_model("grok-3") == "chatgpt"
+    def test_grok_prefix_routes_to_grok(self):
+        """grok- 前缀路由到 grok（grok provider 已启用）。"""
+        # Phase 4：grok enabled=True 后，is_valid_provider("grok") 通过，前缀命中 grok
+        assert RouterService().route_for_model("grok-3") == "grok"
+        assert RouterService().route_for_model("grok-4-mini") == "grok"
+        assert RouterService().route_for_model("grok-3-image") == "grok"
 
     def test_dalle_prefix_routes_to_chatgpt(self):
         """dall-e- 前缀路由到 chatgpt。"""

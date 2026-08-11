@@ -347,6 +347,9 @@ export type BackupState = {
   last_status?: string;
   last_error?: string | null;
   last_object_key?: string | null;
+  last_sha256?: string | null;
+  last_verify_status?: string | null;
+  last_verify_error?: string | null;
 };
 
 export type BackupItem = {
@@ -476,6 +479,10 @@ export type ProviderInfo = {
   display_name: string;
   enabled: boolean;
   description: string;
+  /** Phase 4：该提供商支持的模型名列表。 */
+  models?: string[];
+  /** Phase 4：能力标签，如 ["chat", "image", "reasoning"]。 */
+  capabilities?: string[];
 };
 
 type ProviderListResponse = {
@@ -663,6 +670,7 @@ export async function createImageGenerationTask(
   size?: string,
   quality = "auto",
   seed?: number,
+  provider?: string,
 ) {
   return httpRequest<ImageTask>("/api/image-tasks/generations", {
     method: "POST",
@@ -673,6 +681,7 @@ export async function createImageGenerationTask(
       ...(size ? { size } : {}),
       quality,
       ...(seed !== undefined ? { seed } : {}),
+      ...(provider ? { provider } : {}),
     },
   });
 }
@@ -685,6 +694,7 @@ export async function createImageEditTask(
   size?: string,
   quality = "auto",
   seed?: number,
+  provider?: string,
 ) {
   const formData = new FormData();
   const uploadFiles = Array.isArray(files) ? files : [files];
@@ -703,6 +713,9 @@ export async function createImageEditTask(
   formData.append("quality", quality);
   if (seed !== undefined) {
     formData.append("seed", String(seed));
+  }
+  if (provider) {
+    formData.append("provider", provider);
   }
 
   return httpRequest<ImageTask>("/api/image-tasks/edits", {
@@ -1299,6 +1312,15 @@ export async function testProxyClearance(targetUrl?: string) {
 
 export type SchedulerTier = "healthy" | "warm" | "risky" | "banned";
 
+export type SchedulerModeStat = {
+  mode: string;
+  picks: number;
+  success: number;
+  fail: number;
+  fail_rate: number;
+  avg_latency_ms: number;
+};
+
 export type SchedulerAccount = {
   email?: string | null;
   type?: string;
@@ -1313,6 +1335,9 @@ export type SchedulerAccount = {
   lifetime_risk?: "low" | "medium" | "high" | "critical";
   lifetime_eta_days?: number | null;
   lifetime_score?: number;
+  /** III-03：配额预警（按消耗速率估算剩余天数不足） */
+  quota_warning?: boolean;
+  quota_remaining_days?: number | null;
 };
 
 export type SchedulerDashboard = {
@@ -1324,6 +1349,12 @@ export type SchedulerDashboard = {
     total_inflight: number;
   };
   accounts: SchedulerAccount[];
+  /** III-02：当前生效调度模式（自适应开启时取 adaptive_scheduler.current_mode） */
+  effective_mode?: string;
+  /** III-02：按调度模式 A/B 统计（命中数/失败率/平均延迟） */
+  mode_stats?: SchedulerModeStat[];
+  /** III-03：处于配额预警档位的账号数 */
+  quota_warning_accounts?: number;
   provider_stats?: Array<{
     name: string;
     display_name: string;

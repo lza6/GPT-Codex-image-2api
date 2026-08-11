@@ -24,14 +24,17 @@ import {
   fetchAccounts,
   fetchModels,
   fetchImageTasks,
+  fetchProviders,
   resumeImagePoll,
   type Account,
   type ImageModel,
   type Model,
   type ImageTask,
+  type ProviderInfo,
 } from "@/lib/api";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 import { useSettingsStore } from "@/app/settings/store";
+import { readDefaultProvider } from "@/app/settings/components/providers-card";
 import {
   clearImageConversations,
   deleteImageConversation,
@@ -496,6 +499,10 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
   const updateImageNegativePrompt = (value: string) => { imageNegativePromptRef.current = value; setImageNegativePrompt(value); };
   const [imageModel, setImageModel] = useState<ImageModel>("gpt-image-2");
   const [imageModels, setImageModels] = useState<ImageModel[]>(["gpt-image-2"]);
+  // Phase 4：provider 选择（初始读设置页默认 Provider），生图请求按所选 provider 生效
+  const [imageProvider, setImageProvider] = useState<string>(() => readDefaultProvider());
+  const imageProviderRef = useRef(imageProvider);
+  const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [referenceImageFiles, setReferenceImageFiles] = useState<File[]>([]);
   const [referenceImages, setReferenceImages] = useState<StoredReferenceImage[]>([]);
@@ -521,6 +528,48 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
   } | null>(null);
 
   const parsedCount = useMemo(() => Number(clampImageCount(imageCount)), [imageCount]);
+
+  // Phase 4：各 Provider 元数据中的图片模型（grok 等未从 /v1/models 动态返回时兜底展示）
+  const providerImageModels = useMemo(() => {
+    const map: Record<string, ImageModel[]> = {};
+    for (const p of providers) {
+      map[p.name] = (p.models ?? [])
+        .map((m) => String(m).trim())
+        .filter((m) => m.toLowerCase().includes("image"))
+        .map((m) => m as ImageModel);
+    }
+    return map;
+  }, [providers]);
+
+  // 当前 provider 可用的图片模型：chatgpt 用后端 /v1/models 动态列表，其余用元数据兜底
+  const visibleImageModels = useMemo(() => {
+    const metaModels = providerImageModels[imageProvider] ?? [];
+    if (metaModels.length === 0) {
+      return imageModels;
+    }
+    return metaModels;
+  }, [imageProvider, imageModels, providerImageModels]);
+
+  const handleImageProviderChange = useCallback(
+    (value: string) => {
+      setImageProvider(value);
+      const nextModels = (providerImageModels[value] ?? []).length > 0
+        ? providerImageModels[value]!
+        : imageModels;
+      if (nextModels.length > 0 && !nextModels.includes(imageModel)) {
+        setImageModel(nextModels[0]);
+      }
+    },
+    [imageModel, imageModels, providerImageModels],
+  );
+
+  // Phase 4：模型列表随 provider 变化后，若当前模型不在列表则回退到第一个（覆盖初始默认 provider 非 chatgpt 场景）
+  useEffect(() => {
+    if (visibleImageModels.length > 0 && !visibleImageModels.includes(imageModel)) {
+      setImageModel(visibleImageModels[0]);
+    }
+  }, [visibleImageModels, imageModel]);
+
   const selectedConversation = useMemo(
     () => conversations.find((item) => item.id === selectedConversationId) ?? null,
     [conversations, selectedConversationId],
@@ -739,6 +788,29 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
       cancelled = true;
     };
   }, []);
+
+  // Phase 4：加载已注册 Provider 列表（含 grok 元数据）
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const data = await fetchProviders();
+        if (!cancelled) {
+          setProviders(data.providers ?? []);
+        }
+      } catch {
+        // 加载失败不阻断生图
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Phase 4：provider 最新值同步到 ref（提交队列异步执行时读取）
+  useEffect(() => {
+    imageProviderRef.current = imageProvider;
+  }, [imageProvider]);
 
   const loadQuota = useCallback(async () => {
     if (!isAdmin) {
@@ -1261,8 +1333,8 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
             const seedValue = resolveImageSeed(imageSeedRef.current);
             const effectivePrompt = buildEffectiveImagePrompt(activeTurn.prompt, imageNegativePromptRef.current);
             return activeTurn.mode === "edit"
-              ? createImageEditTask(taskId, referenceFiles, effectivePrompt, activeTurn.model, activeTurn.size, activeTurn.quality, seedValue)
-              : createImageGenerationTask(taskId, effectivePrompt, activeTurn.model, activeTurn.size, activeTurn.quality, seedValue);
+              ? createImageEditTask(taskId, referenceFiles, effectivePrompt, activeTurn.model, activeTurn.size, activeTurn.quality, seedValue, imageProviderRef.current)
+              : createImageGenerationTask(taskId, effectivePrompt, activeTurn.model, activeTurn.size, activeTurn.quality, seedValue, imageProviderRef.current);
           }),
         );
         await applyTasks(submitted);
@@ -1313,8 +1385,8 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
               const resubmitted = await Promise.all(
                 missingImages.map((image) =>
                   activeTurn.mode === "edit"
-                    ? createImageEditTask(image.taskId || image.id, referenceFiles, buildEffectiveImagePrompt(activeTurn.prompt, imageNegativePromptRef.current), activeTurn.model, activeTurn.size, activeTurn.quality, resolveImageSeed(imageSeedRef.current))
-                    : createImageGenerationTask(image.taskId || image.id, buildEffectiveImagePrompt(activeTurn.prompt, imageNegativePromptRef.current), activeTurn.model, activeTurn.size, activeTurn.quality, resolveImageSeed(imageSeedRef.current)),
+                    ? createImageEditTask(image.taskId || image.id, referenceFiles, buildEffectiveImagePrompt(activeTurn.prompt, imageNegativePromptRef.current), activeTurn.model, activeTurn.size, activeTurn.quality, resolveImageSeed(imageSeedRef.current), imageProviderRef.current)
+                    : createImageGenerationTask(image.taskId || image.id, buildEffectiveImagePrompt(activeTurn.prompt, imageNegativePromptRef.current), activeTurn.model, activeTurn.size, activeTurn.quality, resolveImageSeed(imageSeedRef.current), imageProviderRef.current),
                 ),
               );
               if (resubmitted.length > 0) {
@@ -1749,7 +1821,9 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
             imageHeight={imageHeight}
             imageQuality={imageQuality}
             imageModel={imageModel}
-            imageModels={imageModels}
+            imageModels={visibleImageModels}
+            imageProvider={imageProvider}
+            imageProviders={providers}
             availableQuota={availableQuota}
             activeTaskCount={activeTaskCount}
             referenceImages={referenceImages}
@@ -1763,6 +1837,7 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
             onImageHeightChange={setImageHeight}
             onImageQualityChange={setImageQuality}
             onImageModelChange={setImageModel}
+            onImageProviderChange={handleImageProviderChange}
             imageSeed={imageSeed}
             imageNegativePrompt={imageNegativePrompt}
             onImageSeedChange={updateImageSeed}

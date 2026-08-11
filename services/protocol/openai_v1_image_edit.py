@@ -61,6 +61,9 @@ def handle(body: dict[str, Any]) -> dict[str, Any] | Iterator[dict[str, Any]]:
     response_format = str(body.get("response_format") or "b64_json")
     base_url = str(body.get("base_url") or "") or None
     progress_callback = body.get("progress_callback")
+    # Phase 4：图生图账号归属提供商（chatgpt/grok），为空时后端按模型自动路由
+    provider_raw = body.get("provider")
+    provider = str(provider_raw).strip().lower() or None if provider_raw not in (None, "") else None
     encoded_images = encode_images(images)
     if not encoded_images:
         raise ImageGenerationError("image is required")
@@ -70,6 +73,7 @@ def handle(body: dict[str, Any]) -> dict[str, Any] | Iterator[dict[str, Any]]:
         n=n,
         size=size,
         quality=quality,
+        provider=provider,
         response_format=response_format,
         base_url=base_url,
         images=encoded_images,
