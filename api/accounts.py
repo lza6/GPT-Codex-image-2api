@@ -399,6 +399,7 @@ def create_router() -> APIRouter:
             result["failed"] = int(cred_result.get("failed") or 0)
             result["errors"] = [*result.get("errors", []), *cred_result.get("errors", [])]
             result["items"] = cred_result.get("items", result.get("items", []))
+        response_cache.invalidate("/api/accounts")
         return result
 
     @router.delete("/api/accounts")
@@ -429,7 +430,8 @@ def create_router() -> APIRouter:
                 account_service.finish_refresh_progress(progress_id, error=str(e))
 
         asyncio.create_task(_do_refresh())
-
+        response_cache.invalidate("/api/accounts")
+        response_cache.invalidate("/api/dashboard/scheduler")
         return {"progress_id": progress_id}
 
     @router.get("/api/accounts/refresh/progress/{progress_id}")
@@ -529,14 +531,19 @@ def create_router() -> APIRouter:
             raise HTTPException(status_code=400, detail={"error": "ids 不能为空"})
         action = str(body.action or "").strip()
         if action == "evict_stale":
+            response_cache.invalidate("/api/accounts")
+            response_cache.invalidate("/api/dashboard/scheduler")
             return await run_in_threadpool(_batch_evict_stale, ids)
         if action == "label":
+            response_cache.invalidate("/api/accounts")
             return await run_in_threadpool(_batch_label, ids, str(body.label or ""))
         if action == "export":
             return await run_in_threadpool(_batch_export, ids)
         if action == "update":
             if not body.updates:
                 raise HTTPException(status_code=400, detail={"error": "updates 不能为空"})
+            response_cache.invalidate("/api/accounts")
+            response_cache.invalidate("/api/dashboard/scheduler")
             return await run_in_threadpool(_batch_update, ids, body.updates)
         raise HTTPException(status_code=400, detail={"error": f"未知 action: {action}"})
 
@@ -570,6 +577,8 @@ def create_router() -> APIRouter:
         account = account_service.update_account(access_token, updates)
         if account is None:
             raise HTTPException(status_code=404, detail={"error": "account not found"})
+        response_cache.invalidate("/api/accounts")
+        response_cache.invalidate("/api/dashboard/scheduler")
         return {"item": account, "items": account_service.list_accounts()}
 
     @router.post("/api/accounts/oauth/start")

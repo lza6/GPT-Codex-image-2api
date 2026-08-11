@@ -1,5 +1,5 @@
 /**
- * chatgpt2api SDK — 自动生成 (v2.27.0)
+ * chatgpt2api SDK — 自动生成 (v2.28.0)
  *
  * 用法：
  *   const client = new Chatgpt2apiClient('/', 'your-api-key');
@@ -7,7 +7,7 @@
  */
 
 export class Chatgpt2apiClient {
-  VERSION = "2.27.0";
+  VERSION = "2.28.0";
 
   constructor(baseUrl = "/", apiKey = null) {
     this.baseUrl = baseUrl.replace(/\/$/, "");

@@ -1,5 +1,5 @@
 """
-chatgpt2api SDK — 自动生成 (v2.27.0)
+chatgpt2api SDK — 自动生成 (v2.28.0)
 
 用法：
     client = Chatgpt2apiClient(base_url='/', api_key='your-key')
@@ -13,7 +13,7 @@ from typing import Any
 import httpx
 
 
-VERSION = "2.27.0"
+VERSION = "2.28.0"
 
 
 class Chatgpt2apiClient:

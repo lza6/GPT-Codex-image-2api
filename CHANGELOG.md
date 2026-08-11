@@ -1,6 +1,20 @@
 # Changelog
 
-## 2.27.0 - 2026-08-11 (4.1.2 自适应调度器)
+## 2.29.0 - 2026-08-11 (v3.2 容量规划 + 成本优化)
+
+**5.1.1 容量预测仪表盘（前端补齐）：**
++ [前端] `web/src/lib/api.ts` — 新增 `fetchCapacity()` / `CapacityStats` 类型
++ [前端] `web/src/app/dashboard/page.tsx` — 新增容量规划卡片区域（日均请求/活跃账号/单号日均/扩缩容建议+趋势图）
++ [契约] `scripts/contract_guard.py` — SNAPSHOT_ENDPOINTS 新增 `/api/dashboard/cost`
+
+**5.1.2 成本优化（全新模块）：**
++ [新增] `services/cost_service.py` — CostService 类：三源合并（usage_agg 用量+provider 分布+ kookeey 流量），无 kookeey 配置降级
++ [新增] `api/dashboard.py` — `GET /api/dashboard/cost` 端点，require_admin 鉴权，同线程池
++ [新增] `test/test_cost_service.py` — 4 个测试覆盖正常返回/未配置降级/异常降级/字段契约
++ [前端] `web/src/lib/api.ts` — 新增 `fetchCostOverview()` / `CostOverview` 类型
++ [前端] `web/src/app/dashboard/page.tsx` — 新增成本优化卡片区域（总调用量/Provider 分布/kookeey 流量/调用类型）
+
+**测试：** 9 passed（cost 4 + capacity 5）
 
 **4.1.2 自适应调度器：**
 + [新增] `services/adaptive_scheduler.py` — AdaptiveScheduler 类：基于运行指标（并发>100→least_load、成功率<0.8→predictive、模型多样性>0.7→affinity、默认→weighted_random）自动切换调度模式，含最短驻留时间守卫（120s）防抖动

@@ -14,7 +14,7 @@ from fastapi import APIRouter, Header, Response
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import PlainTextResponse, StreamingResponse
 
-from api.response_cache import response_cache, apply_cache_headers
+from api.response_cache import apply_cache_headers, response_cache
 from api.support import require_admin
 from services.account_service import AccountService, account_service
 from services.circuit_breaker import circuit_breaker_registry
