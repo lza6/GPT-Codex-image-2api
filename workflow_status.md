@@ -6,6 +6,16 @@
 
 > 上一轮（第二十二轮，v2.33.0）已闭环：R2 接线 6 步 + e2e 体系。历史明细见 git history 与 docs/verification-registry.md。
 
+## 补记（2026-08-12，GZip hotfix，commit 321c1d8）
+
+**背景**：用户浏览器报大量 `ERR_INVALID_CHUNKED_ENCODING` + 页面显示 v2.32.0（后端 v2.34.0）。
+**根因**：`api/app.py` GZipMiddleware（minimum_size=500）→ 所有 >500B 响应 `gzip + chunked + Connection: close`，用户代理路径（v2ray/Clash）下 Chrome 严格解析 chunk 失败（curl 宽容成功）。且 v2.34.0 发版只重建后端镜像，web_dist（volume 挂载）未上传 → 前端停在 v2.32.0。
+**处理**：① 移除 GZipMiddleware（响应走 identity+Content-Length+keep-alive，根治）；② `test/test_contracts.py` scheduler_mode 补 least_used（v2.32.0 引入但契约断言漏更新，本地/服务器 least_used 配置下契约测试失败）；③ 重新构建 web_dist 并 tar 上传服务器；④ push 321c1d8 + 服务器 git pull + compose build/up -d。
+**验收**：容器 healthy；`/version`→v2.34.0；三端点 Content-Length 无 gzip、keep-alive；SSE 纯 chunked 无 gzip。
+**测试**：本地全量 1287 passed / 6 failed（5 预先存在 tracing/property 环境差异 + 1 circuit flaky，`git stash` 验证非本次引入，见 verification-registry 已知 flaky）。
+
+> **硬教训**：GZipMiddleware 在代理链路（v2ray/Clash/TUN）下与 Chrome 不兼容，自托管多走代理时**不要启用 gzip**；后端发版 ≠ 前端发版，web_dist 有前端改动须单独重建上传。
+
 ## 本轮完成清单
 
 | 编号 | 事项 | 状态 | 证据 |

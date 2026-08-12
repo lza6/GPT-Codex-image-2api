@@ -58,6 +58,7 @@
 - **粘性 IP 依赖 kookeey.proxy_enabled**（本轮新增边界）：默认 false 行为不变，测试用 mock；服务器已开 true。
 - **CHANGELOG 缺版本段**（v2.21/2.22/2.23/2.26–2.29）：git log 有提交但 CHANGELOG 未登记，已记入 workflow_status 矩阵，不重复追查。
 - **e2e/ Playwright 运行前置**：需本机 Edge（msedge channel）+ 起真实前后端（23456/3000），worker=1。
+- **本地系统 python 3.11 全量 6 failed（2026-08-12 记录，非回归）**：test_tracing 4 项（Windows 时钟粒度下 `duration_ms==0` 断言过严）+ test_property_account 1 项（hypothesis 6.165.3 FailedHealthCheck filter 比例）+ test_circuit_breaker 1 项（flaky）。`git stash` 验证无改动时同样失败，**非 GZip 修复引入**；服务器/CI（Python 3.13 + venv）不受影响。本地全量基线以 `1287 passed` 为准。
 
 ## 四、历史审计修复明细
 
@@ -65,6 +66,7 @@ v2.9.0（24 确认已修 / 8 驳回）与更早轮次的审计明细见 git hist
 
 ## 五、各区域"最近改动"速记（下次只重测这些）
 
+- 2026-08-12（GZip hotfix）：`api/app.py`（移除 GZipMiddleware——gzip+chunked 在代理链路下 Chrome ERR_INVALID_CHUNKED_ENCODING，改走 identity+Content-Length）、`test/test_contracts.py`（scheduler_mode 补 least_used）、web_dist 重新构建并上传服务器对齐 v2.34.0 → 重跑：contracts 10 passed + 三端点响应头验收（Content-Length 无 gzip，已做）；服务器容器 healthy。
 - 2026-08-12（工程效能 VII 轮）：`pyproject.toml`（覆盖率门禁 + 依赖补齐）、`ci.yml`（coverage/guards/--check job）、`run_all_guards.py`（八道防线）、`coverage_guard.py`、`benchmark_check.py` + `docs/benchmark-baseline.json`、`generate_openapi_spec.py --check`、`generate_sdks.py --check`、`stress_test.py`（慢存储 marker）、`scripts/hooks/`（文档保鲜 hook）→ 重跑：coverage_guard + benchmark_check + 防线全量 + hook 冒烟。
 - 2026-08-12（第二十二轮）：`api/system.py`（image-storage/test 按 mode 分流）、`web/src/lib/api.ts` + `settings/store.ts` + `config-card.tsx`（R2 接线 + diagnose/healing .json() 修复）、`test/test_image_storage_service.py`（R2Client 层 16+3）、`docs/e2e.md`、CHANGELOG/VERSION（v2.33.0）→ 重跑：image_storage/config 相关测试 + 前端 build/tsc + 防线全量 + E2E。
 - 2026-08-12（第二十一轮）：`services/image_storage_service.py`（R2Client）、`scripts/mutation_probe.py`、`scripts/docs_sync_check.py`、`scripts/run_all_guards.py`、`.gitignore`、SKILL.md、workflow_status.md、verification-registry.md、CLAUDE.md、docs/project-spec.md → 已验证，重跑沿用。
