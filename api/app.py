@@ -373,15 +373,17 @@ def create_app() -> FastAPI:
         if not str(base).startswith(str(_static_dir.resolve())) or not base.is_file():
             raise HTTPException(status_code=404, detail="Not Found")
         content_type = mimetypes.guess_type(str(base))[0] or "application/octet-stream"
+        # Next.js 产物带内容 hash，可 immutable 缓存（避免慢链路上刷新重复下载）
+        cache_hdr = {"Cache-Control": "public, max-age=31536000, immutable"}
         if "gzip" in accept_encoding.lower():
             gz = Path(str(base) + ".gz")
             if gz.is_file():
                 return FileResponse(
                     gz,
                     media_type=content_type,
-                    headers={"Content-Encoding": "gzip", "Vary": "Accept-Encoding"},
+                    headers={"Content-Encoding": "gzip", "Vary": "Accept-Encoding", **cache_hdr},
                 )
-        return FileResponse(base, media_type=content_type)
+        return FileResponse(base, media_type=content_type, headers=cache_hdr)
 
     @app.api_route("/{full_path:path}", methods=["GET", "HEAD"], include_in_schema=False)
     async def serve_web(full_path: str):

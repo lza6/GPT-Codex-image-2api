@@ -34,6 +34,7 @@ class TestStaticCompress:
         assert "content-length" in r.headers, "预压缩必须走 Content-Length（非 chunked）"
         assert "transfer-encoding" not in r.headers
         assert r.headers.get("vary") == "Accept-Encoding"
+        assert r.headers.get("cache-control") == "public, max-age=31536000, immutable"
         # TestClient(httpx) 会自动解压 gzip，r.content 已是解压后的 JS
         assert len(r.content) > 50, "解压后应为完整 JS 文本"
         r.content.decode("utf-8")  # 必须是合法 UTF-8 文本（JS）
@@ -44,6 +45,7 @@ class TestStaticCompress:
         r = client.get(self.js_path, headers={"Accept-Encoding": "identity"})
         assert r.status_code == 200
         assert "content-encoding" not in r.headers
+        assert r.headers.get("cache-control") == "public, max-age=31536000, immutable"
         assert len(r.content) > 50, "原始 JS 应完整"
         r.content.decode("utf-8")
 
