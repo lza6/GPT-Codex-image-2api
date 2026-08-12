@@ -2,7 +2,7 @@
 
 > 最后更新：2026-08-12
 > 模式：v2.34.0 III-01~07（回收站根因/调度A/B/配额预警/慢查询/连接池/备份校验/告警多通道）+ V-01~04（bundle/缓存/虚拟列表/基准化）+ VII-01~04（覆盖率/防线CI/文档钩子/OpenAPI）+ Provider Phase 4（grok）
-> 基线：v2.34.0
+> 基线：v2.35.0
 
 > 上一轮（第二十二轮，v2.33.0）已闭环：R2 接线 6 步 + e2e 体系。历史明细见 git history 与 docs/verification-registry.md。
 

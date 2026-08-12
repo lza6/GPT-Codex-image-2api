@@ -1,5 +1,34 @@
 # Changelog
 
+## 2.35.0 - 2026-08-12 (GZip 修复 + 救号流程化 + 日志/审计过滤 + 可观测指标 + 多 worker 评估 + 文档保鲜)
+
+> 6 并行 agent 交付 + GZip hotfix。修复服务器访问 `ERR_INVALID_CHUNKED_ENCODING` 与图片 URL 回环地址。
+
+**访问稳定性修复：**
++ [修复] 移除 GZipMiddleware：gzip+Transfer-Encoding: chunked 组合在代理链路（v2ray/Clash）下触发 Chrome `ERR_INVALID_CHUNKED_ENCODING`（curl 宽容、Chrome 严格），改走 identity+Content-Length 根治
++ [修复] 服务器 `base_url` 配置空导致图片 URL 写死 `127.0.0.1`：设 `config.base_url` 为公网地址，图片/日志详情可正常渲染
+
+**4.2 救号流程化：**
++ [新增] `POST /api/accounts/revive`：批量救号端点（require_admin + 审计 + 事件 `account.recovered` + 并发限流复用 `image_account_concurrency`）
++ [增强] `revive_abnormal.py --dry-run`：可救/不可救分类清单；不可救账号落 `revive_skipped` 标记防 watcher 空转
++ [新增] 前端账号页「批量救活」按钮（确认弹窗，明示烧配额/风控风险）
++ [测试] `test/test_account_revive.py` 20 用例（分类/限流/事件/skipped/鉴权/审计）
+
+**4.3 日志/审计链路：**
++ [新增] `/api/audit?actor` 过滤（actor 兼容匹配 actor/operator 字段）
++ [增强] `/api/logs?account_email` 端到端测试补全（过滤实现在 v3.1.1 已落地）+ 账号详情抽屉「近 10 条行为」时间线
+
+**5.2 可观测性：**
++ [新增] `c2api_dashboard_request_duration_seconds` histogram（dashboard 13 端点装饰器 + `metrics_sample_rate` 采样开关，零开销关闭）
+
+**5.3 多 worker 评估：**
++ [评估] 本机无 Docker 记边界，产出 `docs/assessment-multiworker-scale.md`；关键发现：熔断器未走 shared_state（多 worker 状态分裂风险）、stress_test 为单进程模型无法验证 workers>1
+
+**5.4 文档保鲜：**
++ [文档] product-strategy 重写（告警已实现/接线是缺口 + 纠正 4 处过时缺口）+ onboarding 补「验证 E2E」章节
+
+**验收：** 契约守卫断链=0 漂移=0；新功能 59 测试全绿；tsc 0 错误 + build 成功；E2E 16 passed / 0 failed。
+
 ## 2.34.0 - 2026-08-12 (里程碑3 稳定性与可观测性 + 里程碑5 性能与容量 + 工程效能 + Provider Phase 4)
 
 > 对应任务文档「4.3 里程碑3（原计划 v3.2.0）」「4.5 里程碑5（原计划 v3.4.0）」「VII 工程效能」「2.6 Provider Phase 4」。本批 11 个并行 agent 交付，八道防线 8/8 PASS。
