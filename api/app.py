@@ -8,7 +8,6 @@ from threading import Event
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPBearer
 from fastapi.staticfiles import StaticFiles
@@ -319,9 +318,9 @@ def create_app() -> FastAPI:
                 response.headers["X-Request-ID"] = req_id
                 response.headers["X-Response-Time-Ms"] = str(elapsed_ms)
 
-    # GZip 压缩：对 >500 字节的响应启用 gzip，加速静态资源传输
-    app.add_middleware(GZipMiddleware, minimum_size=500)
-
+    # 注意：有意不使用 GZipMiddleware。gzip + Transfer-Encoding: chunked 组合在部分
+    # 代理链路上会导致浏览器 ERR_INVALID_CHUNKED_ENCODING（curl 宽容、Chrome 严格）。
+    # 自托管多走代理访问，稳定性优先，静态/JSON 响应均走 identity + Content-Length。
     # S-R15：注册限流中间件（此前 RateLimitMiddleware 定义了但从未接线，
     # rate_limit_rpm 配置形同虚设）。0 表示关闭；基于 BaseHTTPMiddleware，
     # 需在 CORS 之前注册成最外层。

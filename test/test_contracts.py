@@ -40,7 +40,7 @@ class ContractTests(unittest.TestCase):
     def test_scheduler_mode_valid(self):
         """scheduler_mode 必须是合法值。"""
         mode = self.config.get("scheduler_mode", "round_robin")
-        self.assertIn(mode, ("round_robin", "remaining_quota"))
+        self.assertIn(mode, ("round_robin", "remaining_quota", "least_used"))
 
     def test_workers_positive_int(self):
         """workers 必须是正整数。"""
@@ -108,7 +108,7 @@ class ContractTests(unittest.TestCase):
     def test_config_defaults(self):
         """缺失配置项时应有合理的默认值。"""
         from services.config import config
-        self.assertIn(config.scheduler_mode, ("round_robin", "remaining_quota"))
+        self.assertIn(config.scheduler_mode, ("round_robin", "remaining_quota", "least_used"))
         self.assertGreaterEqual(config.rate_limit_rpm, 0)
         self.assertGreaterEqual(config.workers, 1)
         self.assertIn(config.storage_backend_type, ("json", "sqlite", "postgres", "git"))
