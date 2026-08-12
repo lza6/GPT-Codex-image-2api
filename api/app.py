@@ -1,22 +1,22 @@
 from __future__ import annotations
 
+import mimetypes
 import time
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from threading import Event
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPBearer
-from fastapi.staticfiles import StaticFiles
 
 from api import accounts, ai, dashboard, image_tasks, keys, kookeey, logs, providers, proxy_pool, system, tracing
 from api.errors import install_exception_handlers
 from api.rate_limit import RateLimitMiddleware
 from api.response_cache import response_cache
-from api.support import resolve_web_asset, start_limited_account_watcher, start_proactive_probe, WEB_DIST_DIR
+from api.support import WEB_DIST_DIR, resolve_web_asset, start_limited_account_watcher, start_proactive_probe
 from services.backup_service import backup_service
 from services.config import config
 from services.image_service import start_image_cleanup_scheduler
@@ -149,8 +149,9 @@ def create_app() -> FastAPI:
         config.cleanup_old_images()
         # P2：启动时预热模型缓存，避免首次请求 /v1/models 时等待 0.7s+ 上游调用
         try:
-            from services.model_service import model_catalog_service
             from threading import Thread
+
+            from services.model_service import model_catalog_service
             Thread(target=model_catalog_service.list_models, daemon=True).start()
         except Exception:  # noqa: BLE001 - 预热失败不阻断启动
             pass
@@ -361,10 +362,26 @@ def create_app() -> FastAPI:
     app.include_router(logs.create_router())
     app.include_router(tracing.create_router())
 
-    # _next/static 挂载 StaticFiles，走底层 ASGI 不经过中间件栈
+    # _next/static 静态服务：优先返回预压缩 .gz（FileResponse 带 Content-Length，
+    # 非 chunked，不触发 ERR_INVALID_CHUNKED_ENCODING）；客户端不接受 gzip 时返回
+    # 原始文件。防路径穿越（resolve 后校验在 _static_dir 内）。
     _static_dir = WEB_DIST_DIR / "_next" / "static"
-    if _static_dir.exists():
-        app.mount("/_next/static", StaticFiles(directory=str(_static_dir), check_dir=False), name="next_static")
+
+    @app.api_route("/_next/static/{path:path}", methods=["GET", "HEAD"], include_in_schema=False)
+    async def serve_next_static(path: str, accept_encoding: str = Header(default="")):
+        base = (_static_dir / path).resolve()
+        if not str(base).startswith(str(_static_dir.resolve())) or not base.is_file():
+            raise HTTPException(status_code=404, detail="Not Found")
+        content_type = mimetypes.guess_type(str(base))[0] or "application/octet-stream"
+        if "gzip" in accept_encoding.lower():
+            gz = Path(str(base) + ".gz")
+            if gz.is_file():
+                return FileResponse(
+                    gz,
+                    media_type=content_type,
+                    headers={"Content-Encoding": "gzip", "Vary": "Accept-Encoding"},
+                )
+        return FileResponse(base, media_type=content_type)
 
     @app.api_route("/{full_path:path}", methods=["GET", "HEAD"], include_in_schema=False)
     async def serve_web(full_path: str):
