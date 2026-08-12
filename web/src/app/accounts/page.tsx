@@ -12,6 +12,7 @@ import {
   CircleOff,
   Copy,
   Download,
+  HeartPulse,
   History,
   Link2,
   LoaderCircle,
@@ -73,6 +74,7 @@ import {
   reLoginAccounts,
   recoverAbnormalAccounts,
   refreshAccounts,
+  reviveAccounts,
   testProxy,
   updateAccount,
   type Account,
@@ -359,6 +361,8 @@ function AccountsPageContent() {
   const [isUpdating, setIsUpdating] = useState(false);
   const [isRelogining, setIsRelogining] = useState(false);
   const [isEvicting, setIsEvicting] = useState(false);
+  // 4.2：批量救活（/api/accounts/revive）
+  const [isReviving, setIsReviving] = useState(false);
   // 3.1.2：批量操作（按选中 ids 分发到 /api/accounts/batch）
   const [isBatchAction, setIsBatchAction] = useState(false);
   const [labelDialogOpen, setLabelDialogOpen] = useState(false);
@@ -409,6 +413,9 @@ function AccountsPageContent() {
   const [detailAccount, setDetailAccount] = useState<AccountDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailPanelOpen, setDetailPanelOpen] = useState(false);
+  // 4.3：详情抽屉内嵌行为时间线（近 10 条）
+  const [detailLogs, setDetailLogs] = useState<SystemLog[]>([]);
+  const [detailLogsLoading, setDetailLogsLoading] = useState(false);
   const [trashOpen, setTrashOpen] = useState(false);
 
   // 虚拟滚动（滚动位置记忆：sessionStorage）
@@ -674,6 +681,8 @@ function AccountsPageContent() {
     setDetailPanelOpen(true);
     setDetailLoading(true);
     setDetailAccount(null);
+    setDetailLogs([]);
+    setDetailLogsLoading(true);
     try {
       const data = await fetchAccountDetail(account.access_token);
       setDetailAccount(data.item);
@@ -682,6 +691,16 @@ function AccountsPageContent() {
       setDetailPanelOpen(false);
     } finally {
       setDetailLoading(false);
+    }
+    // 4.3：行为时间线（近 10 条）——复用 /api/logs?account_email= 过滤
+    const email = (account.email ?? account.access_token.slice(-8) ?? "").trim();
+    try {
+      const data = await fetchSystemLogs({ account_email: email, page_size: 10 });
+      setDetailLogs(data.items);
+    } catch (error) {
+      toastError(error, "加载账号行为日志失败");
+    } finally {
+      setDetailLogsLoading(false);
     }
   }, []);
 
@@ -753,6 +772,44 @@ function AccountsPageContent() {
           toastError(error, "批量驱逐失败");
         } finally {
           setIsBatchAction(false);
+        }
+      },
+    });
+  };
+
+  // 4.2：批量救活选中账号（/api/accounts/revive）——消耗上游配额/触发风控，需二次确认
+  const handleBatchRevive = () => {
+    if (selectedTokens.length === 0) {
+      toast.error("请先勾选账号");
+      return;
+    }
+    setConfirmAction({
+      title: `批量救活 ${selectedTokens.length} 个账号？`,
+      description: `将对选中的 ${selectedTokens.length} 个账号执行救活（重新验证身份），此操作会消耗上游配额并可能触发风控，请谨慎操作。`,
+      run: async () => {
+        setIsReviving(true);
+        const tokens = selectedTokens;
+        try {
+          const data = await reviveAccounts(tokens);
+          const failedCount = data.failed.length + data.skipped.length;
+          addOperationResult(
+            "批量救活完成",
+            `救活 ${data.revived} 个，失败 ${data.failed.length} 个，跳过 ${data.skipped.length} 个`,
+            data.revived,
+            failedCount,
+          );
+          if (data.failed.length > 0) {
+            const first = data.failed[0];
+            toast.error(`救活失败 ${data.failed.length} 个${first ? `，首个：${first.email} ${first.error}` : ""}`);
+          } else {
+            toast.success(`批量救活完成：救活 ${data.revived} 个${data.skipped.length > 0 ? `，跳过 ${data.skipped.length} 个` : ""}`);
+          }
+          await loadAccounts(true);
+        } catch (error) {
+          addOperationResult("批量救活失败", extractErrorMessage(error), 0, tokens.length);
+          toastError(error, "批量救活失败");
+        } finally {
+          setIsReviving(false);
         }
       },
     });
@@ -2029,6 +2086,16 @@ function AccountsPageContent() {
                 </Button>
                 <Button
                   variant="ghost"
+                  className="h-8 rounded-lg px-3 text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700"
+                  onClick={handleBatchRevive}
+                  disabled={selectedTokens.length === 0 || isReviving}
+                  title="对选中的账号执行批量救活（重新验证身份，会消耗上游配额并可能触发风控）"
+                >
+                  {isReviving ? <LoaderCircle className="size-4 animate-spin" /> : <HeartPulse className="size-4" />}
+                  批量救活
+                </Button>
+                <Button
+                  variant="ghost"
                   className="h-8 rounded-lg px-3 text-violet-500 hover:bg-violet-50 hover:text-violet-600"
                   onClick={() => { setLabelValue(""); setLabelDialogOpen(true); }}
                   disabled={selectedTokens.length === 0 || isBatchAction}
@@ -2435,20 +2502,20 @@ function AccountsPageContent() {
               variant="outline"
               className="rounded-xl"
               onClick={() => setConfirmAction(null)}
-              disabled={isDeleting || isEvicting}
+              disabled={isDeleting || isEvicting || isReviving}
             >
               取消
             </Button>
             <Button
               className="rounded-xl bg-rose-600 text-white hover:bg-rose-700"
-              disabled={isDeleting || isEvicting}
+              disabled={isDeleting || isEvicting || isReviving}
               onClick={() => {
                 const action = confirmAction;
                 setConfirmAction(null);
                 if (action) void action.run();
               }}
             >
-              {(isDeleting || isEvicting) ? <LoaderCircle className="size-4 animate-spin" /> : null}
+              {(isDeleting || isEvicting || isReviving) ? <LoaderCircle className="size-4 animate-spin" /> : null}
               确认执行
             </Button>
           </DialogFooter>
@@ -2540,6 +2607,54 @@ function AccountsPageContent() {
                   />
                 )}
               </dl>
+
+              {/* 4.3：行为时间线（近 10 条）——复用 /api/logs?account_email= 过滤 */}
+              <div className="mt-6 border-t border-stone-100 pt-4">
+                <div className="mb-2 flex items-center gap-2 text-sm font-medium text-stone-700">
+                  <History className="size-4 text-stone-400" />
+                  近 10 条行为
+                  <span className="text-xs font-normal text-stone-400">（按调用日志）</span>
+                </div>
+                {detailLogsLoading ? (
+                  <div className="flex items-center justify-center gap-2 py-6 text-sm text-stone-400">
+                    <LoaderCircle className="size-4 animate-spin" /> 加载中...
+                  </div>
+                ) : detailLogs.length === 0 ? (
+                  <p className="py-6 text-center text-sm text-stone-400">该账号暂无行为日志</p>
+                ) : (
+                  <ul className="space-y-2">
+                    {detailLogs.map((item) => {
+                      const detail = item.detail ?? {};
+                      const statusCode = typeof detail.status_code === "number" ? detail.status_code : undefined;
+                      const error = typeof detail.error === "string" && detail.error ? detail.error : undefined;
+                      const failed =
+                        detail.status === "failed" || (statusCode !== undefined && statusCode >= 400) || Boolean(error);
+                      return (
+                        <li key={item.id} className="space-y-1 rounded-lg border border-stone-100 px-3 py-2 text-sm">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="min-w-0 flex-1 truncate font-medium text-stone-900">
+                              {item.summary ?? (item.type === "call" ? "调用" : item.type ?? "事件")}
+                            </span>
+                            <span className="shrink-0 text-xs text-stone-400">{item.time ?? ""}</span>
+                          </div>
+                          <div className="flex items-center justify-between gap-2">
+                            <Badge variant={failed ? "danger" : "secondary"} className="shrink-0 rounded-md">
+                              {failed ? "失败" : "成功"}
+                            </Badge>
+                            {error ? (
+                              <span className="min-w-0 flex-1 truncate text-right text-xs text-rose-600">{error}</span>
+                            ) : statusCode !== undefined ? (
+                              <span className="min-w-0 flex-1 truncate text-right text-xs text-stone-500">
+                                HTTP {statusCode}
+                              </span>
+                            ) : null}
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
 
               {/* 底部操作按钮 */}
               <div className="mt-6 flex flex-wrap items-center gap-2 border-t border-stone-100 pt-4">

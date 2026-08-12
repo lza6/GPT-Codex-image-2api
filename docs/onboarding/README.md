@@ -14,7 +14,7 @@
 |------|-----------|
 | [01-architecture.md](01-architecture.md) | 上手前：系统边界、数据流、安全模型、扩展极限、技术债 |
 | [02-key-files.md](02-key-files.md) | 动手前：20 个关键文件 + 危险修改清单 |
-| [03-setup.md](03-setup.md) | 第一天：clone → 测试全绿，含环境变量全表与三套 compose |
+| [03-setup.md](03-setup.md) | 第一天：clone → 测试全绿，含环境变量全表、三套 compose、E2E 验证入门（链接 [docs/e2e.md](../e2e.md)） |
 | [04-task-runbooks.md](04-task-runbooks.md) | 干活时：加端点/加存储后端/多 Worker/部署的固定步骤 |
 | [05-debugging.md](05-debugging.md) | 出问题时：历史 P0/P1 故障档案 + 症状速查 + 诊断命令 |
 | [06-contributing.md](06-contributing.md) | 提交前：CI 质量门、提交约定、文档同步点 |

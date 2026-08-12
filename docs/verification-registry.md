@@ -44,6 +44,7 @@
 | 源码树清理 | 87 ,cover + deploy.tar + web_dist_bak + tmp_pg5 + 根 final-report 移除，.gitignore 收紧 | `git ls-files` 残留=0；`find . -name "*,cover"`=0 | ✅ |
 | 响应缓存 | `api/response_cache.py` 5 端点（v2.30.0 已提交） | `test/test_response_cache.py` 22 项 | ✅（v2.30.0 闭环） |
 | 自适应调度/配置热加载 | `adaptive_scheduler.py` + `config_watcher.py`（v2.30.0 已提交） | `test/test_scheduler_modes.py` 28 项 + `test_config_watcher.py` 7 项 | ✅（v2.30.0 闭环） |
+| 产品策略刷新（2026-08-12） | `docs/product-strategy.md` 第八轮刷新：告警状态更新为**已实现（多通道）/接线是缺口**（v2.34.0 III-07），并纠正账号日志过滤/排行榜风险可见性/寿命预测/容量规划四处"缺口"已闭环；`docs/onboarding/` 补「验证 E2E」章节（链接 docs/e2e.md） | docs_sync_check PASS（VERSION 未变，纯文档任务） | ✅ |
 
 ## 三、已知 flaky / 边界（**不要重复追查**）
 

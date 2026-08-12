@@ -1379,6 +1379,64 @@
         }
       }
     },
+    "/api/accounts/revive": {
+      "post": {
+        "tags": [
+          "Accounts"
+        ],
+        "summary": "Revive Accounts",
+        "description": "4.2 手动救号：对选中异常账号走 recover 能力 + 并发限流，返回 per-account 明细。\n\n响应契约（前端已对齐，务必一致）：\n  {\"revived\": int, \"failed\": [{\"email\": str, \"error\": str}], \"skipped\": [{\"email\": str, \"reason\": str}]}\n救号成功（revived>0）入审计（operator=当前 admin）。",
+        "operationId": "revive_accounts_api_accounts_revive_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccountRefreshRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/accounts/evict_stale": {
       "post": {
         "tags": [
@@ -4398,7 +4456,7 @@
           "Audit"
         ],
         "summary": "Get Audit",
-        "description": "3.2：审计日志读取（管理操作留痕，独立于业务日志）。\n\n新增：start_date/end_date 日期范围过滤，action 操作类型过滤，page/page_size 分页。",
+        "description": "3.2：审计日志读取（管理操作留痕，独立于业务日志）。\n\n新增：start_date/end_date 日期范围过滤，action 操作类型过滤，page/page_size 分页，\nactor 操作人过滤（同时匹配记录的 actor 与 operator 字段，便于按人追）。",
         "operationId": "get_audit_api_audit_get",
         "parameters": [
           {
@@ -4445,6 +4503,16 @@
               "type": "string",
               "default": "",
               "title": "Operator"
+            }
+          },
+          {
+            "name": "actor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Actor"
             }
           },
           {

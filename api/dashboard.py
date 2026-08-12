@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 import os
 import platform
@@ -263,10 +264,36 @@ def _fetch_recent_events(limit: int = 50) -> list[dict]:
     return events
 
 
+def _dashboard_latency_timer(endpoint: str):
+    """为 /api/dashboard/* 端点记录请求耗时 histogram（仅采样开启时）。
+
+    5.2 可观测性：metrics_sample_rate > 0 才观测，0 则零开销跳过调用。
+    指标 c2api_dashboard_request_duration_seconds{endpoint=...}。
+    SSE 长连接端点（/api/dashboard/stream）不适用，不挂此装饰器。
+    """
+
+    def decorator(func):
+        @functools.wraps(func)
+        async def wrapper(*args, **kwargs):
+            start = time.perf_counter()
+            try:
+                return await func(*args, **kwargs)
+            finally:
+                if config.metrics_sample_rate > 0:
+                    from services.prometheus_metrics import record_dashboard_request
+
+                    record_dashboard_request(endpoint, time.perf_counter() - start)
+
+        return wrapper
+
+    return decorator
+
+
 def create_router() -> APIRouter:
     router = APIRouter(tags=["Dashboard"])
 
     @router.get("/api/dashboard/scheduler")
+    @_dashboard_latency_timer("/api/dashboard/scheduler")
     async def scheduler_dashboard(
         authorization: str | None = Header(default=None),
         refresh: bool = False,
@@ -362,12 +389,14 @@ def create_router() -> APIRouter:
         return result
 
     @router.get("/api/dashboard/circuit_breakers")
+    @_dashboard_latency_timer("/api/dashboard/circuit_breakers")
     async def circuit_breakers(authorization: str | None = Header(default=None)):
         """熔断状态：token 末 8 位 -> 熔断器状态（供账号页标注当前被熔断账号）。"""
         require_admin(authorization)
         return await run_in_threadpool(_collect_circuit_breaker_status)
 
     @router.get("/api/dashboard/ops")
+    @_dashboard_latency_timer("/api/dashboard/ops")
     async def ops_overview(
         authorization: str | None = Header(default=None),
         refresh: bool = False,
@@ -388,6 +417,7 @@ def create_router() -> APIRouter:
         return result
 
     @router.get("/api/dashboard/usage")
+    @_dashboard_latency_timer("/api/dashboard/usage")
     async def usage_stats(authorization: str | None = Header(default=None), hours: int = 24, refresh: bool = False, response: Response = None):
         """用量统计：指定小时窗口内调用量 + 按类型分布 + 最近记录。
 
@@ -414,6 +444,7 @@ def create_router() -> APIRouter:
         return data
 
     @router.get("/api/dashboard/usage-totals")
+    @_dashboard_latency_timer("/api/dashboard/usage-totals")
     async def usage_totals(authorization: str | None = Header(default=None)):
         """累计用量：总请求/成功/失败/成功率 + 图片累计 + 按类型分布（全时段）。"""
         require_admin(authorization)
@@ -422,6 +453,7 @@ def create_router() -> APIRouter:
         return await run_in_threadpool(usage_agg.totals)
 
     @router.get("/api/dashboard/usage-forecast")
+    @_dashboard_latency_timer("/api/dashboard/usage-forecast")
     async def usage_forecast_stats(authorization: str | None = Header(default=None)):
         """F2/A2：用量预测——按近 7 天趋势线性外推号池配额耗尽时间 + 提前告警。"""
         require_admin(authorization)
@@ -430,6 +462,7 @@ def create_router() -> APIRouter:
         return await run_in_threadpool(forecast_quota_depletion)
 
     @router.get("/api/dashboard/quota")
+    @_dashboard_latency_timer("/api/dashboard/quota")
     async def quota_detail(authorization: str | None = Header(default=None)):
         """逐账号额度明细：总额度 + 每号 quota/restore_at + 临近刷新(24h内)列表。"""
         require_admin(authorization)
@@ -438,6 +471,7 @@ def create_router() -> APIRouter:
         return await run_in_threadpool(per_account_quota)
 
     @router.get("/api/dashboard/capacity")
+    @_dashboard_latency_timer("/api/dashboard/capacity")
     async def capacity_stats(authorization: str | None = Header(default=None), days: int = 7):
         """5.2：容量规划——日均请求/活跃账号/单账号日均消耗/外推需新号数（基于聚合缓存）。"""
         require_admin(authorization)
@@ -445,6 +479,7 @@ def create_router() -> APIRouter:
         return await run_in_threadpool(_collect_capacity, window)
 
     @router.get("/api/dashboard/cost")
+    @_dashboard_latency_timer("/api/dashboard/cost")
     async def cost_overview(authorization: str | None = Header(default=None)):
         """5.1.2：成本优化概览——全链路成本追踪（调用量/Provider 分布/代理流量）。"""
         require_admin(authorization)
@@ -453,12 +488,14 @@ def create_router() -> APIRouter:
         return await run_in_threadpool(cost_service.get_cost_overview)
 
     @router.get("/api/dashboard/latency")
+    @_dashboard_latency_timer("/api/dashboard/latency")
     async def latency_stats(authorization: str | None = Header(default=None)):
         """请求延迟统计：总请求/错误率/平均延迟/按路径分布/在途。"""
         require_admin(authorization)
         return metrics_service.get_summary()
 
     @router.get("/api/dashboard/metrics_summary")
+    @_dashboard_latency_timer("/api/dashboard/metrics_summary")
     async def metrics_summary(authorization: str | None = Header(default=None)):
         """看板聚合指标：请求速率/错误率/P95 延迟。"""
         require_admin(authorization)
@@ -511,6 +548,7 @@ def create_router() -> APIRouter:
         )
 
     @router.get("/api/dashboard/events")
+    @_dashboard_latency_timer("/api/dashboard/events")
     async def dashboard_events(authorization: str | None = Header(default=None), limit: int = 50, refresh: bool = False, response: Response = None):
         """看板事件流：最近系统事件（从 events.jsonl 读取，SSE 事件频道同源）。
 
@@ -572,6 +610,7 @@ def create_router() -> APIRouter:
         )
 
     @router.get("/api/dashboard/adaptive_scheduler")
+    @_dashboard_latency_timer("/api/dashboard/adaptive_scheduler")
     async def adaptive_scheduler_status(authorization: str | None = Header(default=None)):
         """自适应调度器状态：当前模式/运行指标/切换历史。"""
         require_admin(authorization)

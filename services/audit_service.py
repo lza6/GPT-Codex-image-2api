@@ -144,6 +144,7 @@ class AuditService:
         limit: int = 200,
         result: str = "",
         operator: str = "",
+        actor: str = "",
         action: str = "",
         start_date: str = "",
         end_date: str = "",
@@ -153,7 +154,8 @@ class AuditService:
         """读取审计，按天文件分片，最新在前。
 
         - `days=N`：只读最近 N 天天文件（limit 凑够 early-exit，不触碰更早文件）。
-        - `result`/`operator`/`action`：精确过滤（operator 已脱敏，按末 8 位匹配）。
+        - `result`/`operator`/`actor`/`action`：精确过滤（operator 已脱敏，按末 8 位匹配；
+          actor 同时匹配记录的 actor 与 operator 字段，便于按人追）。
         - `start_date`/`end_date`：日期范围过滤（格式 YYYY-MM-DD，覆盖 days 指定）。
         - `page`/`page_size`：服务端分页（page 从 1 起，page_size>0 时启用；0/0=向后兼容）。
 
@@ -187,6 +189,8 @@ class AuditService:
                 if result and item.get("result") != result:
                     continue
                 if operator and item.get("operator") != operator:
+                    continue
+                if actor and item.get("actor") != actor and item.get("operator") != actor:
                     continue
                 if action and item.get("action") != action:
                     continue

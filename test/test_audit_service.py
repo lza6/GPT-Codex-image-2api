@@ -132,6 +132,24 @@ class TestAuditList:
         assert len(svc.list(result="success", operator="abcdef12")) == 1
         assert len(svc.list(result="success", operator="nope")) == 0
 
+    def test_list_filters_actor(self, tmp_path: Path) -> None:
+        """list 支持 actor 过滤：同时匹配记录的 actor 与 operator 字段。"""
+        svc = AuditService(tmp_path / "audit.jsonl")
+        today = _today()
+        lines = [
+            json.dumps({"ts": f"{today} 09:00:00", "action": "/api/settings", "result": "success", "operator": "abcdef12"}) + "\n",
+            json.dumps({"ts": f"{today} 09:00:01", "action": "/api/settings", "result": "success", "actor": "abc12345"}) + "\n",
+            json.dumps({"ts": f"{today} 09:00:02", "action": "/api/settings", "result": "success", "operator": "zzzzzzzz"}) + "\n",
+        ]
+        (tmp_path / f"audit-{today}.jsonl").write_text("".join(lines), encoding="utf-8")
+        # actor 参数匹配 operator 字段（审计记录主要落 operator）
+        assert len(svc.list(actor="abcdef12")) == 1
+        # 也匹配 actor 字段（兼容历史/未来记录）
+        assert len(svc.list(actor="abc12345")) == 1
+        assert len(svc.list(actor="nope")) == 0
+        # 缺参行为不变
+        assert len(svc.list()) == 3
+
     def test_limit_across_files(self, tmp_path: Path) -> None:
         """limit 跨天全局生效，最新优先。"""
         svc = AuditService(tmp_path / "audit.jsonl")
@@ -351,6 +369,28 @@ class TestAuditEndpoint:
         first = body["items"][0]
         for key in ("ts", "action", "result", "operator"):
             assert key in first, f"审计条目缺字段 {key}"
+
+    def test_audit_api_actor_filter(self, tmp_path: Path, monkeypatch) -> None:
+        """GET /api/audit?actor=X 按 operator 过滤审计条目（可按人追）。"""
+        from fastapi.testclient import TestClient
+
+        from api.app import create_app
+        from services import audit_service as audit_module
+
+        monkeypatch.setattr(audit_module.audit_service, "path", tmp_path / "audit.jsonl")
+        audit_module.audit_service.record(action="/api/settings", result="success", operator="abcdef12", request_id="r1")
+        audit_module.audit_service.record(action="/api/accounts/batch", result="success", operator="zzzzzzzz", request_id="r2")
+        client = TestClient(create_app())
+        # 组合 action 排除 require_admin 自身的读取埋点，断言精确过滤该 operator
+        resp = client.get(
+            "/api/audit",
+            params={"actor": "abcdef12", "action": "/api/settings"},
+            headers={"Authorization": "Bearer chatgpt2api"},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 1
+        assert all(i.get("operator") == "abcdef12" for i in body["items"])
 
 
 def test_sensitive_action_triggers_alert() -> None:

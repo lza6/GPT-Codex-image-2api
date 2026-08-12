@@ -203,6 +203,21 @@ def record_storage_operation(backend: str, operation: str, duration_seconds: flo
     ).observe(duration_seconds)
 
 
+# ---- 5.2：dashboard 端点请求延迟（可观测性升级） ----
+# 按 endpoint label 区分看板各端点，观察 P50/P95/P99 定位慢接口。
+c2api_dashboard_request_duration_seconds = Histogram(
+    "c2api_dashboard_request_duration_seconds",
+    "Dashboard endpoint request duration in seconds",
+    ["endpoint"],
+    buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0),
+)
+
+
+def record_dashboard_request(endpoint: str, duration_seconds: float) -> None:
+    """记录看板端点请求耗时（endpoint 为完整路由路径，如 /api/dashboard/overview）。"""
+    c2api_dashboard_request_duration_seconds.labels(endpoint=endpoint).observe(duration_seconds)
+
+
 _PATH_CARDINALITY_PATTERNS = (
     # 数字 ID → {id}（如 /api/accounts/refresh/progress/12345）
     (re.compile(r"/\d{5,}"), "/{id}"),

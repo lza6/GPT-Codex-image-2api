@@ -2822,6 +2822,110 @@ class AccountService:
             "items": self.list_accounts(),
         }
 
+    def revive_accounts(self, access_tokens: list[str], limit: int | None = None) -> dict[str, Any]:
+        """4.2 手动救号入口（服务端）：对异常账号走 recover_abnormal_accounts 能力 + 并发限流。
+
+        与 /api/accounts/recover（全量竞态、内部 fetch_remote_info 并发、返回汇总计数）的区别：
+        revive 面向前端选中批量救活，逐账号受限并发（max = image_account_concurrency，默认 3，
+        复用图片并发思路防触发上游风控），并产出 per-account 明细（email + error/reason）。
+
+        分类：
+        - 库内无账号 / 已正常 / 无恢复能力（无 refresh_token 且无 password）→ skipped。
+        - 无恢复能力账号同时落 revive_skipped 标记（避免 watcher 每轮空转）。
+        - 其余走 recover_abnormal_accounts([token])（refresh_token 换 token + 密码重登兜底）。
+        恢复成功发 account_recovered 事件（含 email/new_token 摘要）。
+
+        响应契约（前端已对齐，务必一致）：
+          {"revived": int, "failed": [{"email": str, "error": str}], "skipped": [{"email": str, "reason": str}]}
+        """
+        access_tokens = list(dict.fromkeys(
+            str(token or "").strip() for token in access_tokens if str(token or "").strip()
+        ))
+        if not access_tokens:
+            return {"revived": 0, "failed": [], "skipped": []}
+
+        # 分类：可救 / 不可救（不可救给出 reason）
+        skipped: list[dict[str, str]] = []
+        revivable: list[str] = []
+        for token in access_tokens:
+            acct = self.get_account(token)
+            if not acct:
+                skipped.append({"email": str(token)[-8:], "reason": "库内无账号"})
+                continue
+            email = str(acct.get("email") or "").strip() or str(token)[-8:]
+            if str(acct.get("status") or "") == "正常":
+                skipped.append({"email": email, "reason": "账号已正常"})
+                continue
+            if not str(acct.get("refresh_token") or "").strip() and not str(acct.get("password") or "").strip():
+                skipped.append({"email": email, "reason": "无取件凭证"})
+                self._mark_revive_skipped(token, "无取件凭证")
+                continue
+            revivable.append(token)
+
+        if limit is not None and int(limit) > 0:
+            revivable = revivable[: int(limit)]
+
+        # 受限并发救号：max = image_account_concurrency，防同时救太多触发上游风控
+        failed: list[dict[str, str]] = []
+        revived = 0
+        if revivable:
+            max_workers = min(max(1, int(config.image_account_concurrency or 1)), len(revivable))
+            executor = ThreadPoolExecutor(max_workers=max_workers)
+            try:
+                futures = {
+                    executor.submit(self.recover_abnormal_accounts, [token]): token
+                    for token in revivable
+                }
+                for future in as_completed(futures):
+                    token = futures[future]
+                    email = self._account_email(token)
+                    try:
+                        result = future.result()
+                    except Exception as exc:  # noqa: BLE001
+                        failed.append({"email": email, "error": f"exception:{type(exc).__name__}:{exc}"})
+                        continue
+                    if int(result.get("recovered") or 0) > 0:
+                        revived += 1
+                        acct = self.get_account(token)
+                        new_token = str((acct or {}).get("access_token") or token)
+                        self._publish_revived_event(email, new_token)
+                    elif int(result.get("password_relogin_triggered") or 0) > 0:
+                        failed.append({"email": email, "error": "已触发密码重登（异步等待结果）"})
+                    else:
+                        failed.append({"email": email, "error": "恢复失败"})
+            finally:
+                executor.shutdown(wait=True, cancel_futures=True)
+
+        return {"revived": revived, "failed": failed, "skipped": skipped}
+
+    def _mark_revive_skipped(self, access_token: str, reason: str) -> None:
+        """对不可救账号落 revive_skipped 标记（避免 watcher 每轮空转）。失败不阻断。"""
+        try:
+            self.update_account(
+                access_token,
+                {"revive_skipped": True, "revive_skip_reason": reason},
+                quiet=True,
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _publish_revived_event(self, email: str, new_token: str) -> None:
+        """发布 account_recovered 事件（含 email/new_token 摘要）。失败不阻断救号主流程。"""
+        try:
+            from services.event_bus import ACCOUNT_RECOVERED, Event, event_bus
+
+            event_bus.publish(Event(ACCOUNT_RECOVERED, {
+                "email": email,
+                "token_suffix": str(new_token)[-8:],
+                "source": "manual_revive",
+            }))
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _account_email(self, access_token: str) -> str:
+        acct = self.get_account(access_token)
+        return str((acct or {}).get("email") or "").strip() or str(access_token)[-8:]
+
     def re_login_accounts(self, access_tokens: list[str], progress_id: str | None = None) -> dict[str, Any]:
         """对选中账号执行密码重新登录流程。
 

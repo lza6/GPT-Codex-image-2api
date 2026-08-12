@@ -1,14 +1,20 @@
 #!/usr/bin/env python3
-"""一次性救号脚本：对异常账号跑 passwordless OTP 登录，成功则换新 token + 回写凭证。
+"""救号脚本：对异常账号跑 passwordless OTP 登录，成功则换新 token + 回写凭证。
 
 链路：authorize → (停密码页则 passwordless/send-otp 触发发码) → 98faka 取码
       → email-otp/validate → exchange → 换 access_token key + 存 mail_credential/GPT密码。
 
 前置：服务需停止（避免与本脚本并发写 accounts.json）。
 用法：
-  uv run python scripts/revive_abnormal.py --limit 3        # 先试 3 个
-  uv run python scripts/revive_abnormal.py --email x@y.com  # 单个调试
-  uv run python scripts/revive_abnormal.py                  # 全部（自动跳过已正常）
+  uv run python scripts/revive_abnormal.py --dry-run                 # 只分类（可救/不可救），不联网
+  uv run python scripts/revive_abnormal.py --limit 3                 # 先试 3 个
+  uv run python scripts/revive_abnormal.py --email x@y.com           # 单个调试
+  uv run python scripts/revive_abnormal.py                           # 全部（自动跳过已正常）
+
+4.2 增强：
+- --dry-run：输出「可救 / 不可救」分类清单（不可救=库内无账号/无取件凭证/已正常），
+  不真正救号、不联网。dry-run 与实跑都会对「库内账号无取件凭证」落
+  revive_skipped=true + revive_skip_reason（避免 watcher 每轮空转）。
 """
 from __future__ import annotations
 
@@ -28,12 +34,80 @@ RECOVER_FILE = "data/_recover_payload.json"
 V2RAY = "http://127.0.0.1:10808"  # 出墙代理（kookeey 需经此中转到住宅 IP）
 
 
+def _has_mail_credential(rec: dict) -> bool:
+    """回灌数据是否含取件凭证（client_id + ms_rt + outlook_pw，98faka 取码用）。"""
+    return bool(rec.get("client_id") and rec.get("ms_rt") and rec.get("outlook_pw"))
+
+
+def classify_rec(acct_svc, rec: dict) -> tuple[str, str]:
+    """对单条回灌记录分类（不联网）。
+
+    返回 (category, reason)：
+      - revivable:    可救（库内异常账号 + 有取件凭证）
+      - not_in_lib:   库内无账号（无法落 revive_skipped 标记）
+      - already_ok:   账号已正常（无需救，不标记）
+      - no_credential: 无取件凭证（落 revive_skipped 标记）
+    """
+    email = str(rec.get("email") or "").strip()
+    old_token = str(rec.get("access_token") or "").strip()
+    if not email or not old_token:
+        return "not_in_lib", "无邮箱或token"
+    acct = acct_svc.get_account(old_token)
+    if not acct:
+        return "not_in_lib", "库内无账号"
+    if str(acct.get("status") or "") == "正常":
+        return "already_ok", "账号已正常"
+    if not _has_mail_credential(rec):
+        return "no_credential", "无取件凭证"
+    return "revivable", ""
+
+
+def _mark_revive_skipped(acct_svc, rec: dict, reason: str) -> None:
+    """对库内账号落 revive_skipped 标记（避免 watcher 每轮空转）。失败不阻断。"""
+    token = str(rec.get("access_token") or "").strip()
+    if not token:
+        return
+    try:
+        acct_svc.update_account(token, {"revive_skipped": True, "revive_skip_reason": reason}, quiet=True)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def classify_recs(acct_svc, recs: list[dict], *, offset: int = 0, email: str = "", limit: int = 0) -> dict:
+    """分类全部回灌记录（不联网）。
+
+    返回：
+      {"revivable": [(index, rec)], "skipped": [(index, rec, reason)]}
+    并对「库内账号无取件凭证」的 rec 落 revive_skipped 标记（dry-run 也落，见文件头注释）。
+    limit 只限制可救数量（与实跑一致：跳过不计入 limit）。
+    """
+    result: dict = {"revivable": [], "skipped": []}
+    for i, rec in enumerate(recs, 1):
+        if i < offset:
+            continue
+        rec_email = str(rec.get("email") or "").strip()
+        if email and rec_email.lower() != email.lower():
+            continue
+        category, reason = classify_rec(acct_svc, rec)
+        if category == "revivable":
+            result["revivable"].append((i, rec))
+        else:
+            result["skipped"].append((i, rec, reason))
+            if category == "no_credential":
+                _mark_revive_skipped(acct_svc, rec, reason)
+    if limit:
+        result["revivable"] = result["revivable"][:limit]
+    return result
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, default=0, help="最多处理多少个")
     ap.add_argument("--email", default="", help="只处理指定邮箱")
     ap.add_argument("--sleep", type=int, default=18, help="账号间隔秒数（防 OpenAI 同 IP send-otp 限流）")
     ap.add_argument("--offset", type=int, default=0, help="从第几个(1起)开始处理")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="只输出可救/不可救分类清单，不救号不联网（仅落 revive_skipped 标记）")
     ap.add_argument("--proxy", choices=["kookeey", "v2ray"], default="kookeey",
                     help="出口代理：kookeey=每号独立住宅IP(需v2ray开TUN)，v2ray=共享翻墙IP")
     args = ap.parse_args()
@@ -47,26 +121,28 @@ def main() -> None:
         recs = json.load(fh)
     print(f"待救账号 {len(recs)} 个（回灌数据）", flush=True)
 
-    ok = fail = skip = 0
-    for i, rec in enumerate(recs, 1):
-        if i < args.offset:
-            continue
-        email = rec["email"]
-        if args.email and email.lower() != args.email.lower():
-            continue
-        if args.limit and (ok + fail) >= args.limit:
-            break
+    classified = classify_recs(
+        account_service, recs,
+        offset=args.offset, email=args.email, limit=args.limit,
+    )
 
+    # ---- dry-run：只输出分类，不救号不联网 ----
+    if args.dry_run:
+        print(f"\n== 可救账号（{len(classified['revivable'])}） ==", flush=True)
+        for i, rec in classified["revivable"]:
+            print(f"  [{i}] {rec['email']}", flush=True)
+        print(f"\n== 不可救账号（{len(classified['skipped'])}） ==", flush=True)
+        for i, rec, reason in classified["skipped"]:
+            print(f"  [{i}] {rec['email']}  {reason}", flush=True)
+        print("\ndry-run 完成：可救/不可救分类如上；无取件凭证账号已落 revive_skipped 标记（避免 watcher 空转）。", flush=True)
+        return
+
+    # ---- 实跑：只对可救账号救号 ----
+    ok = fail = 0
+    total = len(classified["revivable"])
+    for pos, (i, rec) in enumerate(classified["revivable"], 1):
+        email = rec["email"]
         old_token = rec["access_token"]
-        acct = account_service.get_account(old_token)
-        if not acct:
-            print(f"[{i}] {email} 不在库，跳过", flush=True)
-            skip += 1
-            continue
-        if str(acct.get("status") or "") == "正常":
-            print(f"[{i}] {email} 已正常，跳过", flush=True)
-            skip += 1
-            continue
 
         # 取件凭证：client_id + 微软 refresh_token + outlook 邮箱密码（98faka 取码用）
         mail_cred = {
@@ -117,10 +193,10 @@ def main() -> None:
             fail += 1
             print(f"   [FAIL] {email}: {result.get('error')}", flush=True)
 
-        if not args.email and i < len(recs):
+        if not args.email and pos < total:
             time.sleep(args.sleep)
 
-    print(f"\n完成：成功 {ok}，失败 {fail}，跳过 {skip}", flush=True)
+    print(f"\n完成：成功 {ok}，失败 {fail}，跳过 {len(classified['skipped'])}", flush=True)
 
 
 if __name__ == "__main__":

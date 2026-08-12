@@ -602,6 +602,30 @@ export async function fetchReLoginProgress(progressId: string) {
   return httpRequest<RefreshProgressResponse>(`/api/accounts/re-login/progress/${progressId}`);
 }
 
+/** 4.2：批量救活账号——重新验证/恢复选中账号身份，会消耗上游配额并可能触发风控。 */
+export type AccountReviveFailed = {
+  email: string;
+  error: string;
+};
+
+export type AccountReviveSkipped = {
+  email: string;
+  reason: string;
+};
+
+export type AccountReviveResponse = {
+  revived: number;
+  failed: AccountReviveFailed[];
+  skipped: AccountReviveSkipped[];
+};
+
+export async function reviveAccounts(accessTokens: string[]) {
+  return httpRequest<AccountReviveResponse>("/api/accounts/revive", {
+    method: "POST",
+    body: { access_tokens: accessTokens },
+  });
+}
+
 export async function updateAccount(
   accessToken: string,
   updates: {

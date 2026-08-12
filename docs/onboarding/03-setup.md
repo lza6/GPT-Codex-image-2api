@@ -128,6 +128,38 @@ uv run pytest test/test_shared_state.py            # Local / Redis 工厂降级�
 - [ ] `curl http://localhost:23456/api/storage/info -H "Authorization: Bearer <auth-key>"` 能看到当前后端类型
 - [ ] （前端任务）`cd web && npm run build` 成功（webpack，产物到 `web/out` + `web_dist/`）
 
+## 验证 E2E（可选，前端改动/回归用）
+
+> 完整说明见 `docs/e2e.md`；本节是最短路径。E2E 用 Playwright + 本机 Edge 跑真实前后端
+> 交互链（登录/看板/账号/批量通知 4 个 spec），global-setup 会自动拉起前后端，无需手动起。
+
+前置条件：
+
+| 依赖 | 要求 |
+|------|------|
+| 本机 Microsoft Edge | `playwright.config.ts` 用 `channel: "msedge"` + Windows 硬编码路径 |
+| 后端/前端可启动 | `python main.py`（23456）+ `cd web && npm run dev`（3000）——global-setup 自动拉起 |
+| worker = 1 | JSON 存储默认即 1，符合单 worker 前提 |
+| 登录 key 对齐 | 登录取 `E2E_AUTH_KEY` 环境变量，默认 `cg2api-8tbkFwuqBPLZ2cUuA12f8Ldvt2mkYNlO`，必须等于 `config.json` 的 `auth-key`（或 `CHATGPT2API_AUTH_KEY` 覆盖值），否则登录断言失败 |
+
+跑：
+
+```bash
+cd e2e
+npm install     # 首次安装（@playwright/test + dotenv + typescript）
+npm test        # 全部：自动起前后端，结束随进程退出清理
+```
+
+单文件 / 单用例：
+
+```bash
+npx playwright test specs/login.spec.ts
+npx playwright test specs/login.spec.ts -g "空密钥提交不崩溃"
+```
+
+产物与清理：失败截图/视频在 `test-results/`，HTML 报告在 `playwright-report/`（均已 .gitignore）；
+E2E 期间产生的测试数据在 `data/`（如 usage_agg.json），删掉下次启动会自动重建。
+
 ## 常见搭建问题
 
 | 症状 | 解法 |

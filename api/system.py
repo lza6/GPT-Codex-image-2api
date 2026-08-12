@@ -233,6 +233,7 @@ def create_router(app_version: str) -> APIRouter:
         limit: int = 200,
         result: str = "",
         operator: str = "",
+        actor: str = "",
         action: str = "",
         start_date: str = "",
         end_date: str = "",
@@ -242,7 +243,8 @@ def create_router(app_version: str) -> APIRouter:
     ):
         """3.2：审计日志读取（管理操作留痕，独立于业务日志）。
 
-        新增：start_date/end_date 日期范围过滤，action 操作类型过滤，page/page_size 分页。
+        新增：start_date/end_date 日期范围过滤，action 操作类型过滤，page/page_size 分页，
+        actor 操作人过滤（同时匹配记录的 actor 与 operator 字段，便于按人追）。
         """
         require_admin(authorization)
         from services.audit_service import audit_service
@@ -252,6 +254,7 @@ def create_router(app_version: str) -> APIRouter:
             limit=max(1, min(int(limit), 1000)),
             result=result.strip(),
             operator=operator.strip(),
+            actor=actor.strip(),
             action=action.strip(),
             start_date=start_date.strip(),
             end_date=end_date.strip(),

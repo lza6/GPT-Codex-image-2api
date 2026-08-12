@@ -491,6 +491,39 @@ def create_router() -> APIRouter:
         result = await run_in_threadpool(account_service.recover_abnormal_accounts, access_tokens)
         return result
 
+    @router.post("/api/accounts/revive")
+    async def revive_accounts(body: AccountRefreshRequest, authorization: str | None = Header(default=None)):
+        """4.2 手动救号：对选中异常账号走 recover 能力 + 并发限流，返回 per-account 明细。
+
+        响应契约（前端已对齐，务必一致）：
+          {"revived": int, "failed": [{"email": str, "error": str}], "skipped": [{"email": str, "reason": str}]}
+        救号成功（revived>0）入审计（operator=当前 admin）。
+        """
+        identity = require_admin(authorization)
+        access_tokens = _unique_tokens(body.access_tokens)
+        if not access_tokens:
+            raise HTTPException(status_code=400, detail={"error": "access_tokens is required"})
+        result = await run_in_threadpool(account_service.revive_accounts, access_tokens)
+        if int(result.get("revived") or 0) > 0:
+            try:
+                from services.audit_service import audit_service
+
+                operator = str((identity or {}).get("id") or "") or str((identity or {}).get("name") or "")
+                audit_service.record(
+                    action="accounts.revive",
+                    result="success",
+                    operator=operator,
+                    resource="accounts",
+                    detail={
+                        "revived": result["revived"],
+                        "failed": len(result.get("failed") or []),
+                        "skipped": len(result.get("skipped") or []),
+                    },
+                )
+            except Exception:  # noqa: BLE001 - 审计失败绝不阻断救号响应
+                pass
+        return result
+
 
     @router.post("/api/accounts/evict_stale")
     async def evict_stale_accounts(authorization: str | None = Header(default=None)):
