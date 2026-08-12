@@ -42,6 +42,8 @@ with open("output.png", "wb") as f:
 
 ### 图片编辑
 
+> **支持一次多张参考图**：`/v1/images/edits` 可同时传入多张参考图做合成/多图编辑。multipart 通过重复 `image` 字段传多张；JSON 通过 `images` 数组传多张。
+
 ```python
 def edit_image(image_path: str, prompt: str) -> str:
     with open(image_path, "rb") as f:
@@ -54,6 +56,25 @@ def edit_image(image_path: str, prompt: str) -> str:
         )
     resp.raise_for_status()
     return resp.json()["data"][0]["b64_json"]
+```
+
+```python
+def edit_with_multiple_references(image_paths: list[str], prompt: str) -> str:
+    """多参考图编辑：同一 image 字段传多个文件对象。"""
+    opened = [open(p, "rb") for p in image_paths]
+    try:
+        resp = requests.post(
+            f"{BASE}/v1/images/edits",
+            headers=HEADERS,
+            files=[("image", f) for f in opened],  # 重复 image 字段 = 多参考图
+            data={"model": "gpt-image-2", "prompt": prompt, "n": 1},
+            timeout=180,
+        )
+        resp.raise_for_status()
+        return resp.json()["data"][0]["b64_json"]
+    finally:
+        for f in opened:
+            f.close()
 ```
 
 ### 异步任务 + 轮询（推荐生产用法）
@@ -243,11 +264,25 @@ curl http://localhost:23456/v1/images/edits \
   -F "prompt=改成赛博朋克夜景" \
   -F "image=@./input.png"
 
+# 图片编辑（多参考图 - 文件上传）：重复 image 字段
+curl http://localhost:23456/v1/images/edits \
+  -H "Authorization: Bearer chatgpt2api" \
+  -F "model=gpt-image-2" \
+  -F "prompt=把图1的人物放进图2的场景" \
+  -F "image=@./person.png" \
+  -F "image=@./scene.png"
+
 # 图片编辑（URL 引用）
 curl http://localhost:23456/v1/images/edits \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer chatgpt2api" \
   -d '{"model":"gpt-image-2","prompt":"改成赛博朋克夜景","images":[{"image_url":"https://example.com/input.png"}]}'
+
+# 图片编辑（多参考图 - URL 引用）：images 数组可含多张
+curl http://localhost:23456/v1/images/edits \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer chatgpt2api" \
+  -d '{"model":"gpt-image-2","prompt":"合并两张参考图","images":[{"image_url":"https://example.com/a.png"},{"image_url":"https://example.com/b.png"}]}'
 
 # 提交异步任务
 curl http://localhost:23456/api/image-tasks/generations \
