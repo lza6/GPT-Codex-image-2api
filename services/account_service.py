@@ -2662,6 +2662,11 @@ class AccountService:
             raise ValueError("access_token is required")
 
         active_token = self.refresh_access_token(access_token, event=f"{event}:preflight") or access_token
+        # v2.36.0：fomimage 账号走独立上游（OpenAI get_user_info 不适用），
+        # 跳过远程校验，直接返回本地账号（refresh_accounts/watcher 不误伤 fomimage 号池）。
+        _local_acct = self._get_account_for_token(active_token)[1] or {}
+        if str(_local_acct.get("provider") or "").strip().lower() == "fomimage":
+            return self.update_account(active_token, _local_acct, quiet=True)
         try:
             from services.openai_backend_api import InvalidAccessTokenError, OpenAIBackendAPI
             backend = OpenAIBackendAPI(active_token)

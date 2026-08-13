@@ -211,6 +211,26 @@ class GetAvailableAccessTokenFomimageTests(unittest.TestCase):
             picked = svc.get_available_access_token(provider="fomimage")
         self.assertEqual(picked, tok)
 
+    def test_fetch_remote_info_fomimage_skips_openai(self) -> None:
+        """fetch_remote_info 对 fomimage 账号返回本地账号，不调 OpenAI get_user_info（refresh/watcher 不误伤）。"""
+        import tempfile
+        from pathlib import Path
+
+        from services.account_service import AccountService
+        from services.storage.json_storage import JSONStorageBackend
+
+        svc = AccountService(JSONStorageBackend(Path(tempfile.mkdtemp()) / "a.json"))
+        tok = "fomimage-tok-remote"
+        svc._accounts = {tok: {"access_token": tok, "provider": "fomimage", "quota": 50, "status": "正常", "email": "a@b.com"}}
+        svc._token_aliases = {}
+        svc._breaker_registry = mock.Mock()
+        svc._dirty = False
+        with mock.patch.object(svc, "refresh_access_token", side_effect=lambda t, **kw: t), \
+             mock.patch.object(svc, "_save_accounts"):
+            acct = svc.fetch_remote_info(tok, "test")
+        self.assertEqual((acct or {}).get("provider"), "fomimage")
+        self.assertEqual((acct or {}).get("quota"), 50)
+
 
 if __name__ == "__main__":
     unittest.main()
