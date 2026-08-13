@@ -181,11 +181,11 @@ class OTPLoginService:
                     tokens.update({"ok": True, "email": email, "source_type": "otp"})
                     return tokens
 
-            # ②.5 passwordless 账号 authorize 后停在密码页 → 显式触发发码
+            # ②.5 passwordless 账号 authorize 后停在密码页 → 显式触发发码；
+            # 触发失败不放弃——login_challenge 可能已自动发码到邮箱，继续读已有邮件。
+            # otp_trigger_at 保持 authorize 时刻作基准，覆盖 login_challenge 自动发出的验证码。
             if "/log-in" in final_url:
-                if not self._trigger_passwordless_otp(session, device_id):
-                    return {"ok": False, "error": "send_otp_failed", "detail": {"email": email}}
-                otp_trigger_at = datetime.now(UTC)  # 取件基准重置为发码时刻
+                self._trigger_passwordless_otp(session, device_id)
 
             # ③ 取最新 OTP 邮件 → 提取 6 位数字
             code_digits = self._fetch_otp_code(mail_credential, otp_trigger_at, session_kwargs.get("proxy", ""))

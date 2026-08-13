@@ -9,7 +9,24 @@
 
 ---
 
-## 一、当前验证基线（最新一轮：v2.35.0 稳定修复 + 救号/审计/可观测增强）
+## 一、当前验证基线（最新一轮：v2.36.0 fomimage 提供商接入）
+
+| 项 | 结果 | 范围/说明 | 日期 | 证据 |
+|----|------|-----------|------|------|
+| 全量单测 | **通过（exit 0）** | 全量 pytest（排除 live/redis）；新增 fomimage 3 测试文件 36 用例 + 相关回归 88 通过 | 2026-08-14 | `pytest`（后台任务 exit 0） |
+| fomimage live E2E | **1 passed** | `test/test_fomimage_live.py`：temp-mail 建邮箱→注册→OTP→登录→余额 50→上传参考图→图生图 low\|1K=10 分→轮询 success→下载 PNG→余额 40 | 2026-08-14 | `pytest -m live test/test_fomimage_live.py`（67s） |
+| ruff | 0 错误 | 全部 fomimage 新增/改动文件 | 2026-08-14 | `ruff check` |
+| 前端 | tsc 0 错误 + build 成功 | settings 新增 fomimage 注册卡片 + 图片工作台全模型展示 | 2026-08-14 | `tsc --noEmit` + `npm run build` |
+| 契约守卫 | 断链=0 | 新增 2 端点已注册 | 2026-08-14 | `contract_guard.py` |
+| 八道防线 | 未全量重跑 | 本次改动无 SQL/存储/调度核心；慢查询/变异/施压沿用下表格基线 | 2026-08-14 | 沿用 |
+
+## 二、本轮新增/改动区域 → 对应验证
+
+| 区域 | 改动 | 验证 | 状态 |
+|------|------|------|------|
+| fomimage 提供商接入（v2.36.0） | `services/fomimage_pricing.py`（12 模型定价表）+ `fomimage_backend_api.py`（上游客户端）+ `protocol/fomimage_image.py`（协议适配）+ `registration/fomimage/`（temp_mail/engine/coordinator）+ `providers/registry.py` fomimage 元数据 + `utils/helper.py` fomimage- 前缀 + `conversation.py` 按 provider 分派 + `account_service.mark_image_credits_result`（按 costCredits 扣减/用完即弃）+ `api/registration.py` 2 端点 + `config.example.json` registration.fomimage 段 + web 前端（fomimage-registration-card + providers-card + image page 全模型） | 新增 36 单测 + live E2E 1 通过 + ruff 0 + tsc 0 + build + 契约断链 0 | ✅（本轮闭环） |
+
+### v2.35.0 历史基线（沿用，未重跑）
 
 | 项 | 结果 | 范围/说明 | 日期 | 证据 |
 |----|------|-----------|------|------|
@@ -26,11 +43,9 @@
 | 前端 | tsc 0 错误 + build 成功 | npm run build（含类型检查） | 2026-08-12 | `npm run build` |
 | E2E | **16 passed / 0 failed**（2 skipped 容错） | e2e/ Playwright 真实前后端（登录/看板/账号/批量通知 4 spec）；v2.33.0 重跑确认（accounts/dashboard spec 默认 AUTH_KEY 对齐 config） | 2026-08-12 | `playwright test` |
 
-## 二、本轮新增/改动区域 → 对应验证
+## 二·B、历史轮次完成区（v2.34.0 及更早，对照 workflow_status）
 
 | 区域 | 改动 | 验证 | 状态 |
-|------|------|------|------|
-| v2.34.0 全批（本轮） | Provider Phase 4 + III-01~07 + V-01~04 + VII-01~04，详见 workflow_status 第二十三轮 A-K 清单 | 八道防线 8/8 PASS + 覆盖率门禁 62% + 变异 caught=33 + 各批 agent 单测全绿（trash 17/scheduler 78/backup 8+41/alert 18+44/session_pool 18+118/cache 21+111/slow_query 90/provider 113+365）+ tsc 0 + build | ✅（本轮闭环） |
 | 工程效能 VII-01~04 + V-04（本轮） | `pyproject.toml`（pytest-cov + [tool.coverage] 门禁 + 补 hypothesis/aiosqlite 声明）、`.github/workflows/ci.yml`（coverage gate + OpenAPI/SDK --check + guards job）、`scripts/coverage_guard.py`、`scripts/benchmark_check.py` + `docs/benchmark-baseline.json`、`generate_openapi_spec.py --check`、`generate_sdks.py --check`（含 GBK 安全输出）、`run_all_guards.py` 扩至八道防线、`stress_test.py` 慢存储注入 marker 修复、`scripts/hooks/`（文档保鲜 git hook） | 各脚本本地实跑：openapi/sdk --check PASS、coverage_guard PASS（62%≥55%）、benchmark PASS、hook 放行/阻塞双路径验证；CI job 需 GitHub Actions 环境 | ✅（本轮） |
 | R2 图片存储后端 | `services/image_storage_service.py` R2Client（AWS SigV4，纯 Python）+ config r2_* 四字段 | `test/test_image_storage_service.py`（覆盖签名/上传/读取/删除/列对象/降级） | ✅（第二十一轮闭环） |
 | 变异探针增强 | `scripts/mutation_probe.py`（282 行增量，锚点覆盖 14 测试文件） | `pytest` 全量 + 防线变异（caught=33 escaped=0） | ✅（第二十一轮闭环） |

@@ -83,6 +83,61 @@ def kookeey_proxy_for(email: str = "") -> str:
     return f"{scheme}://{auth}@{gate_host}:{gate_port}"
 
 
+def _proxy_is_kookeey(url: str) -> bool:
+    """判断代理 URL 是否为 kookeey 住宅代理（host 匹配配置的 gate_host）。"""
+    candidate = str(url or "").strip()
+    if not candidate:
+        return False
+    try:
+        parsed = urlparse(candidate)
+        host = _normalize_host(parsed.hostname or "")
+    except Exception:
+        return False
+    if not host:
+        return False
+    try:
+        gate_host = _normalize_host(str(config.get_kookeey_settings().get("gate_host") or "").strip())
+    except Exception:
+        gate_host = ""
+    return bool(gate_host) and host == gate_host
+
+
+def resolve_account_proxy(email: str = "") -> str:
+    """统一账号出口代理解析。返回可直接用于 curl_cffi session.proxy 的 URL；空串表示直连。
+
+    优先级：kookeey → free_pool(按账号粘性) → 全局代理 → 直连。
+    仅当 config.kookeey.proxy_enabled 且凭据齐全时走 kookeey（默认关）；
+    仅当 config.free_proxy.enabled 且池内存在健康代理时走免费池。
+    """
+    # 1. kookeey（默认关，凭据安全优先）
+    try:
+        sticky = kookeey_proxy_for(email)
+        if sticky:
+            return sticky
+    except Exception:
+        pass
+    # 2. 免费代理池（按账号粘性绑定健康节点，失效自动重绑）
+    try:
+        free_settings = config.get_free_proxy_settings()
+        if free_settings.get("enabled") and free_settings.get("sticky_by_account", True):
+            from services.proxy_pool import proxy_pool
+
+            entry = proxy_pool.select_sticky(email)
+            if entry is not None and entry.url:
+                return entry.url
+    except Exception:
+        pass
+    # 3. 全局代理
+    try:
+        global_proxy = config.get_proxy_settings()
+        if global_proxy:
+            return global_proxy
+    except Exception:
+        pass
+    # 4. 直连
+    return ""
+
+
 @dataclass(frozen=True)
 class ProxyRuntimeProfile:
     proxy_url: str = ""
@@ -252,16 +307,20 @@ class ProxySettingsStore:
             selected_proxy = legacy_proxy
             source = "global"
         elif isinstance(account, dict):
-            # v2.31：账号级 kookeey 粘性代理——同号固定住宅 IP、异号异 IP，常规请求路径接入。
-            # 仅在 kookeey proxy_enabled 开启时生效（按量计费，默认关，登录/导入已走此路径）。
-            # 放置于 global 之后、IP 池之前：账号无显式代理时自动获得粘性 IP。
+            # v2.35：统一账号出口代理解析——kookeey → 免费池(按账号粘性) → 全局 → 直连。
+            # 放置于 global 之后、IP 池之前：账号无显式代理时自动获得粘性出口。
+            # source 标注 kookeey_sticky（kookeey 住宅 IP）或 free_sticky（免费池节点）。
+            # 判定以"解析结果是否来自 kookeey 级"为准（与 kookeey_proxy_for 结果一致），
+            # 兼容 mock / 自定义 gate_host 等场景；_proxy_is_kookeey 作兜底。
             try:
-                from services.proxy_service import kookeey_proxy_for
                 email = str(account.get("email") or "").strip()
-                sticky = kookeey_proxy_for(email) if email else ""
-                if sticky:
-                    selected_proxy = sticky
-                    source = "kookeey_sticky"
+                resolved = resolve_account_proxy(email) if email else ""
+                if resolved:
+                    selected_proxy = resolved
+                    is_kookeey = _proxy_is_kookeey(resolved)
+                    if not is_kookeey:
+                        is_kookeey = kookeey_proxy_for(email) == resolved
+                    source = "kookeey_sticky" if is_kookeey else "free_sticky"
             except Exception:
                 pass
         if not selected_proxy and not account_proxy:
@@ -301,6 +360,29 @@ class ProxySettingsStore:
             session_kwargs["proxy"] = profile.proxy_url
         if profile.runtime_enabled and profile.skip_ssl_verify:
             session_kwargs["verify"] = False
+        # V68/V70: 接入 Cloudflare clearance——用 FlareSolverr 获取 cf_clearance 并注入
+        # 会话 Cookie/UA，绕过 chatgpt.com 的 Cloudflare WAF（无 cf_clearance 时直连 403）。
+        # 失败不阻断会话创建（下次会话仍会重试获取）。
+        if profile.clearance_enabled:
+            try:
+                bundle = self.refresh_clearance(
+                    target_url="https://chatgpt.com",
+                    account=account,
+                    proxy=proxy,
+                    resource=resource,
+                    upstream=upstream,
+                )
+                if bundle is not None and bundle.cookies:
+                    headers = dict(session_kwargs.get("headers") or {})
+                    existing = str(headers.get("Cookie") or "")
+                    merged = _merge_cookie_header(existing, bundle.cookies)
+                    if merged:
+                        headers["Cookie"] = merged
+                    if bundle.user_agent and _find_header_key(headers, "user-agent") is None:
+                        headers["User-Agent"] = bundle.user_agent
+                    session_kwargs["headers"] = headers
+            except Exception:
+                pass
         return session_kwargs
 
     def build_headers(

@@ -80,10 +80,14 @@ class AccountService:
         self._dirty = False
         self._last_save_at = 0.0
         self._image_inflight: dict[str, int] = {}
+        # 代理池：账号已预留的节点图片并发额度计数（与 _image_inflight 一一对应）
+        self._egress_holds: dict[str, int] = {}
         self._token_aliases: dict[str, str] = {}
         self._cumulative_total = self._load_cumulative_total()
         self._account_list_cache: dict[str, object] = {}
         self._account_list_cache_at: float = 0.0
+        # 养号到期转正节流（list_accounts 懒触发，默认 60s 一次）
+        self._last_aging_promote_at: float = 0.0
         # 智能调度增强：Affinity 亲和路由
         self._affinity_map: dict[str, str] = {}  # model -> last_token
         self._affinity_at: dict[str, float] = {}  # model -> last_used_timestamp
@@ -180,13 +184,70 @@ class AccountService:
     def _is_image_account_available(account: dict) -> bool:
         if not isinstance(account, dict):
             return False
-        if account.get("status") in {"禁用", "限流", "异常"}:
+        status = AccountService._effective_aging_status(account)
+        if status in {"禁用", "限流", "异常", "养号中"}:
             return False
         quota = int(account.get("quota") or 0)
         # quota != 0 即可用：> 0 是常规剩余配额，-1 是 OpenAI 无限配额
         # （free plan 无硬上限场景，实测真实账号返回 remaining=-1）。
         # quota=0/None 才拒选。
         return quota != 0
+
+    # ---- 养号池（account_aging）：新号养 N 天不进入图片调度 ----
+
+    @staticmethod
+    def _aging_config() -> dict:
+        raw = getattr(config, "data", {}).get("account_aging")
+        return raw if isinstance(raw, dict) else {}
+
+    @staticmethod
+    def _aging_enabled() -> bool:
+        raw = AccountService._aging_config().get("enabled")
+        if isinstance(raw, str):
+            return raw.strip().lower() in {"1", "true", "yes", "on"}
+        return bool(raw)
+
+    @staticmethod
+    def _aging_days() -> int:
+        raw = AccountService._aging_config().get("days")
+        try:
+            return max(1, int(raw or 7))
+        except (TypeError, ValueError):
+            return 7
+
+    @staticmethod
+    def _aging_behaviors() -> list[str]:
+        raw = AccountService._aging_config().get("behaviors")
+        if isinstance(raw, list):
+            return [str(b).strip() for b in raw if str(b).strip()]
+        return []
+
+    @staticmethod
+    def _aging_auto_apply() -> bool:
+        """新增账号是否自动进入养号期（默认 enabled 时自动生效）。"""
+        raw = AccountService._aging_config().get("auto_apply_to_new")
+        if raw is None:
+            return True
+        if isinstance(raw, str):
+            return raw.strip().lower() in {"1", "true", "yes", "on"}
+        return bool(raw)
+
+    @classmethod
+    def _effective_aging_status(cls, account: dict) -> str:
+        """养号到期动态转正（只读判定，不修改存储）。
+
+        status=养号中 且已超过 account_aging.days 天 → 视为"正常"参与调度；
+        未到期或未启用养号池 → 返回原状态。
+        """
+        status = str(account.get("status") or "")
+        if status != "养号中" or not cls._aging_enabled():
+            return status
+        created = cls._parse_time(account.get("created_at"))
+        if created is None:
+            return status
+        if (datetime.now(UTC) - created).total_seconds() >= cls._aging_days() * 86400:
+            return "正常"
+        return status
 
     # ---- 健康档位 + 调度分（移植自 codex2api fast_scheduler） ----
     # 档位：healthy > warm > risky，档位越高优先调度；
@@ -219,8 +280,8 @@ class AccountService:
         """基础档位（不含寿命预测降档）——供调度分与测试复用。"""
         if not isinstance(account, dict):
             return cls._RISKY
-        status = account.get("status")
-        if status in {"禁用", "异常"}:
+        status = cls._effective_aging_status(account)
+        if status in {"禁用", "异常", "养号中"}:
             return cls._RISKY
         if status == "限流":
             return cls._RISKY
@@ -486,6 +547,8 @@ class AccountService:
         normalized["email"] = normalized.get("email") or None
         normalized["user_id"] = normalized.get("user_id") or None
         normalized["proxy"] = str(normalized.get("proxy") or "").strip()
+        # 代理池：账号归属的账号分组 id（account_groups[].id），空 = 不分流
+        normalized["group_id"] = str(normalized.get("group_id") or "").strip()
         source_type = normalized.get("source_type")
         if not source_type and str(normalized.get("export_type") or "").strip().lower() == "codex":
             source_type = "codex"
@@ -781,15 +844,15 @@ class AccountService:
             return {"ok": False, "error": f"otp_login_exception:{type(exc).__name__}", "detail": {"message": str(exc)}}
 
     def _password_re_login_thread(self, access_token: str, email: str, password: str, event: str, progress_id: str | None = None) -> None:
-        """密码重新登录线程入口（走 kookeey 住宅代理 + 取件凭证 + OTP 降级）"""
+        """密码重新登录线程入口（统一账号出口代理 + 取件凭证 + OTP 降级）"""
         try:
-            from services.proxy_service import kookeey_proxy_for
+            from services.proxy_service import resolve_account_proxy
 
             # 读取账号已存的取件凭证（client_id + refresh_token），供 OTP 降级用
             acct = self.get_account(access_token) or {}
             mail_cred = acct.get("mail_credential") if isinstance(acct.get("mail_credential"), dict) else None
-            # 每号固定住宅 IP（粘性 session），避免同 IP 批量登录被风控
-            proxy_url = kookeey_proxy_for(email)
+            # 统一账号出口代理：kookeey（默认关）→ 免费池(粘性) → 全局 → 直连
+            proxy_url = resolve_account_proxy(email)
             result = self._login_with_password(email, password, proxy_url=proxy_url)
             # 遇 OpenAI 风控要求邮箱 OTP、或 passwordless 账号无密码(401/400) 且有取件凭证 → 降级走 OTP 取件登录
             if (not result.get("ok")) and str(result.get("error") or "") in self._OTP_FALLBACK_ERRORS:
@@ -1510,6 +1573,106 @@ class AccountService:
             else:
                 self._image_inflight[access_token] = current_inflight - 1
             self._image_slot_condition.notify_all()
+        # 代理池：释放该账号代理节点的图片并发额度（默认关，未预留时无副作用）
+        self._release_account_egress(access_token)
+
+    # ---- 代理池接入（账号分组代理池，默认关闭） ----
+
+    def _resolve_account_proxy(self, access_token: str, account: dict) -> str:
+        """为账号解析并绑定分组内独立代理（一账号一 IP，粘性持久化）。
+
+        未配置 proxy_groups / account_groups 时返回空串，走原直连/全局代理逻辑，
+        不改变现有行为。绑定结果持久化到 account.proxy（粘性），节点被删后自动重选。
+        """
+        if not isinstance(account, dict):
+            return ""
+        try:
+            from services.proxy_pool import account_proxy_pool
+            if not account_proxy_pool.enabled():
+                return ""
+            current = str(account.get("proxy") or "").strip()
+            proxy = account_proxy_pool.get_proxy_for_account(account)
+            if proxy and proxy != current:
+                self.update_account(access_token, {"proxy": proxy}, quiet=True)
+            return proxy or current
+        except Exception:
+            return str(account.get("proxy") or "").strip()
+
+    def _acquire_account_proxy_and_egress(self, access_token: str, account: dict) -> None:
+        """代理池接入：绑定账号独立代理 + 预留节点图片并发额度。
+
+        仅在 config 配置了 proxy_groups / account_groups 时生效（默认关）。
+        预留与 release_image_slot 一一对应（_egress_holds 计数），失败静默回退。
+        """
+        try:
+            from services.proxy_pool import account_proxy_pool
+            if not account_proxy_pool.enabled():
+                return
+            proxy = self._resolve_account_proxy(access_token, account)
+            if not proxy:
+                return
+            account_proxy_pool.acquire_image_egress(proxy)
+            with self._lock:
+                self._egress_holds[access_token] = int(self._egress_holds.get(access_token, 0)) + 1
+        except Exception:
+            pass
+
+    def _release_account_egress(self, access_token: str) -> None:
+        """代理池接入：释放该账号代理节点预留的图片并发额度（默认关）。
+
+        配对计数器 _egress_holds 始终递减（保证 acquire/release 平衡）；
+        仅当代理池开启且账号绑定代理时真正释放节点额度。
+        """
+        try:
+            from services.proxy_pool import account_proxy_pool
+            proxy = ""
+            with self._lock:
+                resolved = self._resolve_access_token_locked(access_token)
+                holds = int(self._egress_holds.get(resolved, 0))
+                if holds <= 0:
+                    return
+                account = self._accounts.get(resolved)
+                proxy = str((account or {}).get("proxy") or "").strip()
+                if holds <= 1:
+                    self._egress_holds.pop(resolved, None)
+                else:
+                    self._egress_holds[resolved] = holds - 1
+            if proxy and account_proxy_pool.enabled():
+                account_proxy_pool.release_image_egress(proxy)
+        except Exception:
+            pass
+
+    def promote_aged_accounts(self) -> int:
+        """养号到期自动转正：把超过养号天数（account_aging.days）的养号中账号转正为正常。
+
+        返回转正账号数。未启用养号池时立即返回 0，无副作用。
+        调度时用 _effective_aging_status 动态判定（到期即参与调度），
+        此方法负责把存储中的 status 字段同步转正，供 UI/审计展示。
+        """
+        if not self._aging_enabled():
+            return 0
+        changed: list[str] = []
+        with self._lock:
+            now = datetime.now(UTC)
+            for token, item in self._accounts.items():
+                if str(item.get("status") or "") != "养号中":
+                    continue
+                created = self._parse_time(item.get("created_at"))
+                if created is None:
+                    continue
+                if (now - created).total_seconds() < self._aging_days() * 86400:
+                    continue
+                next_item = dict(item)
+                next_item["status"] = "正常"
+                account = self._normalize_account(next_item)
+                if account is not None:
+                    self._accounts[token] = account
+                    self._dirty = True
+                    changed.append(token)
+        if changed:
+            self._save_accounts()
+            logger.info("养号到期转正 %d 个账号", len(changed))
+        return len(changed)
 
     def get_available_access_token(
             self,
@@ -1558,23 +1721,32 @@ class AccountService:
             breaker = circuit_breaker_registry.get(access_token)
             if not breaker.allow_request():
                 continue
-            try:
-                account = self.fetch_remote_info(access_token, "get_available_access_token")
-            except Exception:
-                breaker.record_failure()
-                self.release_image_slot(access_token)
-                continue
-            # fetch_remote_info 内部可能因 token rotation 导致 access_token 变化，
-            # 把新 token 也加入排除列表，防止重复尝试
-            resolved = str((account or {}).get("access_token") or "")
-            if resolved and resolved != access_token:
-                attempted_tokens.add(resolved)
+            # v2.36.0：fomimage 账号走独立上游（chatgpt get_user_info 不适用），
+            # 跳过远程校验，直接用本地候选（_list_ready_candidate_tokens 已过滤本地可用）
+            _local_account = self._get_account_for_token(access_token)[1] or {}
+            if str(_local_account.get("provider") or "").strip().lower() == "fomimage":
+                account = _local_account
+                resolved = str(account.get("access_token") or "") or access_token
+            else:
+                try:
+                    account = self.fetch_remote_info(access_token, "get_available_access_token")
+                except Exception:
+                    breaker.record_failure()
+                    self.release_image_slot(access_token)
+                    continue
+                # fetch_remote_info 内部可能因 token rotation 导致 access_token 变化，
+                # 把新 token 也加入排除列表，防止重复尝试
+                resolved = str((account or {}).get("access_token") or "")
+                if resolved and resolved != access_token:
+                    attempted_tokens.add(resolved)
             if (
                     self._is_image_account_available(account or {})
                     and self._account_matches_plan_type(account or {}, plan_type)
                     and self._account_matches_any_plan_type(account or {}, plan_types)
                     and self._account_matches_source_type(account or {}, source_type)
             ):
+                # 代理池：绑定账号独立代理（一账号一 IP）+ 预留节点图片并发额度（默认关）
+                self._acquire_account_proxy_and_egress(access_token, account or {})
                 # 仅当账号真正可用时才记录熔断成功
                 breaker.record_success()
                 return str((account or {}).get("access_token") or access_token)
@@ -1650,7 +1822,7 @@ class AccountService:
             candidates = [
                 token
                 for account in self._accounts.values()
-                if account.get("status") not in {"禁用", "异常"}
+                if self._effective_aging_status(account) not in {"禁用", "异常", "养号中"}
                    and self._account_matches_provider(account, provider)
                    and (
                        route is None
@@ -1669,6 +1841,9 @@ class AccountService:
                 )
             access_token = candidates[self._index % len(candidates)]
             self._index += 1
+        # 代理池：文本请求同样绑定账号独立代理（一账号一 IP，默认关）
+        account = self._accounts.get(access_token) or {}
+        self._resolve_account_proxy(access_token, account)
         return self.refresh_access_token(access_token, event="get_text_access_token") or access_token
 
     def mark_text_used(self, access_token: str) -> None:
@@ -1771,6 +1946,10 @@ class AccountService:
         image_inflight 为内存态并发计数(账号正在生成、尚未结束的图片数)。号池空闲时
         若某账号该值持续 > 0，说明其并发槽位泄漏、已被静默排除出调度，可借此在 UI 上诊断。
         """
+        # 养号到期转正懒触发（60s 节流，未启用养号池时零开销）
+        if time.time() - self._last_aging_promote_at >= 60.0:
+            self._last_aging_promote_at = time.time()
+            self.promote_aged_accounts()
         with self._lock:
             result = []
             for item in self._accounts.values():
@@ -1938,7 +2117,7 @@ class AccountService:
 
         返回 {added, skipped, pending, failed, errors, items}。errors 每条含 email/error/detail。
         """
-        from services.proxy_service import kookeey_proxy_for
+        from services.proxy_service import resolve_account_proxy
 
         deduped: dict[str, dict] = {}
         for item in credentials:
@@ -1964,8 +2143,8 @@ class AccountService:
             if self._find_account_by_email(email):
                 skipped += 1
                 continue
-            # 每号固定住宅 IP（粘性 session），批量导入也分摊出口，避免同 IP 批量登录被风控
-            proxy_url = kookeey_proxy_for(email)
+            # 统一账号出口代理：kookeey（默认关）→ 免费池(粘性) → 全局 → 直连
+            proxy_url = resolve_account_proxy(email)
             try:
                 result = self._login_with_password(email, password, proxy_url=proxy_url)
             except Exception as exc:
@@ -2075,6 +2254,9 @@ class AccountService:
                     self._cumulative_total += 1
                     self._save_cumulative_total()
                     current = {"created_at": self._now()}
+                    # 养号池：新账号自动进入养号期（config.account_aging.enabled + auto_apply_to_new）
+                    if self._aging_enabled() and self._aging_auto_apply():
+                        current["status"] = "养号中"
                 else:
                     skipped += 1
                 incoming = dict(payload)
@@ -2110,6 +2292,7 @@ class AccountService:
             removed = sum(self._accounts.pop(token, None) is not None for token in target_set)
             for token in target_set:
                 self._image_inflight.pop(token, None)
+                self._egress_holds.pop(token, None)
                 # D4：账号删除时清理熔断器（防注册表孤儿化）
                 self._breaker_registry.remove(token)
             self._token_aliases = {
@@ -2408,6 +2591,64 @@ class AccountService:
                     kookeey_service.record_ip_usage(_email, success, bytes=bytes)
             except Exception:  # noqa: BLE001 - 画像记录失败不影响主流程
                 pass
+            return dict(account)
+        return None
+
+    def mark_image_credits_result(self, access_token: str, success: bool, credits: int = 1, bytes: int | None = None) -> dict | None:
+        """v2.36.0：按实际积分扣减的图片结果记账（fomimage 用）。
+
+        与 mark_image_result 同构，但成功时按 `credits`（上游 costCredits）扣本地 quota，
+        quota 归零 → 限流 → auto_remove_rate_limited_accounts 自动剔除（用完即弃）。
+        """
+        if not access_token:
+            return None
+        self.release_image_slot(access_token)
+        with self._lock:
+            access_token = self._resolve_access_token_locked(access_token)
+            current = self._accounts.get(access_token)
+            if current is None:
+                return None
+            next_item = dict(current)
+            next_item["last_used_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            if success:
+                next_item["success"] = int(next_item.get("success") or 0) + 1
+                quota = int(next_item.get("quota") or 0)
+                if quota >= 0:
+                    next_item["quota"] = max(0, quota - max(1, int(credits or 1)))
+                if next_item["quota"] == 0:
+                    next_item["status"] = "限流"
+                    next_item["restore_at"] = next_item.get("restore_at") or None
+                elif 0 < next_item["quota"] < 5:
+                    try:
+                        from services.event_bus import ACCOUNT_QUOTA_LOW, Event, event_bus
+                        event_bus.publish(Event(ACCOUNT_QUOTA_LOW, {
+                            "token_suffix": str(access_token)[-8:],
+                            "remaining_quota": next_item["quota"],
+                            "threshold": 5,
+                        }))
+                    except Exception:
+                        pass
+                    if next_item.get("status") == "限流":
+                        next_item["status"] = "正常"
+                elif next_item.get("status") == "限流":
+                    next_item["status"] = "正常"
+            else:
+                next_item["fail"] = int(next_item.get("fail") or 0) + 1
+            account = self._normalize_account(next_item)
+            if account is None:
+                return None
+            self._record_scheduler_result_stat(access_token, success)
+            self._update_health_score(access_token)
+            if account.get("status") == "限流" and config.auto_remove_rate_limited_accounts:
+                self._accounts.pop(access_token, None)
+                self._breaker_registry.remove(access_token)
+                self._dirty = True
+                self._save_accounts()
+                log_service.add(LOG_TYPE_ACCOUNT, "自动移除积分耗尽账号", {"token": anonymize_token(access_token)})
+                return None
+            self._accounts[access_token] = account
+            self._dirty = True
+            self._save_accounts()
             return dict(account)
         return None
 

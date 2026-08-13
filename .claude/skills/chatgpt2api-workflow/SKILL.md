@@ -16,7 +16,7 @@ description: ChatGPT2API 项目的完整开发工作流。用于新功能开发�
 - 修改启动脚本/部署配置
 - 新增后端模块或修改架构层（事件总线/任务队列/Provider 路由/ORM 存储/共享状态）
 
-## 项目架构（当前真实状态，v2.35.0）
+## 项目架构（当前真实状态，v2.36.0）
 
 ```
 chatgpt2api/
@@ -165,7 +165,7 @@ chatgpt2api/
 ├── main.py                   # 启动入口 (多 worker, JSON 存储自动回退 workers=1)
 ├── 启动chatgpt2api.bat        # Windows 一键启动 (GBK+CRLF 无 BOM)
 ├── 停止chatgpt2api.bat        # Windows 停止服务
-├── VERSION                   # 当前版本号 (v2.35.0)
+├── VERSION                   # 当前版本号 (v2.36.0)
 ├── CHANGELOG.md              # 变更日志
 └── workflow_status.md        # 工作流状态（当前轮次完成清单+防线状态）
 ```

@@ -112,6 +112,13 @@ app = create_app()
 
 
 if __name__ == "__main__":
+    # 免费代理池抓取守护线程（仅主进程；free_proxy.enabled 默认 false 时无副作用）
+    try:
+        from services.free_proxy_fetcher import free_proxy_fetcher
+
+        free_proxy_fetcher.start()
+    except Exception as exc:
+        print(f"⚠️  免费代理池抓取线程启动失败: {exc}")
     uvicorn.run(
         "main:app",
         host="0.0.0.0",

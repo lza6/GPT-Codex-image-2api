@@ -12,7 +12,20 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPBearer
 
-from api import accounts, ai, dashboard, image_tasks, keys, kookeey, logs, providers, proxy_pool, system, tracing
+from api import (
+    accounts,
+    ai,
+    dashboard,
+    image_tasks,
+    keys,
+    kookeey,
+    logs,
+    providers,
+    proxy_pool,
+    registration,
+    system,
+    tracing,
+)
 from api.errors import install_exception_handlers
 from api.rate_limit import RateLimitMiddleware
 from api.response_cache import response_cache
@@ -138,6 +151,28 @@ def create_app() -> FastAPI:
             ip_probe_thread = None
 
         agg_thread = start_usage_agg_watcher(stop_event)
+        # Grok 注册自动补号定时器（仅 registration.grok.enabled=true 时启动，缺依赖不阻断）
+        reg_thread = None
+        try:
+            _reg_raw = config.data.get("registration", {}) if isinstance(config.data, dict) else {}
+            if bool((_reg_raw.get("grok") or {}).get("enabled", False)):
+                from services.registration.coordinator import registration_coordinator
+
+                registration_coordinator.start_watcher(stop_event)
+                reg_thread = registration_coordinator._thread
+        except Exception:  # noqa: BLE001 - 补号定时器启动失败不阻断
+            reg_thread = None
+        # v2.36.0：fomimage 自动注册补号定时器（registration.fomimage.enabled=true 时启动）
+        fom_reg_thread = None
+        try:
+            _fom_raw = config.data.get("registration", {}) if isinstance(config.data, dict) else {}
+            if bool((_fom_raw.get("fomimage") or {}).get("enabled", False)):
+                from services.registration.fomimage.coordinator import fomimage_registration_coordinator
+
+                fomimage_registration_coordinator.start_watcher(stop_event)
+                fom_reg_thread = fomimage_registration_coordinator._thread
+        except Exception:  # noqa: BLE001 - 补号定时器启动失败不阻断
+            fom_reg_thread = None
         # III-05：连接池泄漏检测守护线程（空闲超阈值告警 + 健康检查清理）
         leak_thread = None
         try:
@@ -186,6 +221,8 @@ def create_app() -> FastAPI:
             agg_thread.join(timeout=5)
             if leak_thread is not None:
                 leak_thread.join(timeout=5)
+            if reg_thread is not None:
+                reg_thread.join(timeout=5)
             backup_service.stop()
             # 停止任务队列消费者
             try:
@@ -361,6 +398,7 @@ def create_app() -> FastAPI:
     app.include_router(providers.create_router())
     app.include_router(logs.create_router())
     app.include_router(tracing.create_router())
+    app.include_router(registration.create_router())
 
     # _next/static 静态服务：优先返回预压缩 .gz（FileResponse 带 Content-Length，
     # 非 chunked，不触发 ERR_INVALID_CHUNKED_ENCODING）；客户端不接受 gzip 时返回

@@ -334,6 +334,7 @@ class ConversationRequest:
     quality: str = "auto"
     seed: int | None = None  # 3.1.3：固定随机种子（best-effort 透传上游，实验性）
     provider: str | None = None  # Phase 4：账号归属提供商（chatgpt/grok），为空自动路由
+    options: dict[str, Any] | None = None  # v2.36.0：fomimage 原生选项（aspectRatio/resolution/quality）
     response_format: str = "b64_json"
     base_url: str | None = None
     message_as_error: bool = False
@@ -1424,6 +1425,59 @@ def stream_codex_image_outputs(
     raise ImageGenerationError("No image result found in response")
 
 
+def _generate_fomimage_image(
+        request: ConversationRequest,
+        token: str,
+        account: dict[str, Any],
+        index: int,
+        total: int,
+        record_upstream: Any,
+        image_outputs_bytes: Any,
+) -> list[ImageOutput]:
+    """fomimage 上游单张图片生成（provider=fomimage 分派）。
+
+    独立于 OpenAI 大重试循环：fomimage 创建任务即扣积分，失败由上层换号。
+    成功按上游 costCredits 扣本地 quota（mark_image_credits_result），归零自动剔除。
+    """
+    account_email = str((account or {}).get("email") or "").strip()
+    proxy = str((account or {}).get("proxy") or "").strip()
+    backend: Any = None
+    try:
+        from services.fomimage_backend_api import FomimageBackendAPI
+        from services.protocol.fomimage_image import generate_fomimage_images
+
+        backend = FomimageBackendAPI(access_token=token, email=account_email, proxy=proxy)
+        request._account_email = account_email
+        outputs = list(generate_fomimage_images(backend, request, index, total))
+        # 实际扣分（由 fomimage 协议层回传 costCredits；缺省 1 兜底）
+        credits = int(getattr(request, "_fomimage_credits", 1) or 1)
+        account_service.mark_image_credits_result(token, True, credits=credits, bytes=image_outputs_bytes(outputs))
+        if token:
+            circuit_breaker_registry.get(token).record_success()
+        record_upstream("success")
+        return outputs
+    except Exception as exc:
+        account_service.mark_image_credits_result(token, False, credits=0)
+        if token:
+            _fail_code = classify_image_exception(exc)
+            if should_record_circuit_failure(_fail_code):
+                circuit_breaker_registry.get(token).record_failure()
+        record_upstream("error")
+        account_email = str((account or {}).get("email") or "")
+        if isinstance(exc, ImageGenerationError):
+            raise
+        raise ImageGenerationError(
+            f"fomimage 生成失败: {exc}",
+            status_code=502,
+            error_type="server_error",
+            code="upstream_error",
+            account_email=account_email,
+        ) from exc
+    finally:
+        if backend is not None:
+            backend.close()
+
+
 def _generate_single_image(
         request: ConversationRequest,
         index: int,
@@ -1481,11 +1535,15 @@ def _generate_single_image(
                 request.progress_callback("getting_account")
             plan_type, _ = split_image_model(request.model)
             codex_model = is_codex_image_model(request.model)
+            # v2.36.0：fomimage 模型未显式指定 provider 时强制路由到 fomimage 号池
+            _req_provider = request.provider
+            if not _req_provider and str(request.model or "").strip().lower().startswith("fomimage-"):
+                _req_provider = "fomimage"
             token = account_service.get_available_access_token(
                 plan_type=plan_type,
                 source_type="codex" if codex_model else None,
                 plan_types=("plus", "team", "pro") if codex_model and not plan_type else None,
-                provider=request.provider,  # Phase 4：按所选 provider 过滤生图账号，None 自动路由
+                provider=_req_provider,  # Phase 4：按所选 provider 过滤生图账号，None 自动路由
             )
         except RuntimeError as exc:
             _record_upstream("error")
@@ -1511,6 +1569,11 @@ def _generate_single_image(
                 error_type="upstream_error",
                 code="circuit_open",
                 account_email=account_email,
+            )
+        # v2.36.0：fomimage 上游分派（按账号 provider；走独立 HTTP 客户端 + 积分扣减）
+        if str((account or {}).get("provider") or "").strip().lower() == "fomimage":
+            return _generate_fomimage_image(
+                request, token, account, index, total, _record_upstream, _image_outputs_bytes
             )
         backend = None
         try:
@@ -1680,7 +1743,10 @@ def _generate_single_image(
                 conversation_id=getattr(exc, "conversation_id", ""),
             ) from exc
         except ImageGenerationError as exc:
-            account_service.mark_image_result(token, False)
+            # v2.36.0：fomimage 路径已在 _generate_fomimage_image 内记账（mark_image_credits_result），
+            # 此处对 fomimage 账号跳过重复 mark，避免 fail 计数膨胀。
+            if str((account or {}).get("provider") or "").strip().lower() != "fomimage":
+                account_service.mark_image_result(token, False)
             if account_email and not getattr(exc, "account_email", ""):
                 exc.account_email = account_email
             error_text = str(exc)

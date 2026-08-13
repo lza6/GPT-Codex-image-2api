@@ -160,7 +160,7 @@ export function ProvidersCard() {
                   ))}
                 </div>
                 <p className="mt-2 text-[11px] leading-4 text-stone-400">
-                  仅元数据展示。grok 真实出图需要外部上游凭据（xAI API 或 grok 官方账号），当前未接入时选择 grok 图片模型会返回明确错误。
+                  fomimage 已接入（自动注册号池 + 积分用完即弃）。grok 真实出图需要外部上游凭据（xAI API 或 grok 官方账号），当前未接入时选择 grok 图片模型会返回明确错误。
                 </p>
               </div>
             )}

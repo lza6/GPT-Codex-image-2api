@@ -530,12 +530,13 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
   const parsedCount = useMemo(() => Number(clampImageCount(imageCount)), [imageCount]);
 
   // Phase 4：各 Provider 元数据中的图片模型（grok 等未从 /v1/models 动态返回时兜底展示）
+  // v2.36.0：fomimage 全部模型均为图片模型（nano-banana/seedream 命名不含 image），直接全量展示
   const providerImageModels = useMemo(() => {
     const map: Record<string, ImageModel[]> = {};
     for (const p of providers) {
       map[p.name] = (p.models ?? [])
         .map((m) => String(m).trim())
-        .filter((m) => m.toLowerCase().includes("image"))
+        .filter((m) => p.name === "fomimage" || m.toLowerCase().includes("image"))
         .map((m) => m as ImageModel);
     }
     return map;

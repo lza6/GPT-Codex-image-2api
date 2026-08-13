@@ -14,6 +14,7 @@ import { CPAPoolsCard } from "./components/cpa-pools-card";
 import { ImportBrowserDialog } from "./components/import-browser-dialog";
 import { KookeeyCard } from "./components/kookeey-card";
 import { ProvidersCard } from "./components/providers-card";
+import { FomimageRegistrationCard } from "./components/fomimage-registration-card";
 import { ProxyRuntimeCard } from "./components/proxy-runtime-card";
 import { SettingsHeader } from "./components/settings-header";
 import { Sub2APIConnections } from "./components/sub2api-connections";
@@ -107,6 +108,7 @@ function SettingsPageContent() {
         <TabsContent value="basic">
           <ConfigCard />
           <ProvidersCard />
+          <FomimageRegistrationCard />
         </TabsContent>
         <TabsContent value="proxy">
           <ProxyRuntimeCard />

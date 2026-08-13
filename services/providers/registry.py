@@ -49,7 +49,62 @@ _PROVIDERS: dict[str, ProviderMeta] = {
         description="Grok（xAI）— 调度/路由已接入，出图需外部上游凭据",
         capabilities=("chat", "image", "reasoning"),
     ),
+    # v2.36.0：fomimage（FromImage AI）— 图片生成/编辑上游（自动注册号池 + 积分用完即弃）
+    # 模型对外名统一加 fomimage- 前缀，与 chatgpt/grok 区分；上游 modelId 为后缀（见 _FOMIMAGE_MODEL_IDS）。
+    "fomimage": ProviderMeta(
+        name="fomimage",
+        display_name="FromImage AI",
+        enabled=True,
+        models=(
+            # 图生图/编辑（image-to-image）
+            "fomimage-gpt-image-2",
+            "fomimage-gpt-image-1.5",
+            "fomimage-nano-banana-2",
+            "fomimage-nano-banana-pro",
+            "fomimage-seedream-4.5",
+            "fomimage-wan-2.7-image",
+            # 文生图（text-to-image）
+            "fomimage-gpt-image-2-text",
+            "fomimage-gpt-image-1.5-text",
+            "fomimage-nano-banana-2-text",
+            "fomimage-nano-banana-pro-text",
+            "fomimage-seedream-4.5-text",
+            "fomimage-wan-2.7-text",
+        ),
+        description="FromImage AI — 自动注册号池 + 积分用完即弃 + 免费代理每号独立 IP",
+        capabilities=("image", "edit"),
+    ),
 }
+
+# v2.36.0：fomimage 对外模型名 → 上游 modelId（供 helper/model_service/前端映射）
+_FOMIMAGE_MODEL_IDS: dict[str, str] = {
+    "fomimage-gpt-image-2": "gpt-image-2",
+    "fomimage-gpt-image-2-text": "gpt-image-2-text",
+    "fomimage-gpt-image-1.5": "gpt-image-1.5",
+    "fomimage-gpt-image-1.5-text": "gpt-image-1.5-text",
+    "fomimage-nano-banana-2": "nano-banana-2",
+    "fomimage-nano-banana-2-text": "nano-banana-2-text",
+    "fomimage-nano-banana-pro": "nano-banana-pro",
+    "fomimage-nano-banana-pro-text": "nano-banana-pro-text",
+    "fomimage-seedream-4.5": "seedream-4.5",
+    "fomimage-seedream-4.5-text": "seedream-4.5-text",
+    "fomimage-wan-2.7-image": "wan-2.7-image",
+    "fomimage-wan-2.7-text": "wan-2.7-text",
+}
+
+
+def is_fomimage_model(model: str) -> bool:
+    """对外模型名是否为 fomimage 提供商模型（前缀 fomimage-）。"""
+    return str(model or "").strip().lower() in _FOMIMAGE_MODEL_IDS
+
+
+def fomimage_upstream_model(model: str) -> str:
+    """对外模型名 → fomimage 上游 modelId；非 fomimage 模型返回原样。"""
+    return _FOMIMAGE_MODEL_IDS.get(str(model or "").strip().lower(), str(model or "").strip())
+
+
+def fomimage_models() -> tuple[str, ...]:
+    return tuple(_FOMIMAGE_MODEL_IDS.keys())
 
 
 def list_providers(enabled_only: bool = False) -> list[ProviderMeta]:

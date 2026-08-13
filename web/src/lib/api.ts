@@ -502,6 +502,47 @@ export async function fetchModels() {
   return httpRequest<ModelListResponse>("/v1/models");
 }
 
+// ── v2.36.0：fomimage 自动注册管理 ──────────────────────────────
+
+export type FomimageRegistrationStatus = {
+  enabled: boolean;
+  config: {
+    proxy_mode: string;
+    min_accounts: number;
+    register_batch: number;
+    check_interval_minutes: number;
+    poll_timeout_sec: number;
+    pool_quota: number;
+  };
+  fomimage_pool: {
+    available: number;
+    min_accounts: number;
+    need_replenish: boolean;
+  };
+  stats: {
+    last_run_at?: string | null;
+    last_run_result?: { success: number; failed: number; pool_added: number } | null;
+    total_registered: number;
+    total_failed: number;
+  };
+  watcher_running: boolean;
+  registration_busy: boolean;
+};
+
+export async function fetchFomimageRegistrationStatus() {
+  return httpRequest<FomimageRegistrationStatus>("/api/registration/fomimage/status");
+}
+
+export async function triggerFomimageRegistration(count?: number) {
+  return httpRequest<{ ok: boolean; error?: string; success?: number; failed?: number; pool_added?: number }>(
+    "/api/registration/fomimage/register",
+    {
+      method: "POST",
+      body: { count: count ?? undefined },
+    },
+  );
+}
+
 export async function createAccounts(tokens: string[], accounts: AccountImportPayload[] = []) {
   return httpRequest<AccountMutationResponse>("/api/accounts", {
     method: "POST",

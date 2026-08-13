@@ -1,5 +1,39 @@
 # Changelog
 
+## 2.36.0 - 2026-08-14 (fomimage 提供商接入：模型前缀映射 + 自动注册号池 + 积分用完即弃)
+
+> 新增 fomimage（FromImage AI）图片生成/编辑提供商。模型按提供商前缀 `fomimage-` 区分，自动注册引擎用 temp-mail 一次性邮箱 + 每号独立代理 + 不规则密码，注册送 50 积分、按上游 costCredits 扣减、quota 归零自动剔除（用完即弃）。
+
+**模型映射（按提供商前缀区分）：**
++ [新增] `services/providers/registry.py` 注册 fomimage ProviderMeta（12 模型，含 6 个文生图 `-text` 变体）
++ [新增] `services/fomimage_pricing.py`：12 模型完整定价表（`quality|resolution` 组合键、参考图加价、includedInputImages），`estimate_credits()` 复刻上游积分公式（对齐 HAR 实测 gpt-image-2 medium|2K+2图=50）
++ [新增] `utils/helper.py` `split_image_model`/`is_supported_image_model` 识别 `fomimage-` 前缀；`router_service.py` 前缀路由；`/v1/models` 暴露 fomimage 模型（owned_by=fomimage）
+
+**fomimage 上游客户端：**
++ [新增] `services/fomimage_backend_api.py`：参考图上传（CurlMime multipart）→ 建任务 → 轮询（2.5/5/10s 档）→ 下载结果图；每账号独立代理
++ [新增] `services/protocol/fomimage_image.py`：OpenAI size/quality → fomimage options（aspectRatio/resolution/quality）映射 + 生成协议适配
++ [改造] `conversation.py` `_generate_single_image` 按 `account.provider=="fomimage"` 分派到 fomimage 路径；`account_service.get_available_access_token` 对 fomimage 账号跳过 OpenAI 远程校验
+
+**自动注册引擎（temp-mail + 每号独立 IP）：**
++ [新增] `services/registration/fomimage/`：`temp_mail.py`（POST /mailbox 建一次性邮箱 + 轮询收 6 位验证码）、`engine.py`（建邮箱→signup→收码→verify→signin→查余额→入池，密码随机不规则 14-18 位，注册错峰 1-3s）、`coordinator.py`（批量注册 + 自动补号 watcher）
++ [新增] 每号独立出口 IP：`resolve_account_proxy(email)` 走免费代理池粘性绑定（proxy_pool.select_sticky）
++ [新增] API：`POST /api/registration/fomimage/register` + `GET /api/registration/fomimage/status`（require_admin）
++ [改造] `registration/config.py` 新增 `FomimageRegistrationConfig`（registration.fomimage 段）；`api/app.py` lifespan 启动 fomimage 补号 watcher
+
+**号池用完即弃 + 积分扣减：**
++ [新增] `account_service.mark_image_credits_result()`：按上游 costCredits 扣本地 quota，quota 归零 → 限流 → `auto_remove_rate_limited_accounts` 自动剔除
++ [新增] `config.example.json`/`config.json` `registration.fomimage` 配置段（enabled/proxy_mode/min_accounts/register_batch/pool_quota）
+
+**前端：**
++ [新增] 设置页「fomimage 自动注册」卡片：号池健康（可用数/补号阈值/状态）+ 手动触发注册 + 刷新（`web/src/app/settings/components/fomimage-registration-card.tsx`）
++ [增强] 图片工作台 provider 切到 fomimage 时展示全部 12 模型（nano-banana/seedream 命名不含 image 也展示）
++ [增强] 设置页 providers-card 更新 fomimage 已接入说明
+
+**测试与验收：**
++ [测试] `test/test_fomimage_pricing.py`（12 模型映射 + 积分公式 13 用例）、`test/test_fomimage_registration.py`（temp-mail/密码/引擎/coordinator/API 鉴权 14 用例）、`test/test_fomimage_provider.py`（options 映射/生成流/分派/扣费 9 用例）
++ [测试] `test/test_fomimage_live.py`（`-m live`，真实上游 E2E：注册→收码→上传→图生图→下载→余额 50→40 全通过）
++ [验收] 全量 pytest 通过 + ruff 0 错误 + 前端 tsc 0 错误 + build 成功
+
 ## 2.35.0 - 2026-08-12 (GZip 修复 + 救号流程化 + 日志/审计过滤 + 可观测指标 + 多 worker 评估 + 文档保鲜)
 
 > 6 并行 agent 交付 + GZip hotfix。修复服务器访问 `ERR_INVALID_CHUNKED_ENCODING` 与图片 URL 回环地址。

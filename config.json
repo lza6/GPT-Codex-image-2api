@@ -207,5 +207,16 @@
   "openapi_enabled": true,
   "openapi_docs_url": "/docs",
   "openapi_redoc_url": "/redoc",
-  "openapi_openapi_url": "/openapi.json"
+  "openapi_openapi_url": "/openapi.json",
+  "registration": {
+    "fomimage": {
+      "enabled": false,
+      "proxy_mode": "auto",
+      "min_accounts": 3,
+      "register_batch": 1,
+      "check_interval_minutes": 30,
+      "poll_timeout_sec": 60,
+      "pool_quota": 50
+    }
+  }
 }

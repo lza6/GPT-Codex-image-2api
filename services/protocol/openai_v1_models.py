@@ -3,8 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 from services.account_service import account_service
-from services.model_service import model_catalog_service
 from services.config import config
+from services.model_service import model_catalog_service
 from utils.helper import CODEX_IMAGE_MODEL
 
 
@@ -47,6 +47,22 @@ def list_models() -> dict[str, Any]:
                 "object": "model",
                 "created": 0,
                 "owned_by": "chatgpt2api",
+                "permission": [],
+                "root": model,
+                "parent": None,
+            })
+            seen.add(model)
+
+    # v2.36.0：fomimage 提供商模型（fomimage- 前缀）暴露到 /v1/models
+    from services.providers.registry import fomimage_models
+
+    for model in sorted(fomimage_models()):
+        if model not in seen:
+            data.append({
+                "id": model,
+                "object": "model",
+                "created": 0,
+                "owned_by": "fomimage",
                 "permission": [],
                 "root": model,
                 "parent": None,

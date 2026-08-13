@@ -20,6 +20,8 @@ _DEFAULT_RULES: dict[str, str] = {
     "claude-": "chatgpt",
     "grok-": "grok",
     "dall-e-": "chatgpt",
+    # v2.36.0：fomimage 提供商模型前缀
+    "fomimage-": "fomimage",
 }
 
 

@@ -83,6 +83,48 @@ DEFAULT_PROXY_RUNTIME = {
     },
 }
 
+# 免费代理池（kookeey 付费住宅代理的低成本替代）。默认关闭，运维显式开启。
+# 凭据走免费代理有泄露风险——登录/OTP 路径默认优先 kookeey（若开启）。
+DEFAULT_FREE_PROXY = {
+    "enabled": False,
+    "refresh_interval_min": 30,
+    "max_pool_size": 200,
+    "min_healthy": 5,
+    "sticky_by_account": True,
+    "precheck_url": "https://api.ipify.org",
+    "timeout_sec": 10,
+    "sources": [
+        {
+            "name": "proxyscrape",
+            "enabled": True,
+            "format": "ipport",
+            "protocols": ["http"],
+            "url": "https://api.proxyscrape.com/v3/free-proxy-list/get?request=displayproxies&proxy_format=ipport&format=text",
+        },
+        {
+            "name": "geonode",
+            "enabled": True,
+            "format": "json",
+            "protocols": ["http"],
+            "url": "https://proxylist.geonode.com/api/proxy-list?limit=500&page=1&sort_by=lastChecked&sort_type=desc",
+        },
+        {
+            "name": "proxy-list.download",
+            "enabled": True,
+            "format": "ipport",
+            "protocols": ["http"],
+            "url": "https://www.proxy-list.download/api/v1/get?type=http",
+        },
+        {
+            "name": "github-list",
+            "enabled": True,
+            "format": "ipport",
+            "protocols": ["http"],
+            "url": "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",
+        },
+    ],
+}
+
 def _normalize_bool(value: object, default: bool = False) -> bool:
     if isinstance(value, str):
         lowered = value.strip().lower()
@@ -295,6 +337,73 @@ def _normalize_proxy_runtime_settings(value: object) -> dict[str, object]:
                 bool(default_clearance["warm_up_on_start"]),
             ),
         },
+    }
+
+
+def _normalize_free_proxy_sources(value: object) -> list[dict[str, object]]:
+    """归一化免费代理源列表；非法条目丢弃，空则视为不抓取。"""
+    raw = value if isinstance(value, list) else []
+    result: list[dict[str, object]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        url = str(item.get("url") or "").strip()
+        fmt = str(item.get("format") or "").strip().lower()
+        if not (name and url and fmt in {"ipport", "json"}):
+            continue
+        protocols = item.get("protocols")
+        normalized_protocols = (
+            [str(p).strip().lower() for p in protocols if str(p).strip()]
+            if isinstance(protocols, list)
+            else ["http"]
+        )
+        result.append({
+            "name": name,
+            "url": url,
+            "format": fmt,
+            "protocols": normalized_protocols or ["http"],
+            "enabled": _normalize_bool(item.get("enabled"), True),
+        })
+    return result
+
+
+def _normalize_free_proxy_settings(value: object) -> dict[str, object]:
+    """归一化免费代理池配置（kookeey 低成本替代，默认关闭）。
+
+    - enabled 兼容布尔字符串
+    - refresh_interval_min ≥5；max_pool_size ≥10；min_healthy ≥1
+    - sources 非法条目丢弃，空则视为不抓取
+    """
+    source = value if isinstance(value, dict) else {}
+    return {
+        "enabled": _normalize_bool(source.get("enabled"), bool(DEFAULT_FREE_PROXY["enabled"])),
+        "refresh_interval_min": _normalize_positive_int(
+            source.get("refresh_interval_min"),
+            int(DEFAULT_FREE_PROXY["refresh_interval_min"]),
+            5,
+        ),
+        "max_pool_size": _normalize_positive_int(
+            source.get("max_pool_size"),
+            int(DEFAULT_FREE_PROXY["max_pool_size"]),
+            10,
+        ),
+        "min_healthy": _normalize_positive_int(
+            source.get("min_healthy"),
+            int(DEFAULT_FREE_PROXY["min_healthy"]),
+            1,
+        ),
+        "sticky_by_account": _normalize_bool(
+            source.get("sticky_by_account"),
+            bool(DEFAULT_FREE_PROXY["sticky_by_account"]),
+        ),
+        "precheck_url": str(source.get("precheck_url") or DEFAULT_FREE_PROXY["precheck_url"]).strip(),
+        "timeout_sec": _normalize_positive_int(
+            source.get("timeout_sec"),
+            int(DEFAULT_FREE_PROXY["timeout_sec"]),
+            1,
+        ),
+        "sources": _normalize_free_proxy_sources(source.get("sources")),
     }
 
 
@@ -539,6 +648,7 @@ class ConfigStore:
         "provider_rate_limit_rpm",
         "model_upstream_map",
         "alert_channels",
+        "account_aging",
     )
     _ENUM_FIELDS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("scheduler_mode", ("round_robin", "remaining_quota", "weighted_random", "least_load", "least_used", "predictive", "affinity")),
@@ -591,6 +701,33 @@ class ConfigStore:
             df = data.get(field)
             if df is not None and not isinstance(df, dict):
                 errors.append(f"{field} 必须是对象 {{}}，当前为 {type(df).__name__}")
+        # proxy_groups / account_groups 必须为数组
+        for field in ("proxy_groups", "account_groups"):
+            lv = data.get(field)
+            if lv is not None and not isinstance(lv, list):
+                errors.append(f"{field} 必须是数组，当前为 {type(lv).__name__}")
+        # free_proxy 必须为 dict；sources 非空时逐条校验 name/url/format
+        fp = data.get("free_proxy")
+        if fp is not None and not isinstance(fp, dict):
+            errors.append(f"free_proxy 必须是对象 {{}}，当前为 {type(fp).__name__}")
+        elif isinstance(fp, dict):
+            fsrc = fp.get("sources")
+            if fsrc is not None and not isinstance(fsrc, list):
+                errors.append(f"free_proxy.sources 必须是数组，当前为 {type(fsrc).__name__}")
+            elif isinstance(fsrc, list):
+                for idx, src in enumerate(fsrc):
+                    if not isinstance(src, dict):
+                        errors.append(f"free_proxy.sources[{idx}] 必须是对象")
+                        continue
+                    name = src.get("name")
+                    url = src.get("url")
+                    fmt = src.get("format")
+                    if not name or not isinstance(name, str):
+                        errors.append(f"free_proxy.sources[{idx}].name 必须为非空字符串")
+                    if not url or not isinstance(url, str):
+                        errors.append(f"free_proxy.sources[{idx}].url 必须为非空字符串")
+                    if fmt is not None and fmt not in {"ipport", "json"}:
+                        errors.append(f"free_proxy.sources[{idx}].format 必须为 ipport 或 json")
         if errors:
             raise ValueError("❌ config.json 配置校验失败：\n" + "\n".join(f"   - {e}" for e in errors))
 
@@ -1380,6 +1517,9 @@ class ConfigStore:
         data["image_storage"] = self.get_image_storage_settings()
         data["chat_completion_cache"] = self.get_chat_completion_cache_settings()
         data["proxy_runtime"] = self.get_public_proxy_runtime_settings()
+        data["proxy_groups"] = self.get_proxy_groups()
+        data["account_groups"] = self.get_account_groups()
+        data["account_aging"] = self.get_account_aging()
         data["openapi_enabled"] = self.openapi_enabled
         data["openapi_docs_url"] = self.openapi_docs_url
         data["openapi_redoc_url"] = self.openapi_redoc_url
@@ -1390,6 +1530,50 @@ class ConfigStore:
 
     def get_proxy_settings(self) -> str:
         return str(self.data.get("proxy") or "").strip()
+
+    def get_proxy_groups(self) -> list[dict]:
+        """代理分组配置（账号分组 → 代理组 → 节点池，供 AccountProxyPool 读取）。
+
+        结构示例：
+        [{"id": "kookeey-pool", "enabled": true, "nodes": [
+            {"id": "node-1", "provider": "kookeey", "url": "http://...", "image_concurrency_limit": 30}]}]
+        未配置返回 []（代理池默认关闭，走原直连逻辑）。
+        """
+        raw = self.data.get("proxy_groups")
+        if not isinstance(raw, list):
+            return []
+        return [dict(item) for item in raw if isinstance(item, dict)]
+
+    def get_account_groups(self) -> list[dict]:
+        """账号分组配置（账号 group_id → 代理组绑定，供 AccountProxyPool 读取）。
+
+        结构示例：
+        [{"id": "group-a", "enabled": true, "proxy_group_id": "kookeey-pool"}]
+        未配置返回 []。
+        """
+        raw = self.data.get("account_groups")
+        if not isinstance(raw, list):
+            return []
+        return [dict(item) for item in raw if isinstance(item, dict)]
+
+    def get_account_aging(self) -> dict[str, object]:
+        """养号池配置：{enabled, days(默认7), auto_apply_to_new, behaviors}。
+
+        养号期账号（status=养号中）不进入图片调度，超过 days 天自动转正。
+        """
+        raw = self.data.get("account_aging")
+        if not isinstance(raw, dict):
+            return {"enabled": False, "days": 7, "auto_apply_to_new": True, "behaviors": []}
+        behaviors = raw.get("behaviors")
+        return {
+            "enabled": _normalize_bool(raw.get("enabled"), False),
+            "days": _normalize_positive_int(raw.get("days"), 7, 1),
+            "auto_apply_to_new": _normalize_bool(raw.get("auto_apply_to_new"), True),
+            "behaviors": (
+                [str(b).strip() for b in behaviors if str(b).strip()]
+                if isinstance(behaviors, list) else []
+            ),
+        }
 
     def get_kookeey_settings(self) -> dict[str, object]:
         """kookeey 动态住宅代理配置（密码登录 / OTP 取件的每号独立出口）。
@@ -1405,6 +1589,15 @@ class ConfigStore:
         if env_token:
             result["developer_token"] = env_token.strip()
         return result
+
+    def get_free_proxy_settings(self) -> dict[str, object]:
+        """免费代理池配置（kookeey 付费住宅代理的低成本替代）。
+
+        实时读取 + 归一化：改 free_proxy.enabled 无需重启生效（热加载）。
+        默认关闭；sources 非法条目丢弃，空则视为不抓取。
+        """
+        self._try_reload()
+        return _normalize_free_proxy_settings(self.data.get("free_proxy"))
 
     def get_proxy_runtime_settings(self) -> dict[str, object]:
         return _normalize_proxy_runtime_settings(self.data.get("proxy_runtime"))

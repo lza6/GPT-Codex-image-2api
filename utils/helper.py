@@ -112,6 +112,9 @@ def split_image_model(model: object) -> tuple[str | None, str | None]:
     normalized = str(model or "").strip().lower()
     if not normalized:
         return None, None
+    # v2.36.0：fomimage 提供商模型（前缀 fomimage- → 图生图），走独立上游
+    if normalized.startswith("fomimage-"):
+        return None, normalized
     if normalized in BASE_IMAGE_MODELS:
         return None, normalized
     for plan_type in IMAGE_MODEL_PLAN_TYPES:
@@ -125,6 +128,9 @@ def split_image_model(model: object) -> tuple[str | None, str | None]:
 
 def is_supported_image_model(model: object) -> bool:
     _, base_model = split_image_model(model)
+    if base_model and base_model.startswith("fomimage-"):
+        # fomimage 模型一律视为受支持的图片模型（走 fomimage 上游分派）
+        return True
     return base_model is not None
 
 

@@ -1,36 +1,44 @@
-# ChatGPT2API 工作流状态 — 第二十三轮（v2.34.0 里程碑3/5 + 工程效能 + Phase 4）
+# ChatGPT2API 工作流状态 — 第二十四轮（v2.36.0 fomimage 提供商接入）
+
+> 最后更新：2026-08-14
+> 模式：fomimage 提供商接入全链路（模型前缀映射 + 自动注册号池 + 积分用完即弃 + 前端管理）
+> 基线：v2.36.0
+
+> 上一轮（第二十三轮，v2.34.0）已闭环：Provider Phase 4 + III-01~07 + V-01~04 + VII-01~04，详见历史。
+
+## 本轮完成清单
+
+| 编号 | 事项 | 状态 | 证据 |
+|------|------|------|------|
+| A | fomimage 真实契约探测 | ✅ | 实测 temp-mail 建邮箱（POST /mailbox）、fromimage 注册/OTP/登录/余额 50 全通；HAR 还原 12 模型定价表 + 积分公式 |
+| B | 模型前缀映射 | ✅ | registry fomimage 12 模型 + helper split_image_model + router 前缀路由 + /v1/models（owned_by=fomimage）；test_fomimage_pricing 13 用例 |
+| C | fomimage 上游客户端 + 协议分派 | ✅ | fomimage_backend_api（上传 CurlMime multipart/建任务/轮询/下载）+ fomimage_image 协议适配 + conversation 按 account.provider 分派；test_fomimage_provider 9 用例 |
+| D | 自动注册引擎 | ✅ | temp_mail + engine（密码不规则/每号独立代理/错峰）+ coordinator（批量+自动补号）；test_fomimage_registration 14 用例；API 端点 2 个 |
+| E | 积分成本映射 + 用完即弃 | ✅ | fomimage_pricing 完整定价表 + estimate_credits（对齐 HAR）+ mark_image_credits_result 按 costCredits 扣减 + quota 归零自动剔除 |
+| F | 前端 | ✅ | 设置页 fomimage 注册管理卡片 + providers-card 说明 + 图片工作台 fomimage 全模型展示；tsc 0 + build 成功 |
+| G | 真实 E2E | ✅ | test_fomimage_live（-m live）真实上游全链路：注册→收码→上传→图生图 low|1K=10 分→下载 PNG→余额 50→40 通过 |
+| H | 验收 | ✅ | 全量 pytest 通过（exit 0）+ ruff 0 错误 + 契约守卫（见下）+ 前端构建 |
+
+## 本轮防线状态
+
+| 批次 | 契约 | SQL | 慢查询 | 变异 | 施压 | 文档同步 |
+|------|------|-----|--------|------|------|----------|
+| 第二十四轮 | ✅（新增端点已加 DYNAMIC） | 未触新风险（无 SQL 改动） | 沿用登记表 | 沿用登记表 | 沿用登记表 | ✅（VERSION 2.36.0 与文档同步） |
+
+> 本次改动区域：新增 services/fomimage_* / services/registration/fomimage/ / providers registry / conversation 分派 / api/registration / settings 卡片。
+> 未触碰 SQL/存储/调度核心，慢查询/变异/施压沿用 verification-registry 基线；契约守卫已重跑确认无断链。
+
+## 边界声明（诚实）
+
+- **fomimage 出图烧真实积分**：live E2E 消耗 1 个一次性账号（注册送 50，low|1K 扣 10）。生产启用需 `registration.fomimage.enabled=true` 且 `free_proxy.enabled=true`（每号独立 IP 依赖免费代理池，健康率约 1/2000 已并发预检）。
+- **定价为静态快照**：`services/fomimage_pricing.py` 的定价表来自 2026-08-13 SSR payload + HAR 实测；运行时上游 `/api/ai/image-models` 可能调整，`estimate_credits` 仅用于前端展示与预检，实际扣分以上游返回 `costCredits` 为准（本地 quota 按该值扣减）。
+- **fomimage 注册风控**：temp-mail 域名可能被 fomimage 屏蔽（beiwoh/neplis/hutdot 等实测可用），失败自动弃邮箱换新；密码不规则 + 每号独立 IP + 注册错峰已实现。
 
 > 最后更新：2026-08-12
 > 模式：v2.34.0 III-01~07（回收站根因/调度A/B/配额预警/慢查询/连接池/备份校验/告警多通道）+ V-01~04（bundle/缓存/虚拟列表/基准化）+ VII-01~04（覆盖率/防线CI/文档钩子/OpenAPI）+ Provider Phase 4（grok）
 > 基线：v2.35.0
 
 > 上一轮（第二十二轮，v2.33.0）已闭环：R2 接线 6 步 + e2e 体系。历史明细见 git history 与 docs/verification-registry.md。
-
-## 补记（2026-08-12，GZip hotfix，commit 321c1d8）
-
-**背景**：用户浏览器报大量 `ERR_INVALID_CHUNKED_ENCODING` + 页面显示 v2.32.0（后端 v2.34.0）。
-**根因**：`api/app.py` GZipMiddleware（minimum_size=500）→ 所有 >500B 响应 `gzip + chunked + Connection: close`，用户代理路径（v2ray/Clash）下 Chrome 严格解析 chunk 失败（curl 宽容成功）。且 v2.34.0 发版只重建后端镜像，web_dist（volume 挂载）未上传 → 前端停在 v2.32.0。
-**处理**：① 移除 GZipMiddleware（响应走 identity+Content-Length+keep-alive，根治）；② `test/test_contracts.py` scheduler_mode 补 least_used（v2.32.0 引入但契约断言漏更新，本地/服务器 least_used 配置下契约测试失败）；③ 重新构建 web_dist 并 tar 上传服务器；④ push 321c1d8 + 服务器 git pull + compose build/up -d。
-**验收**：容器 healthy；`/version`→v2.34.0；三端点 Content-Length 无 gzip、keep-alive；SSE 纯 chunked 无 gzip。
-**测试**：本地全量 1287 passed / 6 failed（5 预先存在 tracing/property 环境差异 + 1 circuit flaky，`git stash` 验证非本次引入，见 verification-registry 已知 flaky）。
-
-> **硬教训**：GZipMiddleware 在代理链路（v2ray/Clash/TUN）下与 Chrome 不兼容，自托管多走代理时**不要启用 gzip**；后端发版 ≠ 前端发版，web_dist 有前端改动须单独重建上传。
-
-## 本轮完成清单
-
-| 编号 | 事项 | 状态 | 证据 |
-|------|------|------|------|
-| A | Provider Phase 4 + grok（§2.6） | ✅ | 账号/设置/图片三入口切换器 + grok enabled + 生图 provider 透传链路（前端→image-tasks→task service→protocol→按 provider 取号）；router/provider_scheduler/registry 113 + 365 测试；grok 出图需外部上游凭据（已标注降级） |
-| B | III-01 回收站根因面板 | ✅ | trash stats 加 by_reason_top/trend + top_reasons query + trash-dialog recharts 分布图；17 测试 |
-| C | III-02 调度A/B + III-03 配额预警 | ✅ | scheduler_pick_total 加 mode 标签 + per-mode 统计 + 配额剩余天数第三信号（只降不升）；dashboard 模式对比卡 + 配额 badge；78 测试 |
-| D | III-04 慢查询清零 + 基准化 | ✅ | json/db 存储优化 + c2api_storage_operation_duration_seconds 指标（10 埋点）+ slow_query JSON 门禁（--max-hotspots）；2 热点 accepted_degradation 如实标注；90 测试 |
-| E | III-05 连接池泄漏 | ✅ | 借用追踪 + stats()（idle/in_use/hit_rate）+ leak_report + cleanup_stale 健康接管 + session_pool.leak 告警；18 测试 + 118 回归 |
-| F | III-06 备份完整性 | ✅ | 上传后读回 sha256 比对三态（verified/mismatch/unavailable）+ backup.checksum_mismatch 告警 + 状态字段；8 测试 + verify_backup_roundtrip PASS |
-| G | III-07 告警多通道 | ✅ | Telegram/SMTP/企微/钉钉通道抽象 + config alert_channels（env 覆盖）+ 前端配置 UI；18 测试 |
-| H | V-01 bundle + V-03 虚拟列表 | ✅ | recharts 懒加载摘除（dashboard -119KB / accounts -116KB）+ 日志/图片/账号三列表虚拟化 + 滚动记忆；bundle 预算如实说明未达 150/300KB（框架下限）；tsc + build |
-| I | V-02 响应缓存扩展 | ✅ | /api/logs、trash、usage、events 4 端点接入（TTL 5~15s + 写侧 invalidate + ?refresh=1）+ contract_guard 同步；21 测试 + 111 回归 |
-| J | VII-01~04 + V-04 | ✅ | 覆盖率门禁（实测 62% ≥55% + 增量门）+ 防线扩八道 + CI guards/coverage/OpenAPI --check + 文档保鲜 githooks + 压测基准（149.5 rps / p99 334ms + 阈值断言） |
-| K | 验收：八道防线 + 回归 | ✅ | 八道防线 8/8 PASS（变异 caught=33 escaped=0 drift=0；施压 8/8；覆盖率门禁 62%）；契约快照同步预期字段新增 |
 
 ## 补录 v2.18→v2.32 完成矩阵（此前未入档，对照 git log + CHANGELOG.md）
 
@@ -60,19 +68,18 @@
 | 第二十一轮 | ✅ PASS | ✅ PASS | ✅ PASS | ✅ PASS | ✅ PASS | ✅ PASS | - | - |
 | 第二十二轮 | ✅ PASS | ✅ PASS | ✅ PASS | ✅ PASS | ✅ PASS | ✅ PASS | - | - |
 | 第二十三轮 | ✅ PASS | ✅ PASS | ✅ PASS | ✅ PASS | ✅ PASS | ✅ PASS | ✅ PASS | ✅ PASS |
+| 第二十四轮 | ✅（见下） | 沿用 | 沿用 | 沿用 | 沿用 | ✅ | 沿用 | 沿用 |
 
-> 首次跑时 SQL 审查 FAIL（P0=2）：`docs_sync_check.py` 的 `write_text(f"..")` 撞 `sql_audit` 的 `text(f"` 启发式误报（与历史 `_extract_otp_code` 同类）。已修 `scripts/sql_audit.py` 给 `text(` 模式加 `(?<![A-Za-z_])` 负向后瞻，重跑 P0=0。变异探针 caught=33 escaped=0（本轮 mutation_probe 增强后）；施压 8/8。
+> 第二十四轮（v2.36.0）改动区域为 fomimage 提供商（无 SQL/存储/调度核心改动），契约守卫重跑断链=0，SQL/慢查询/变异/施压沿用 verification-registry 基线；文档同步 VERSION 2.36.0 与 CHANGELOG/workflow_status 对齐。
 
 ## 当前 git 状态
 
-- 源码树清理：216 个 `D`（87 ,cover + web_dist_bak 123 + deploy.tar + tmp_pg5×2 + 根 final-report×3）待提交
-- 文档同步：SKILL.md / workflow_status.md / verification-registry.md / CLAUDE.md / project-spec.md / .gitignore / CHANGELOG(未改) 待提交
-- 未提交代码改动：config.json R2 配置 + `services/image_storage_service.py` R2Client + `scripts/mutation_probe.py` 增强 + 12 个测试文件（pytest 基线全绿，随本轮一并提交）
-- 未跟踪：`e2e/`（playwright E2E 项目，含 node_modules 已 ignore）、`t2i.json`（测试产物，删）、`test/test_property_session.py`（新测试，入库）
+- 本轮（v2.36.0）改动：fomimage 提供商接入（services/fomimage_pricing.py、fomimage_backend_api.py、protocol/fomimage_image.py、registration/fomimage/、providers/registry.py、utils/helper.py、router_service.py、conversation.py 分派、account_service mark_image_credits_result、api/registration.py、config.example.json、web 前端 3 文件）
+- 新增测试：test_fomimage_pricing / test_fomimage_registration / test_fomimage_provider / test_fomimage_live
+- 版本：VERSION=2.36.0，CHANGELOG 已更新
 
 ## 边界声明（诚实）
 
-- **CHANGELOG 未补写缺版本段**：v2.21/2.22/2.23/2.26–2.29 无独立段，仅在 workflow_status 矩阵登记——补写需按 git log 核对归并，超出本次范围，已记入矩阵警示
-- **E2E 真实跑**：本轮用 `e2e/` Playwright 项目（登录/看板/账号/批量通知 4 spec）起真实前后端跑；上游联网类断言沿用既有边界（live 测试默认排除）
-- **R2 图片存储未做真实上传**：无 R2 凭证，仅单测覆盖 SigV4 签名与逻辑，真实上传由用户配 r2_* 后自测
-- **docs/ 下历史 final-report html（v4/v5/v10/v2.9.0）保留**：属历史审计归档，未动；仅清理根目录散落 3 份
+- **fomimage 出图烧真实积分**：live E2E 消耗 1 个一次性账号；生产启用需 registration.fomimage.enabled=true + free_proxy.enabled=true
+- **fomimage 定价为静态快照**：以运行时上游 /api/ai/image-models 为准，实际扣分按上游 costCredits
+- **fomimage 注册风控**：temp-mail 域名可能被屏蔽，失败自动弃邮箱换新

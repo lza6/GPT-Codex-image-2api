@@ -57,7 +57,7 @@ def _editable_access_token() -> str:
     accounts = [
         item for item in account_service.list_accounts()
         if _clean(item.get("access_token"))
-           and item.get("status") not in {"禁用", "异常"}
+           and item.get("status") not in {"禁用", "异常", "养号中"}
            and account_service._account_matches_any_plan_type(item, EDITABLE_FILE_PLAN_TYPES)
     ]
     if not accounts:

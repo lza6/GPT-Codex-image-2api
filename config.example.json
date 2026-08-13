@@ -60,6 +60,53 @@
     "warning"
   ],
   "proxy": "",
+  "free_proxy": {
+    "enabled": false,
+    "refresh_interval_min": 30,
+    "max_pool_size": 200,
+    "min_healthy": 5,
+    "sticky_by_account": true,
+    "precheck_url": "https://api.ipify.org",
+    "timeout_sec": 10,
+    "sources": [
+      {
+        "name": "proxyscrape",
+        "enabled": true,
+        "format": "ipport",
+        "protocols": [
+          "http"
+        ],
+        "url": "https://api.proxyscrape.com/v3/free-proxy-list/get?request=displayproxies&proxy_format=ipport&format=text"
+      },
+      {
+        "name": "geonode",
+        "enabled": true,
+        "format": "json",
+        "protocols": [
+          "http"
+        ],
+        "url": "https://proxylist.geonode.com/api/proxy-list?limit=500&page=1&sort_by=lastChecked&sort_type=desc"
+      },
+      {
+        "name": "proxy-list.download",
+        "enabled": true,
+        "format": "ipport",
+        "protocols": [
+          "http"
+        ],
+        "url": "https://www.proxy-list.download/api/v1/get?type=http"
+      },
+      {
+        "name": "github-list",
+        "enabled": true,
+        "format": "ipport",
+        "protocols": [
+          "http"
+        ],
+        "url": "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt"
+      }
+    ]
+  },
   "proxy_runtime": {
     "enabled": false,
     "egress_mode": "single_proxy",
@@ -81,6 +128,41 @@
       "refresh_interval": 3600,
       "warm_up_on_start": true
     }
+  },
+  "proxy_groups": [
+    {
+      "id": "kookeey-pool",
+      "name": "Kookeey 住宅 IP 池",
+      "enabled": true,
+      "nodes": [
+        {
+          "id": "kookeey-node-01",
+          "name": "节点 01",
+          "provider": "kookeey",
+          "url": "http://USERID-SECUSER:SECPASS-US@gate.kookeey.com:1000",
+          "enabled": true,
+          "image_concurrency_limit": 30
+        }
+      ]
+    }
+  ],
+  "account_groups": [
+    {
+      "id": "group-a",
+      "name": "A 组（102 号）",
+      "enabled": true,
+      "proxy_group_id": "kookeey-pool"
+    }
+  ],
+  "account_aging": {
+    "enabled": false,
+    "days": 7,
+    "auto_apply_to_new": true,
+    "behaviors": [
+      "manual_login",
+      "low_frequency_first_days",
+      "no_api_first_days"
+    ]
   },
   "base_url": "",
   "sensitive_words": [],
@@ -160,5 +242,36 @@
   "image_settle_secs": 2,
   "auto_relogin_after_refresh": false,
   "image_timeout_retry_secs": 30,
-  "image_remove_conversation_after_result": true
+  "image_remove_conversation_after_result": true,
+  "registration": {
+    "grok": {
+      "enabled": false,
+      "yescaptcha_key": "",
+      "proxy_group_id": "",
+      "email_provider": "luckmail",
+      "min_accounts": 5,
+      "register_batch": 3,
+      "check_interval_minutes": 30,
+      "email_pool": [],
+      "email_pool_file": "",
+      "device_mint_enabled": false,
+      "luckmail": {
+        "base_url": "https://mails.luckyous.com",
+        "api_key": "",
+        "api_secret": "",
+        "project_code": "grok",
+        "email_type": "ms_imap",
+        "domain": "outlook.com"
+      }
+    },
+    "fomimage": {
+      "enabled": false,
+      "proxy_mode": "auto",
+      "min_accounts": 3,
+      "register_batch": 1,
+      "check_interval_minutes": 30,
+      "poll_timeout_sec": 60,
+      "pool_quota": 50
+    }
+  }
 }
