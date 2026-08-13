@@ -65,6 +65,7 @@ class FomimageBackendAPI:
         access_token: str = "",
         email: str = "",
         proxy: str = "",
+        cookies: dict[str, str] | None = None,
         timeout: float = 30.0,
     ) -> None:
         # access_token 为 sign-in 返回的会话 token（仅用于关联号池记录，请求凭 cookie）
@@ -81,6 +82,11 @@ class FomimageBackendAPI:
             "Origin": BASE_URL,
             "Referer": BASE_URL + "/",
         })
+        # 恢复注册时的 fromimage 会话 cookie（业务接口凭 cookie 认证，缺失则上游 401）
+        if cookies:
+            for name, value in cookies.items():
+                if name and value:
+                    self._session.cookies.set(name, str(value), domain=".fromimage.ai")
         self._closed = False
 
     def close(self) -> None:

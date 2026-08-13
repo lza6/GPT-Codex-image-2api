@@ -1441,12 +1441,15 @@ def _generate_fomimage_image(
     """
     account_email = str((account or {}).get("email") or "").strip()
     proxy = str((account or {}).get("proxy") or "").strip()
+    cookies = (account or {}).get("fomimage_cookies")
+    if not isinstance(cookies, dict):
+        cookies = None
     backend: Any = None
     try:
         from services.fomimage_backend_api import FomimageBackendAPI
         from services.protocol.fomimage_image import generate_fomimage_images
 
-        backend = FomimageBackendAPI(access_token=token, email=account_email, proxy=proxy)
+        backend = FomimageBackendAPI(access_token=token, email=account_email, proxy=proxy, cookies=cookies)
         request._account_email = account_email
         outputs = list(generate_fomimage_images(backend, request, index, total))
         # 实际扣分（由 fomimage 协议层回传 costCredits；缺省 1 兜底）

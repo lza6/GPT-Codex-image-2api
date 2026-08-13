@@ -56,7 +56,7 @@ def _push_to_pool(items: list[dict[str, Any]], pool_quota: int) -> int:
             email = str(item.get("email") or "").strip()
             if not token:
                 continue
-            records.append({
+            record: dict[str, Any] = {
                 "access_token": token,
                 "provider": "fomimage",
                 "email": email,
@@ -68,7 +68,12 @@ def _push_to_pool(items: list[dict[str, Any]], pool_quota: int) -> int:
                 "quota": max(0, int(item.get("balance") or pool_quota)),
                 "proxy": str(item.get("proxy") or "").strip(),
                 "note": "fomimage 自动注册（注册送积分，用完即弃）",
-            })
+            }
+            # 会话 cookie（fromimage 认证靠 cookie；账号记录留存供生成期恢复）
+            cookies = item.get("cookies")
+            if isinstance(cookies, dict) and cookies:
+                record["fomimage_cookies"] = {str(k): str(v) for k, v in cookies.items() if str(v)}
+            records.append(record)
         result = account_service.add_account_items(records)
         return int(result.get("added") or 0)
     except Exception as exc:  # noqa: BLE001 - 入库失败记录日志，不阻断

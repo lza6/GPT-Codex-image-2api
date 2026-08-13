@@ -55,6 +55,18 @@ def _proxies(proxy: str = "") -> dict[str, str] | None:
     return {"http": proxy, "https": proxy}
 
 
+def _extract_fromimage_cookies(inbox: Any) -> dict[str, str]:
+    """提取 fromimage 会话 cookie（供生成期 FomimageBackendAPI 恢复认证态）。"""
+    try:
+        jar = inbox._session.cookies
+        raw = getattr(jar, "get_dict", lambda: {})()
+        if not isinstance(raw, dict):
+            return {}
+        return {str(name): str(value) for name, value in raw.items() if name and value}
+    except Exception:
+        return {}
+
+
 class FomimageRegisterEngine:
     """fomimage 批量注册引擎。每次 `register()` 自包含一次批量注册。"""
 
@@ -122,7 +134,7 @@ class FomimageRegisterEngine:
                 logger_warning("fomimage 验证邮箱失败", verify.status_code)
                 return None
 
-            # 5) 登录拿会话 token
+            # 5) 登录拿会话 token + 会话 cookie（fromimage 认证靠 cookie，token 仅作标识）
             signin = inbox._session.post(
                 FROMIMAGE_BASE + "/api/auth/sign-in/email",
                 json={"email": email, "password": password},
@@ -137,6 +149,8 @@ class FomimageRegisterEngine:
             if not token:
                 logger_warning("fomimage 登录无 token", email)
                 return None
+            # 提取 fromimage 会话 cookie（业务接口凭 cookie 认证，与账号记录一并入池）
+            cookies = _extract_fromimage_cookies(inbox)
 
             # 6) 查积分（注册送 50，确认可用）
             balance = self._query_balance(inbox, proxy)
@@ -144,6 +158,7 @@ class FomimageRegisterEngine:
                 "email": email,
                 "password": password,
                 "access_token": token,
+                "cookies": cookies,
                 "balance": balance,
                 "proxy": proxy,
             }
