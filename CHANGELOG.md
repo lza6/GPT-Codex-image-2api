@@ -24,6 +24,13 @@
 + [新增] `account_service.mark_image_credits_result()`：按上游 costCredits 扣本地 quota，quota 归零 → 限流 → `auto_remove_rate_limited_accounts` 自动剔除
 + [新增] `config.example.json`/`config.json` `registration.fomimage` 配置段（enabled/proxy_mode/min_accounts/register_batch/pool_quota）
 
+**规模化增强（一号一指纹 + 批量并发 + 多邮箱源）：**
++ [新增] `services/fomimage_fingerprint.py`：一号一指纹 —— 随机 curl_cffi impersonate（chrome110/116/120/124/131/edge101）+ 匹配 UA + 平台特征；注册与调用同账号固定（`fomimage_fingerprint` 字段随账号入库）
++ [新增] `services/registration/fomimage/mail_source.py`：邮箱源统一抽象 + 优先级（temp-mail 免费 → luckmail 付费购买 → gptmail 备用），`create_mailbox_source` 自动 fallback
++ [增强] `email_sources` 配置（兼容字符串/数组）、`register_workers` 并发注册（各号独立 IP/指纹）、`luckmail` 购买参数（复用 grok LuckMailClient 契约）
++ [增强] `POST /api/registration/fomimage/register` 批量上限 10 → 500；前端卡片批量数量输入 + 指纹/IP/邮箱源/并发策略展示 + 号池规模
++ [增强] fomimage 出图写日志（summary 含 文生图/图生图 → usage_agg 聚合 image_calls），黑匣子可见
+
 **前端：**
 + [新增] 设置页「fomimage 自动注册」卡片：号池健康（可用数/补号阈值/状态）+ 手动触发注册 + 刷新（`web/src/app/settings/components/fomimage-registration-card.tsx`）
 + [增强] 图片工作台 provider 切到 fomimage 时展示全部 12 模型（nano-banana/seedream 命名不含 image 也展示）

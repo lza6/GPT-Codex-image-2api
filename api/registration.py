@@ -18,7 +18,7 @@ class GrokRegisterRequest(BaseModel):
 
 
 class FomimageRegisterRequest(BaseModel):
-    count: int | None = Field(default=None, ge=1, le=10, description="fomimage 注册数量（默认取配置 register_batch，上限 10）")
+    count: int | None = Field(default=None, ge=1, le=500, description="fomimage 注册数量（默认取配置 register_batch，上限 500）")
 
 
 def create_router() -> APIRouter:

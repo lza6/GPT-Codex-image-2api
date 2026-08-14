@@ -13,7 +13,7 @@ import unittest
 
 import pytest
 
-from services.fomimage_backend_api import FomimageBackendAPI, BASE_URL
+from services.fomimage_backend_api import BASE_URL, FomimageBackendAPI
 from services.registration.fomimage.engine import _generate_random_name, _generate_random_password
 from services.registration.fomimage.temp_mail import TempMailInbox
 

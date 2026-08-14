@@ -1444,12 +1444,17 @@ def _generate_fomimage_image(
     cookies = (account or {}).get("fomimage_cookies")
     if not isinstance(cookies, dict):
         cookies = None
+    fingerprint = (account or {}).get("fomimage_fingerprint")
+    if not isinstance(fingerprint, dict):
+        fingerprint = None
     backend: Any = None
     try:
         from services.fomimage_backend_api import FomimageBackendAPI
         from services.protocol.fomimage_image import generate_fomimage_images
 
-        backend = FomimageBackendAPI(access_token=token, email=account_email, proxy=proxy, cookies=cookies)
+        backend = FomimageBackendAPI(
+            access_token=token, email=account_email, proxy=proxy, cookies=cookies, fingerprint=fingerprint
+        )
         request._account_email = account_email
         outputs = list(generate_fomimage_images(backend, request, index, total))
         # 实际扣分（由 fomimage 协议层回传 costCredits；缺省 1 兜底）
@@ -1457,10 +1462,12 @@ def _generate_fomimage_image(
         account_service.mark_image_credits_result(token, True, credits=credits, bytes=image_outputs_bytes(outputs))
         if token:
             circuit_breaker_registry.get(token).record_success()
+        _record_fomimage_log(request, account_email, credits, success=True)
         record_upstream("success")
         return outputs
     except Exception as exc:
         account_service.mark_image_credits_result(token, False, credits=0)
+        _record_fomimage_log(request, account_email, 0, success=False)
         if token:
             _fail_code = classify_image_exception(exc)
             if should_record_circuit_failure(_fail_code):
@@ -1479,6 +1486,27 @@ def _generate_fomimage_image(
     finally:
         if backend is not None:
             backend.close()
+
+
+def _record_fomimage_log(request: ConversationRequest, account_email: str, credits: int, success: bool) -> None:
+    """fomimage 出图记录日志（含 图/image 关键词 → usage_agg 聚合 image_calls）。"""
+    try:
+        from services.account_service import LOG_TYPE_IMAGE, log_service
+
+        mode = "文生图" if str(request.model or "").endswith("-text") else "图生图"
+        log_service.add(
+            LOG_TYPE_IMAGE,
+            f"fomimage {mode} 生成{'成功' if success else '失败'}",
+            {
+                "provider": "fomimage",
+                "model": request.model,
+                "account_email": account_email or "",
+                "credits": credits,
+                "status": "success" if success else "failed",
+            },
+        )
+    except Exception:
+        pass
 
 
 def _generate_single_image(

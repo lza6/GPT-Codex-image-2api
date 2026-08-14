@@ -1,31 +1,30 @@
 """fomimage 自动注册引擎（v2.36.0）。
 
 流程（单号）：
-    temp-mail 创建一次性邮箱 → POST sign-up/email（随机不规则密码）
-    → 轮询 temp-mail /messages 取 6 位验证码 → POST verify-email → POST sign-in/email 拿 token
-    → 校验积分（注册送 50）→ 返回 {email, password, access_token, balance}
+    生成随机指纹（一号一指纹）→ 解析独立出口 IP → 建邮箱（temp-mail/luckmail/gptmail 优先级）
+    → POST sign-up/email（随机不规则密码）→ 轮询收 6 位验证码 → POST verify-email
+    → POST sign-in/email 拿 token + 会话 cookie → 校验积分（注册送 50）→ 返回记录
 
 风控规避：
-- 每号独立出口 IP：`resolve_account_proxy(email)`（免费代理池按邮箱粘性绑定，优先 kookeey）。
-- 密码不规则：随机大小写+数字+特殊字符，长度 14-18。
-- 注册错峰：批号间 random sleep 1-3s；单号流程内各步骤稳定节拍。
-- 失败即弃：任一环节失败释放邮箱，不重试同一邮箱。
+- 一号一指纹：`fomimage_fingerprint.random_fingerprint()`（随机 impersonate + UA + 平台）
+- 一号一 IP：`resolve_account_proxy(email)`（免费代理池按邮箱粘性绑定，优先 kookeey）
+- 密码不规则：随机大小写+数字+符号，长度 14-18
+- 注册错峰：批号间 random sleep；并发注册（register_workers>1）时各号独立 IP/指纹
+- 失败即弃：任一环节失败释放邮箱，不重试同一邮箱
 """
 from __future__ import annotations
 
 import random
 import string
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
+from services.fomimage_fingerprint import fingerprint_headers, random_fingerprint
 from services.registration.config import FomimageRegistrationConfig
-from services.registration.fomimage.temp_mail import TempMailInbox
+from services.registration.fomimage.mail_source import MailboxSource, create_mailbox_source
 
 FROMIMAGE_BASE = "https://fromimage.ai"
-USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
-)
 
 
 def _generate_random_name() -> str:
@@ -49,17 +48,10 @@ def _generate_random_password() -> str:
     return "".join(pw)
 
 
-def _proxies(proxy: str = "") -> dict[str, str] | None:
-    if not proxy:
-        return None
-    return {"http": proxy, "https": proxy}
-
-
-def _extract_fromimage_cookies(inbox: Any) -> dict[str, str]:
+def _extract_fromimage_cookies(src: MailboxSource) -> dict[str, str]:
     """提取 fromimage 会话 cookie（供生成期 FomimageBackendAPI 恢复认证态）。"""
     try:
-        jar = inbox._session.cookies
-        raw = getattr(jar, "get_dict", lambda: {})()
+        raw = getattr(src.session.cookies, "get_dict", lambda: {})()
         if not isinstance(raw, dict):
             return {}
         return {str(name): str(value) for name, value in raw.items() if name and value}
@@ -74,9 +66,7 @@ class FomimageRegisterEngine:
         self.cfg = cfg
 
     def resolve_email_proxy(self, email: str) -> str:
-        """为指定邮箱解析独立出口 IP。proxy_mode=auto 时走 resolve_account_proxy。
-        返回代理 URL 或 ""（直连）。
-        """
+        """为指定邮箱解析独立出口 IP。proxy_mode=auto 时走 resolve_account_proxy。"""
         mode = self.cfg.proxy_mode
         if mode in {"off", "none", "direct"}:
             return ""
@@ -90,55 +80,59 @@ class FomimageRegisterEngine:
     def register_one(self) -> dict[str, Any] | None:
         """注册单个 fomimage 账号。成功返回记录，失败返回 None（邮箱已弃用不重试）。"""
         proxy = ""
-        inbox: TempMailInbox | None = None
+        src: MailboxSource | None = None
         try:
-            # 1) 先按随机粘性 key 解析独立出口 IP（每个邮箱一个独立代理，用完即弃）
-            stub_key = f"fomimage-{random.randint(100000, 999999)}"
-            proxy = self.resolve_email_proxy(stub_key)
-            inbox = TempMailInbox(proxy=proxy)
-            email = inbox.create()
+            # 1) 一号一指纹 + 一号一 IP：按随机 seed_key 稳定生成（同一号全程不变）
+            seed_key = f"fomimage-{random.randint(100000, 9999999)}"
+            fingerprint = random_fingerprint(seed_key)
+            proxy = self.resolve_email_proxy(seed_key)
 
-            # 2) fromimage 注册
-            password = _generate_random_password()
-            name = _generate_random_name()
-            headers = {
+            # 2) 建邮箱（temp-mail/luckmail/gptmail 优先级）
+            src = create_mailbox_source(self.cfg.email_sources, self.cfg, proxy=proxy, fingerprint=fingerprint)
+            email = src.email
+            # fromimage 会话头（指纹 + 站点标识）
+            base_headers = {
+                **fingerprint_headers(fingerprint),
                 "Content-Type": "application/json",
-                "User-Agent": USER_AGENT,
                 "Origin": FROMIMAGE_BASE,
                 "Referer": FROMIMAGE_BASE + "/",
             }
-            signup = inbox._session.post(
+
+            # 3) fromimage 注册
+            password = _generate_random_password()
+            name = _generate_random_name()
+            signup = src.session.post(
                 FROMIMAGE_BASE + "/api/auth/sign-up/email",
                 json={"name": name, "email": email, "password": password},
-                headers=headers,
+                headers=base_headers,
                 timeout=25,
             )
             if signup.status_code != 200:
                 logger_warning("fomimage 注册失败", signup.status_code)
                 return None
 
-            # 3) 轮询验证码
-            code = inbox.poll_code(timeout=float(self.cfg.poll_timeout_sec))
+            # 4) 轮询验证码
+            code = src.poll_code(timeout=float(self.cfg.poll_timeout_sec))
             if not code:
                 logger_warning("fomimage 验证码超时", email)
                 return None
 
-            # 4) 验证邮箱
-            verify = inbox._session.post(
+            # 5) 验证邮箱
+            verify = src.session.post(
                 FROMIMAGE_BASE + "/api/auth/email-otp/verify-email",
                 json={"email": email, "otp": code},
-                headers=headers,
+                headers=base_headers,
                 timeout=25,
             )
             if verify.status_code != 200:
                 logger_warning("fomimage 验证邮箱失败", verify.status_code)
                 return None
 
-            # 5) 登录拿会话 token + 会话 cookie（fromimage 认证靠 cookie，token 仅作标识）
-            signin = inbox._session.post(
+            # 6) 登录拿会话 token + 会话 cookie
+            signin = src.session.post(
                 FROMIMAGE_BASE + "/api/auth/sign-in/email",
                 json={"email": email, "password": password},
-                headers=headers,
+                headers=base_headers,
                 timeout=25,
             )
             if signin.status_code != 200:
@@ -149,11 +143,10 @@ class FomimageRegisterEngine:
             if not token:
                 logger_warning("fomimage 登录无 token", email)
                 return None
-            # 提取 fromimage 会话 cookie（业务接口凭 cookie 认证，与账号记录一并入池）
-            cookies = _extract_fromimage_cookies(inbox)
+            cookies = _extract_fromimage_cookies(src)
 
-            # 6) 查积分（注册送 50，确认可用）
-            balance = self._query_balance(inbox, proxy)
+            # 7) 查积分（注册送 50，确认可用）
+            balance = self._query_balance(src, base_headers)
             return {
                 "email": email,
                 "password": password,
@@ -161,23 +154,24 @@ class FomimageRegisterEngine:
                 "cookies": cookies,
                 "balance": balance,
                 "proxy": proxy,
+                "fingerprint": fingerprint,
             }
         except Exception as exc:  # noqa: BLE001 - 注册失败记录日志不抛
             logger_warning("fomimage 注册异常", repr(exc)[:200])
             return None
         finally:
-            if inbox is not None:
+            if src is not None:
                 try:
-                    inbox.close()
+                    src.close()
                 except Exception:
                     pass
 
     @staticmethod
-    def _query_balance(inbox: TempMailInbox, proxy: str = "") -> int:
+    def _query_balance(src: MailboxSource, headers: dict[str, str]) -> int:
         try:
-            data = inbox._session.get(
+            data = src.session.get(
                 FROMIMAGE_BASE + "/api/credits/balance",
-                headers={"User-Agent": USER_AGENT, "Origin": FROMIMAGE_BASE, "Referer": FROMIMAGE_BASE + "/"},
+                headers=headers,
                 timeout=20,
             ).json()
             inner = data.get("data") if isinstance(data, dict) else None
@@ -186,15 +180,23 @@ class FomimageRegisterEngine:
             return 0
 
     def register(self, count: int) -> dict[str, Any]:
-        """注册 count 个账号，逐个串行（避免同链路并发被风控）。
+        """注册 count 个账号。
 
+        register_workers>1 时并发（每号独立 IP/指纹，风控可控）；否则串行错峰。
         返回 {success, failed, items, errors}。
         """
+        n = max(1, int(count or 1))
+        workers = max(1, self.cfg.register_workers)
+        if workers <= 1 or n <= 1:
+            return self._register_serial(n)
+        return self._register_parallel(n, workers)
+
+    def _register_serial(self, count: int) -> dict[str, Any]:
         success = 0
         failed = 0
         items: list[dict[str, Any]] = []
         errors: list[str] = []
-        for _ in range(max(1, count)):
+        for _ in range(count):
             time.sleep(random.uniform(1.0, 3.0))  # 错峰
             result = self.register_one()
             if result:
@@ -203,6 +205,31 @@ class FomimageRegisterEngine:
             else:
                 failed += 1
                 errors.append("注册失败（邮箱/验证码/验证/登录任一环节失败）")
+        return {"success": success, "failed": failed, "items": items, "errors": errors}
+
+    def _register_parallel(self, count: int, workers: int) -> dict[str, Any]:
+        success = 0
+        failed = 0
+        items: list[dict[str, Any]] = []
+        errors: list[str] = []
+        # 各 worker 内错峰（不同 worker 独立 IP/指纹，交叉并发）
+        def _one(_i: int) -> dict[str, Any] | None:
+            time.sleep(random.uniform(0.5, 2.0))
+            return self.register_one()
+
+        with ThreadPoolExecutor(max_workers=min(workers, count)) as executor:
+            futures = [executor.submit(_one, i) for i in range(count)]
+            for future in as_completed(futures):
+                try:
+                    result = future.result()
+                except Exception:  # noqa: BLE001
+                    result = None
+                if result:
+                    success += 1
+                    items.append(result)
+                else:
+                    failed += 1
+                    errors.append("注册失败（邮箱/验证码/验证/登录任一环节失败）")
         return {"success": success, "failed": failed, "items": items, "errors": errors}
 
 

@@ -43,16 +43,24 @@ def extract_fromimage_code(text: str) -> str | None:
 
 
 class TempMailInbox:
-    """temp-mail 一次性邮箱：创建 + 轮询收件。每个实例独立会话。"""
+    """temp-mail 一次性邮箱：创建 + 轮询收件。每个实例独立会话 + 可选独立指纹。"""
 
-    def __init__(self, proxy: str = "") -> None:
+    def __init__(self, proxy: str = "", fingerprint: dict | None = None) -> None:
         self.proxy = proxy
         self.token = ""
         self.mailbox = ""
-        self._session = cffi_requests.Session(impersonate="chrome131")
+        fp = fingerprint or {}
+        self.fingerprint = fp
+        impersonate = str(fp.get("impersonate") or "chrome131")
+        self._session = cffi_requests.Session(impersonate=impersonate)
         if proxy:
             self._session.proxies.update({"http": proxy, "https": proxy})
-        self._session.headers.update({"User-Agent": USER_AGENT, "Origin": "https://temp-mail.org"})
+        from services.fomimage_fingerprint import fingerprint_headers
+
+        self._session.headers.update({
+            **fingerprint_headers(fp),
+            "Origin": "https://temp-mail.org",
+        })
 
     def create(self) -> str:
         """创建一个随机一次性邮箱，返回邮箱地址（形如 xxxx@beiwoh.com）。失败抛 RuntimeError。"""

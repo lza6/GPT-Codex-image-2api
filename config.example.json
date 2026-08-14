@@ -271,7 +271,19 @@
       "register_batch": 1,
       "check_interval_minutes": 30,
       "poll_timeout_sec": 60,
-      "pool_quota": 50
+      "pool_quota": 50,
+      "email_sources": [
+        "temp-mail"
+      ],
+      "register_workers": 1,
+      "luckmail": {
+        "base_url": "https://mails.luckyous.com",
+        "api_key": "",
+        "api_secret": "",
+        "project_code": "fomimage",
+        "email_type": "temp",
+        "domain": ""
+      }
     }
   }
 }

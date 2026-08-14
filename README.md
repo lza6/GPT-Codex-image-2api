@@ -277,6 +277,61 @@ environment:
 - 支持在设置页配置 `sub2api` 服务器，筛选并批量导入其中的 OpenAI OAuth 账号
 - 异常链路自动触发 `verify_account` 账号核验，主动剔除失效账号
 
+### fomimage 提供商接入（v2.36.0）
+
+> fomimage（FromImage AI）作为独立图片生成/编辑提供商接入。**模型按提供商前缀 `fomimage-` 区分**，避免与 chatgpt/grok 模型混淆。
+
+**模型（12 个，均带 `fomimage-` 前缀）：**
+- 图生图/编辑：`fomimage-gpt-image-2`、`fomimage-gpt-image-1.5`、`fomimage-nano-banana-2`、`fomimage-nano-banana-pro`、`fomimage-seedream-4.5`、`fomimage-wan-2.7-image`
+- 文生图（`-text` 后缀）：`fomimage-gpt-image-2-text`、`fomimage-gpt-image-1.5-text`、`fomimage-nano-banana-2-text`、`fomimage-nano-banana-pro-text`、`fomimage-seedream-4.5-text`、`fomimage-wan-2.7-text`
+
+**自动注册号池（一号一 IP + 一号一指纹）：**
+- 邮箱源优先级 `email_sources`：temp-mail（免费）→ luckmail（付费购买，服务器可达）→ gptmail（免费备用）
+- 一号一 IP：`proxy_mode=auto` 时按邮箱 `resolve_account_proxy`（免费代理池粘性 / kookeey 住宅 IP）
+- 一号一指纹：`fomimage_fingerprint.random_fingerprint()`（随机 curl_cffi impersonate + UA + 平台），注册与调用同号固定
+- 密码随机不规则（大小写+数字+符号 14-18 位）、注册错峰、失败即弃
+- 注册并发 `register_workers`（默认 1 串行防风控；>1 时各号独立 IP/指纹并行提速）
+- 注册送 50 积分；每次生成按上游 `costCredits` 扣本地 quota，归零自动剔除（**用完即弃**）
+
+**积分规则（完整定价表 `services/fomimage_pricing.py`）：**
+```
+costCredits = ceil( unitCredits[质量|分辨率] × quantity + max(0, 参考图数-1) × 附加积分 )
+```
+- gpt-image-2：low|1K=10 … medium|2K=45 … high|4K=290；每张超 1 张参考图 +5
+- gpt-image-1.5：medium|auto=50 … high|auto=105；每张超 1 张参考图 +25
+- nano-banana-2 / pro：按分辨率 0.5K~4K（20~55 / 55~95）；wan / seedream 固定 10 / 15
+- 定价为静态快照，实际扣分以上游返回 `costCredits` 为准
+
+**前端入口：**
+- 设置页 → 基本设置 → **fomimage 自动注册卡片**：批量数量输入、号池健康、指纹/IP/邮箱源策略、手动批量注册
+- 设置页 → 多 Provider 卡片：fomimage 已接入，12 模型展示
+- 图片工作台 → Provider 切到 `fomimage` → 模型下拉显示 12 个 fomimage 模型
+
+**启用配置（config.json）：**
+```json
+{
+  "free_proxy": { "enabled": true },
+  "registration": {
+    "fomimage": {
+      "enabled": true,
+      "proxy_mode": "auto",
+      "min_accounts": 3,
+      "register_batch": 1,
+      "register_workers": 1,
+      "email_sources": ["temp-mail"],
+      "luckmail": { "api_key": "", "api_secret": "", "project_code": "fomimage" }
+    }
+  }
+}
+```
+
+**对外 API：** `/v1/images/generations`（model=`fomimage-*`）、`POST /api/registration/fomimage/register`、`GET /api/registration/fomimage/status`（require_admin）
+
+**现实边界（诚实）：**
+- 服务器（数据中心 IP）访问 temp-mail 被 Cloudflare 403 → 自动补号需配 luckmail key 或可访问 temp-mail 的出站代理；本机家庭 IP 可直连注册
+- 每号独立 IP 依赖免费代理池健康数（约 1/2000）或 kookeey 住宅 IP（付费）
+- 注册送 50 积分：low|1K 出 5 张、medium|2K 出 1 张、high|4K 不够 1 张 → low 档性价比最高
+
 ### 生产部署建议
 
 #### 多 Worker 部署

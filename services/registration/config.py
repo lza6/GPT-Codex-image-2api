@@ -91,6 +91,24 @@ class FomimageRegistrationConfig:
         self.check_interval_minutes = self._int(raw.get("check_interval_minutes"), 30, 1)
         self.poll_timeout_sec = self._int(raw.get("poll_timeout_sec"), 60, 10)
         self.pool_quota = self._int(raw.get("pool_quota"), 50, 1)
+        # 邮箱源优先级：temp-mail（免费）/ luckmail（付费购买）/ gptmail（免费备用）。
+        # 兼容字符串 "temp-mail,luckmail" 或数组 ["temp-mail","luckmail"]。
+        raw_sources = raw.get("email_sources") or "temp-mail"
+        if isinstance(raw_sources, list):
+            _src_items: list[Any] = [str(s).strip() for s in raw_sources if str(s).strip()]
+        else:
+            _src_items = [s.strip() for s in str(raw_sources).split(",") if s.strip()]
+        self.email_sources = [s.lower() for s in _src_items if s.lower() in {"temp-mail", "luckmail", "gptmail"}] or ["temp-mail"]
+        # luckmail 购买参数（email_sources 含 luckmail 时使用，复用 grok luckmail 契约）
+        lm = raw.get("luckmail") if isinstance(raw.get("luckmail"), dict) else {}
+        self.luckmail_base_url = str(lm.get("base_url") or "https://mails.luckyous.com").strip().rstrip("/")
+        self.luckmail_api_key = str(lm.get("api_key") or "").strip()
+        self.luckmail_api_secret = str(lm.get("api_secret") or "").strip()
+        self.luckmail_project_code = str(lm.get("project_code") or "fomimage").strip()
+        self.luckmail_email_type = str(lm.get("email_type") or "temp").strip()
+        self.luckmail_domain = str(lm.get("domain") or "").strip()
+        # 注册并发（每号独立 IP + 指纹，>1 时并行注册提速；默认 1 串行防风控）
+        self.register_workers = self._int(raw.get("register_workers"), 1, 1)
 
     @staticmethod
     def _int(value: Any, default: int, minimum: int) -> int:
@@ -108,6 +126,10 @@ class FomimageRegistrationConfig:
             "register_batch": self.register_batch,
             "check_interval_minutes": self.check_interval_minutes,
             "poll_timeout_sec": self.poll_timeout_sec,
+            "email_sources": self.email_sources,
+            "luckmail_api_key_configured": bool(self.luckmail_api_key),
+            "luckmail_project_code": self.luckmail_project_code,
+            "register_workers": self.register_workers,
             "pool_quota": self.pool_quota,
         }
 

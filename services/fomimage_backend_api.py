@@ -66,6 +66,7 @@ class FomimageBackendAPI:
         email: str = "",
         proxy: str = "",
         cookies: dict[str, str] | None = None,
+        fingerprint: dict[str, Any] | None = None,
         timeout: float = 30.0,
     ) -> None:
         # access_token 为 sign-in 返回的会话 token（仅用于关联号池记录，请求凭 cookie）
@@ -73,11 +74,20 @@ class FomimageBackendAPI:
         self.email = email
         self.proxy = proxy
         self.timeout = timeout
-        self._session = cffi_requests.Session(impersonate="chrome131")
+        # 一号一指纹：账号记录携带注册时的指纹；缺失则按 email 稳定生成（同号固定）
+        fp = fingerprint
+        if not fp:
+            from services.fomimage_fingerprint import random_fingerprint
+
+            fp = random_fingerprint(str(email or access_token))
+        self.fingerprint = fp
+        from services.fomimage_fingerprint import fingerprint_headers
+
+        self._session = cffi_requests.Session(impersonate=str(fp.get("impersonate") or "chrome131"))
         if proxy:
             self._session.proxies.update(_proxies(proxy) or {})
         self._session.headers.update({
-            "User-Agent": USER_AGENT,
+            **fingerprint_headers(fp),
             "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8,en-US;q=0.7",
             "Origin": BASE_URL,
             "Referer": BASE_URL + "/",

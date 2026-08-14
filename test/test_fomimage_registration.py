@@ -122,10 +122,10 @@ class EngineTests(unittest.TestCase):
     def test_register_flow_with_mocks(self) -> None:
         cfg = FomimageRegistrationConfig({"enabled": True, "pool_quota": 50})
         engine = FomimageRegisterEngine(cfg)
-        inbox = mock.Mock()
-        inbox.create.return_value = "abc@beiwoh.com"
-        inbox.poll_code.return_value = "123456"
-        inbox.close = mock.Mock()
+        src = mock.Mock()
+        src.email = "abc@beiwoh.com"
+        src.poll_code.return_value = "123456"
+        src.close = mock.Mock()
         # session 的 post 依 URL 返回
         sess = mock.Mock()
         sess.post.side_effect = lambda url, **kw: mock.Mock(
@@ -133,10 +133,10 @@ class EngineTests(unittest.TestCase):
             json=lambda: {"token": "TOK"} if "sign-in" in url else ({"status": True} if "verify" in url else {"token": None}),
         )
         sess.get.return_value = mock.Mock(status_code=200, json=lambda: {"code": 0, "data": {"balance": 50}})
-        inbox._session = sess
+        src.session = sess
 
         with mock.patch.object(engine, "resolve_email_proxy", return_value=""), \
-             mock.patch("services.registration.fomimage.engine.TempMailInbox", return_value=inbox):
+             mock.patch("services.registration.fomimage.engine.create_mailbox_source", return_value=src):
             result = engine.register_one()
         self.assertIsNotNone(result)
         self.assertEqual(result["access_token"], "TOK")
@@ -145,17 +145,17 @@ class EngineTests(unittest.TestCase):
     def test_register_one_verify_fail(self) -> None:
         cfg = FomimageRegistrationConfig({"enabled": True})
         engine = FomimageRegisterEngine(cfg)
-        inbox = mock.Mock()
-        inbox.create.return_value = "abc@beiwoh.com"
-        inbox.poll_code.return_value = "123456"
+        src = mock.Mock()
+        src.email = "abc@beiwoh.com"
+        src.poll_code.return_value = "123456"
         sess = mock.Mock()
         sess.post.side_effect = lambda url, **kw: mock.Mock(
             status_code=200 if "sign-up" in url else 500,
             json=lambda: {},
         )
-        inbox._session = sess
+        src.session = sess
         with mock.patch.object(engine, "resolve_email_proxy", return_value=""), \
-             mock.patch("services.registration.fomimage.engine.TempMailInbox", return_value=inbox):
+             mock.patch("services.registration.fomimage.engine.create_mailbox_source", return_value=src):
             self.assertIsNone(engine.register_one())
 
     def test_register_batch(self) -> None:

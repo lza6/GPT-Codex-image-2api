@@ -73,6 +73,12 @@ def _push_to_pool(items: list[dict[str, Any]], pool_quota: int) -> int:
             cookies = item.get("cookies")
             if isinstance(cookies, dict) and cookies:
                 record["fomimage_cookies"] = {str(k): str(v) for k, v in cookies.items() if str(v)}
+            # 一号一指纹（注册时生成的指纹随账号入库，调用时恢复同指纹）
+            fingerprint = item.get("fingerprint")
+            if isinstance(fingerprint, dict) and fingerprint:
+                record["fomimage_fingerprint"] = {
+                    str(k): str(v) for k, v in fingerprint.items() if str(v)
+                }
             records.append(record)
         result = account_service.add_account_items(records)
         return int(result.get("added") or 0)

@@ -513,6 +513,10 @@ export type FomimageRegistrationStatus = {
     check_interval_minutes: number;
     poll_timeout_sec: number;
     pool_quota: number;
+    email_sources?: string[];
+    luckmail_api_key_configured?: boolean;
+    luckmail_project_code?: string;
+    register_workers?: number;
   };
   fomimage_pool: {
     available: number;
