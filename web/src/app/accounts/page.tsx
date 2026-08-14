@@ -10,6 +10,7 @@ import {
   ChevronRight,
   CircleAlert,
   CircleOff,
+  Clock,
   Copy,
   Download,
   HeartPulse,
@@ -165,6 +166,7 @@ const statusMeta: Record<
   限流: { icon: CircleAlert, badge: "warning" },
   异常: { icon: CircleOff, badge: "danger" },
   禁用: { icon: Ban, badge: "secondary" },
+  养号中: { icon: Clock, badge: "secondary" },
 };
 
 const metricCards = [

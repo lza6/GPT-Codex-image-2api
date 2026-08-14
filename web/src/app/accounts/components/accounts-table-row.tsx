@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   CircleAlert,
   CircleOff,
+  Clock,
   Copy,
   History,
   Pencil,
@@ -22,7 +23,7 @@ import type { Account, AccountColumnVisibility } from "@/lib/api";
 
 // ---- Constants ----
 
-type AccountStatus = "正常" | "限流" | "异常" | "禁用";
+type AccountStatus = "正常" | "限流" | "异常" | "禁用" | "养号中";
 
 const statusMeta: Record<
   AccountStatus,
@@ -32,6 +33,7 @@ const statusMeta: Record<
   限流: { icon: CircleAlert, badge: "warning" },
   异常: { icon: CircleOff, badge: "danger" },
   禁用: { icon: Ban, badge: "secondary" },
+  养号中: { icon: Clock, badge: "secondary" },
 };
 
 // ---- Helpers ----

@@ -533,7 +533,12 @@ class AccountService:
             normalized["export_type"] = "codex"
             normalized.pop("type", None)
         normalized["type"] = normalized.get("type") or "free"
-        normalized["status"] = normalized.get("status") or "正常"
+        # status 归一化到前端状态枚举（正常/限流/异常/禁用/养号中），未知状态兜底 正常
+        # （历史遗留/外部导入可能带 待登录/回收/已删除/失效/replaced 等，前端 eR[status] 未覆盖会崩）
+        _raw_status = str(normalized.get("status") or "").strip()
+        normalized["status"] = (
+            _raw_status if _raw_status in {"正常", "限流", "异常", "禁用", "养号中"} else "正常"
+        )
         normalized["quota"] = normalized.get("quota")
         if normalized["quota"] is not None:
             try:
