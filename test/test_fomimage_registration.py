@@ -114,6 +114,58 @@ class ConfigTests(unittest.TestCase):
             cfg = get_fomimage_registration_config()
         self.assertTrue(cfg.enabled)
 
+    def test_email_sources_default_and_filter(self) -> None:
+        cfg = FomimageRegistrationConfig({})
+        self.assertEqual(cfg.email_sources, ["temp-mail"])
+        cfg2 = FomimageRegistrationConfig({"email_sources": "temp-mail,22.do,luckmail,bad"})
+        self.assertEqual(cfg2.email_sources, ["temp-mail", "22.do", "luckmail"])
+        cfg3 = FomimageRegistrationConfig({"email_sources": ["22.do", "gptmail"]})
+        self.assertEqual(cfg3.email_sources, ["22.do", "gptmail"])
+
+
+class Do22SourceTests(unittest.TestCase):
+    """22.do 源：create(create+login+applyToken) / poll_code（JWT Bearer 收码）。"""
+
+    def _mock_session(self) -> mock.Mock:
+        sess = mock.Mock()
+        # create → email；login → ok；applyToken → JWT
+        def _post(url, **kw):
+            if "create" in url:
+                return mock.Mock(status_code=200, json=lambda: {"data": {"email": "abc@tnbeta.com"}})
+            if "login" in url:
+                return mock.Mock(status_code=200, json=lambda: {"status": True})
+            if "applyToken" in url:
+                return mock.Mock(status_code=200, json=lambda: {"data": {"token": "JWT123"}})
+            if "message" in url:
+                return mock.Mock(
+                    status_code=200,
+                    json=lambda: {"data": [{"subject": "618068 is your FromImage AI email verification code"}]},
+                )
+            return mock.Mock(status_code=200, json=lambda: {})
+        sess.post = mock.Mock(side_effect=_post)
+        sess.cookies = mock.Mock(get_dict=lambda: {"email": "abc@tnbeta.com"})
+        return sess
+
+    def test_create(self) -> None:
+        from services.registration.fomimage.mail_source import Do22MailSource
+
+        src = Do22MailSource()
+        with mock.patch.object(src, "session", self._mock_session()):
+            email = src.create()
+        self.assertEqual(email, "abc@tnbeta.com")
+        self.assertEqual(src._token, "JWT123")
+
+    def test_poll_code(self) -> None:
+        from services.registration.fomimage.mail_source import Do22MailSource
+
+        src = Do22MailSource()
+        src.email = "abc@tnbeta.com"
+        src._token = "JWT123"
+        with mock.patch.object(src, "session", self._mock_session()), \
+             mock.patch("services.registration.fomimage.mail_source.time.sleep"):
+            code = src.poll_code(timeout=5)
+        self.assertEqual(code, "618068")
+
 
 class EngineTests(unittest.TestCase):
     def _fake_register_one_ok(self):
