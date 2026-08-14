@@ -114,25 +114,19 @@ class FomimageRegisterEngine:
             return ""
 
     def _solve_turnstile(self, max_attempts: int = 2) -> str | None:
-        """用 YesCaptcha 解 fromimage 的 CF Turnstile token（无 yescaptcha_key 返回 None）。"""
-        key = self.cfg.yescaptcha_key
-        if not key:
-            return None
-        try:
-            from services.registration.grok.captcha import TurnstileService
+        """解 fromimage 的 CF Turnstile token：cf_solver（camoufox 真实浏览器）优先，YesCaptcha 兜底。
 
-            service = TurnstileService(key)
-            for _ in range(max_attempts):
-                try:
-                    task_id = service.create_task(FROMIMAGE_BASE + "/sign-in", FROMIMAGE_TURNSTILE_SITEKEY)
-                    token = service.get_response(task_id)
-                    if token and token != "CAPTCHA_FAIL":
-                        return token
-                except Exception:
-                    continue
+        学习 imagefree-2ai 过 CF 方案：真实浏览器自动完成 Turnstile 挑战，数据中心 IP 也能过。
+        """
+        try:
+            from services.fomimage_turnstile import solve_turnstile
+
+            return solve_turnstile(
+                cf_solver_url=self.cfg.cf_solver_url,
+                yescaptcha_key=self.cfg.yescaptcha_key,
+            )
         except Exception:
             return None
-        return None
 
     def _signup_with_turnstile(self, session: Any, email: str, password: str, name: str, headers: dict[str, str]) -> Any:
         """注册：先直发；若被 CF Turnstile 拒（数据中心 IP），解 token 带 turnstileToken 重试。"""
