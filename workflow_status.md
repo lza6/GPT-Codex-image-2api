@@ -83,3 +83,5 @@
 - **fomimage 出图烧真实积分**：live E2E 消耗 1 个一次性账号；生产启用需 registration.fomimage.enabled=true + free_proxy.enabled=true
 - **fomimage 定价为静态快照**：以运行时上游 /api/ai/image-models 为准，实际扣分按上游 costCredits
 - **fomimage 注册风控**：temp-mail 域名可能被屏蔽，失败自动弃邮箱换新
+- **服务器自动注册受限（2026-08-14 部署实测）**：服务器（腾讯云东京）访问 temp-mail 被 CF 403（数据中心 IP 信誉，本机家庭 IP 可注册）、gptmail 428、luckmail 未配 key → 服务器上自动补号需外部条件（配 luckmail key 或可访问 temp-mail 的出站代理）；当前用本地注册的 3 个带 cookie 账号导入服务器号池，出图/扣分/用完即弃全链路已验证
+- **部署期修复已合入**：fetch_remote_info 对 fomimage 跳过 OpenAI 校验（防 watcher 误删号池）+ fomimage 会话 cookie 随账号入库（防生成期 Unauthorized），均经服务器真实出图验证
