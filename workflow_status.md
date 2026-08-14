@@ -1,7 +1,7 @@
-# ChatGPT2API 工作流状态 — 第二十四轮（v2.36.0 fomimage 提供商接入）
+# ChatGPT2API 工作流状态 — 第二十四轮（v2.36.0 fomimage 提供商接入 + 规模化增强）
 
 > 最后更新：2026-08-14
-> 模式：fomimage 提供商接入全链路（模型前缀映射 + 自动注册号池 + 积分用完即弃 + 前端管理）
+> 模式：fomimage 提供商接入全链路（模型前缀映射 + 自动注册号池 + 积分用完即弃 + 一号一指纹 + 批量并发 + 多邮箱源 + 统计接线 + 前端管理）
 > 基线：v2.36.0
 
 > 上一轮（第二十三轮，v2.34.0）已闭环：Provider Phase 4 + III-01~07 + V-01~04 + VII-01~04，详见历史。
@@ -13,11 +13,13 @@
 | A | fomimage 真实契约探测 | ✅ | 实测 temp-mail 建邮箱（POST /mailbox）、fromimage 注册/OTP/登录/余额 50 全通；HAR 还原 12 模型定价表 + 积分公式 |
 | B | 模型前缀映射 | ✅ | registry fomimage 12 模型 + helper split_image_model + router 前缀路由 + /v1/models（owned_by=fomimage）；test_fomimage_pricing 13 用例 |
 | C | fomimage 上游客户端 + 协议分派 | ✅ | fomimage_backend_api（上传 CurlMime multipart/建任务/轮询/下载）+ fomimage_image 协议适配 + conversation 按 account.provider 分派；test_fomimage_provider 9 用例 |
-| D | 自动注册引擎 | ✅ | temp_mail + engine（密码不规则/每号独立代理/错峰）+ coordinator（批量+自动补号）；test_fomimage_registration 14 用例；API 端点 2 个 |
+| D | 自动注册引擎 | ✅ | temp_mail + engine（密码不规则/每号独立代理/错峰）+ coordinator（批量+自动补号）；API 端点 2 个 |
 | E | 积分成本映射 + 用完即弃 | ✅ | fomimage_pricing 完整定价表 + estimate_credits（对齐 HAR）+ mark_image_credits_result 按 costCredits 扣减 + quota 归零自动剔除 |
-| F | 前端 | ✅ | 设置页 fomimage 注册管理卡片 + providers-card 说明 + 图片工作台 fomimage 全模型展示；tsc 0 + build 成功 |
-| G | 真实 E2E | ✅ | test_fomimage_live（-m live）真实上游全链路：注册→收码→上传→图生图 low|1K=10 分→下载 PNG→余额 50→40 通过 |
-| H | 验收 | ✅ | 全量 pytest 通过（exit 0）+ ruff 0 错误 + 契约守卫（见下）+ 前端构建 |
+| F | 前端 | ✅ | 设置页 fomimage 注册管理卡片（批量数量/指纹/IP/邮箱源策略/号池规模）+ 图片工作台全模型展示；tsc 0 + build |
+| G | 真实 E2E | ✅ | test_fomimage_live（-m live）注册→收码→上传→图生图→下载→余额 50→40；本地 E2E 注册 2 号不同指纹 + cookies/指纹 调用出图扣分 |
+| H | 规模化增强 | ✅ | 一号一指纹（fomimage_fingerprint.py）+ 多邮箱源（mail_source.py temp→luckmail→gptmail）+ register_workers 并发 + API 上限 500 + fomimage 出图日志→usage_agg |
+| I | 部署期修复 | ✅ | fetch_remote_info 对 fomimage 跳过 OpenAI 校验（防 watcher 误删）+ 会话 cookie 随账号入库（防生成期 Unauthorized）；服务器真实出图验证 |
+| J | 验收 | ✅ | 全量 pytest exit 0 + 本轮改动 ruff 0 + tsc 0 + build 成功 + 契约断链 0 + 文档同步 |
 
 ## 本轮防线状态
 
@@ -25,14 +27,16 @@
 |------|------|-----|--------|------|------|----------|
 | 第二十四轮 | ✅（新增端点已加 DYNAMIC） | 未触新风险（无 SQL 改动） | 沿用登记表 | 沿用登记表 | 沿用登记表 | ✅（VERSION 2.36.0 与文档同步） |
 
-> 本次改动区域：新增 services/fomimage_* / services/registration/fomimage/ / providers registry / conversation 分派 / api/registration / settings 卡片。
+> 本次改动区域：services/fomimage_* / services/registration/fomimage/ / providers registry / conversation 分派 / api/registration / settings 卡片 / README。
 > 未触碰 SQL/存储/调度核心，慢查询/变异/施压沿用 verification-registry 基线；契约守卫已重跑确认无断链。
 
 ## 边界声明（诚实）
 
-- **fomimage 出图烧真实积分**：live E2E 消耗 1 个一次性账号（注册送 50，low|1K 扣 10）。生产启用需 `registration.fomimage.enabled=true` 且 `free_proxy.enabled=true`（每号独立 IP 依赖免费代理池，健康率约 1/2000 已并发预检）。
-- **定价为静态快照**：`services/fomimage_pricing.py` 的定价表来自 2026-08-13 SSR payload + HAR 实测；运行时上游 `/api/ai/image-models` 可能调整，`estimate_credits` 仅用于前端展示与预检，实际扣分以上游返回 `costCredits` 为准（本地 quota 按该值扣减）。
-- **fomimage 注册风控**：temp-mail 域名可能被 fomimage 屏蔽（beiwoh/neplis/hutdot 等实测可用），失败自动弃邮箱换新；密码不规则 + 每号独立 IP + 注册错峰已实现。
+- **fomimage 出图烧真实积分**：live E2E 消耗一次性账号。生产启用需 `registration.fomimage.enabled=true`。
+- **定价为静态快照**：`services/fomimage_pricing.py` 定价表来自 2026-08-13 SSR payload + HAR 实测；运行时上游 `/api/ai/image-models` 可能调整，`estimate_credits` 仅用于前端展示与预检，实际扣分以上游返回 `costCredits` 为准。
+- **"几万账号"规模化受限（诚实）**：代码能力已全部就绪（一号一指纹/一号一IP/多邮箱源/并发/批量API），但规模受外部条件硬约束——① temp-mail 域名有限且服务器（数据中心 IP）被 CF 403 → 需 luckmail 付费 key（`registration.fomimage.luckmail.api_key`）；② 一号一IP 依赖 kookeey 住宅 IP（付费按量）或免费代理池（健康 IP 个位数）；③ 注册速率 ~1号/分钟/worker，`register_workers` 并发可提速。**缺 luckmail key + kookeey 启用即"已做到代码层，缺外部条件无法规模实测"**。
+- **百万次不重复 IP 调用**：调用 IP = 账号绑定 IP；50分/号 ÷ 10分/张 = 5张/号 → 百万张需 20 万账号 + 20 万独立 IP → 必须 kookeey 按量付费，免费代理不可能。
+- **部署期修复已合入**：fetch_remote_info 对 fomimage 跳过 OpenAI 校验 + fomimage 会话 cookie 随账号入库，均经服务器真实出图验证。
 
 > 最后更新：2026-08-12
 > 模式：v2.34.0 III-01~07（回收站根因/调度A/B/配额预警/慢查询/连接池/备份校验/告警多通道）+ V-01~04（bundle/缓存/虚拟列表/基准化）+ VII-01~04（覆盖率/防线CI/文档钩子/OpenAPI）+ Provider Phase 4（grok）
