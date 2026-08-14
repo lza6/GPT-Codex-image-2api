@@ -59,6 +59,30 @@ def _extract_fromimage_cookies(src: MailboxSource) -> dict[str, str]:
         return {}
 
 
+def _probe_proxy(proxy_url: str, timeout: float = 4.0) -> bool:
+    """探测代理是否可用（能连通 temp-mail 域即可，status<500 视为连通）。
+
+    免费代理死代理多，注册前探测避免把整个注册流程耗在死代理上。
+    """
+    if not proxy_url:
+        return False
+    try:
+        from curl_cffi import requests as cffi_requests
+
+        session = cffi_requests.Session(impersonate="chrome131")
+        try:
+            session.proxies.update({"http": proxy_url, "https": proxy_url})
+            resp = session.get("https://web2.temp-mail.org/options", timeout=timeout)
+            return resp.status_code < 500
+        finally:
+            try:
+                session.close()
+            except Exception:
+                pass
+    except Exception:
+        return False
+
+
 class FomimageRegisterEngine:
     """fomimage 批量注册引擎。每次 `register()` 自包含一次批量注册。"""
 
@@ -66,14 +90,24 @@ class FomimageRegisterEngine:
         self.cfg = cfg
 
     def resolve_email_proxy(self, email: str) -> str:
-        """为指定邮箱解析独立出口 IP。proxy_mode=auto 时走 resolve_account_proxy。"""
+        """为指定邮箱解析独立出口 IP（一号一 IP）。
+
+        proxy_mode=auto 时从免费代理池按邮箱粘性取代理，并对该代理做连通性探测
+        （免费代理健康率低，探测命中才用，不可用换下一个，最多 4 次）。
+        """
         mode = self.cfg.proxy_mode
         if mode in {"off", "none", "direct"}:
             return ""
         try:
             from services.proxy_service import resolve_account_proxy
 
-            return resolve_account_proxy(email)
+            for attempt in range(4):
+                proxy = resolve_account_proxy(f"{email}#p{attempt}")
+                if not proxy:
+                    return ""
+                if _probe_proxy(proxy):
+                    return proxy
+            return ""
         except Exception:
             return ""
 

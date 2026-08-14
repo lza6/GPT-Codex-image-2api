@@ -66,7 +66,7 @@ class TempMailSource:
             self.TEMP_MAIL_BASE + "/mailbox",
             json={},
             headers={"Content-Type": "application/json"},
-            timeout=20,
+            timeout=12,
         )
         if resp.status_code != 200:
             raise RuntimeError(f"temp-mail 创建邮箱失败: {resp.status_code}")
