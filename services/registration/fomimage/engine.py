@@ -25,6 +25,8 @@ from services.registration.config import FomimageRegistrationConfig
 from services.registration.fomimage.mail_source import MailboxSource, create_mailbox_source
 
 FROMIMAGE_BASE = "https://fromimage.ai"
+# fromimage 的 Cloudflare Turnstile sitekey（从首页 HTML turnstile_site_key 提取，2026-08-15）
+FROMIMAGE_TURNSTILE_SITEKEY = "0x4AAAAAAEP4Cgtdy3L61Coz"
 
 
 def _generate_random_name() -> str:
@@ -111,6 +113,51 @@ class FomimageRegisterEngine:
         except Exception:
             return ""
 
+    def _solve_turnstile(self, max_attempts: int = 2) -> str | None:
+        """用 YesCaptcha 解 fromimage 的 CF Turnstile token（无 yescaptcha_key 返回 None）。"""
+        key = self.cfg.yescaptcha_key
+        if not key:
+            return None
+        try:
+            from services.registration.grok.captcha import TurnstileService
+
+            service = TurnstileService(key)
+            for _ in range(max_attempts):
+                try:
+                    task_id = service.create_task(FROMIMAGE_BASE + "/sign-in", FROMIMAGE_TURNSTILE_SITEKEY)
+                    token = service.get_response(task_id)
+                    if token and token != "CAPTCHA_FAIL":
+                        return token
+                except Exception:
+                    continue
+        except Exception:
+            return None
+        return None
+
+    def _signup_with_turnstile(self, session: Any, email: str, password: str, name: str, headers: dict[str, str]) -> Any:
+        """注册：先直发；若被 CF Turnstile 拒（数据中心 IP），解 token 带 turnstileToken 重试。"""
+        body = {"name": name, "email": email, "password": password}
+        resp = session.post(
+            FROMIMAGE_BASE + "/api/auth/sign-up/email",
+            json=body,
+            headers=headers,
+            timeout=25,
+        )
+        if resp.status_code != 403 or "TURNSTILE" not in str(resp.text or ""):
+            return resp
+        token = self._solve_turnstile()
+        if not token:
+            logger_warning("fomimage Turnstile 求解失败（无 yescaptcha_key 或打码失败）", email)
+            return resp
+        logger_warning("fomimage Turnstile 解通过，带 token 重试", email)
+        body["turnstileToken"] = token
+        return session.post(
+            FROMIMAGE_BASE + "/api/auth/sign-up/email",
+            json=body,
+            headers=headers,
+            timeout=25,
+        )
+
     def register_one(self) -> dict[str, Any] | None:
         """注册单个 fomimage 账号。成功返回记录，失败返回 None（邮箱已弃用不重试）。"""
         proxy = ""
@@ -132,15 +179,10 @@ class FomimageRegisterEngine:
                 "Referer": FROMIMAGE_BASE + "/",
             }
 
-            # 3) fromimage 注册
+            # 3) fromimage 注册（被 CF Turnstile 拒时自动解 token 重试）
             password = _generate_random_password()
             name = _generate_random_name()
-            signup = src.session.post(
-                FROMIMAGE_BASE + "/api/auth/sign-up/email",
-                json={"name": name, "email": email, "password": password},
-                headers=base_headers,
-                timeout=25,
-            )
+            signup = self._signup_with_turnstile(src.session, email, password, name, base_headers)
             if signup.status_code != 200:
                 logger_warning("fomimage 注册失败", signup.status_code)
                 return None

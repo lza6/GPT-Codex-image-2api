@@ -283,7 +283,8 @@
         "project_code": "fomimage",
         "email_type": "temp",
         "domain": ""
-      }
+      },
+      "yescaptcha_key": ""
     }
   }
 }

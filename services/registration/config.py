@@ -109,6 +109,9 @@ class FomimageRegistrationConfig:
         self.luckmail_domain = str(lm.get("domain") or "").strip()
         # 注册并发（每号独立 IP + 指纹，>1 时并行注册提速；默认 1 串行防风控）
         self.register_workers = self._int(raw.get("register_workers"), 1, 1)
+        # YesCaptcha key：fromimage 注册过 CF Turnstile 人机验证用（有 key 才启用求解，
+        # 数据中心 IP 被 Turnstile 拒时解 token 带 turnstileToken 重试）
+        self.yescaptcha_key = str(raw.get("yescaptcha_key") or "").strip()
 
     @staticmethod
     def _int(value: Any, default: int, minimum: int) -> int:
@@ -130,6 +133,7 @@ class FomimageRegistrationConfig:
             "luckmail_api_key_configured": bool(self.luckmail_api_key),
             "luckmail_project_code": self.luckmail_project_code,
             "register_workers": self.register_workers,
+            "yescaptcha_key_configured": bool(self.yescaptcha_key),
             "pool_quota": self.pool_quota,
         }
 

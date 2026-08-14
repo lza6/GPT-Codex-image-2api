@@ -122,6 +122,62 @@ class ConfigTests(unittest.TestCase):
         cfg3 = FomimageRegistrationConfig({"email_sources": ["22.do", "gptmail"]})
         self.assertEqual(cfg3.email_sources, ["22.do", "gptmail"])
 
+    def test_yescaptcha_key(self) -> None:
+        cfg = FomimageRegistrationConfig({"yescaptcha_key": "abc123"})
+        self.assertEqual(cfg.yescaptcha_key, "abc123")
+        self.assertTrue(cfg.to_dict()["yescaptcha_key_configured"])
+        cfg2 = FomimageRegistrationConfig({})
+        self.assertEqual(cfg2.yescaptcha_key, "")
+        self.assertFalse(cfg2.to_dict()["yescaptcha_key_configured"])
+
+
+class TurnstileRetryTests(unittest.TestCase):
+    """signup 被 CF Turnstile 拒时，有 yescaptcha_key 解 token 带 turnstileToken 重试。"""
+
+    def _engine(self, key="testkey") -> FomimageRegisterEngine:
+        from services.registration.config import FomimageRegistrationConfig
+
+        return FomimageRegisterEngine(FomimageRegistrationConfig({"yescaptcha_key": key}))
+
+    def test_no_key_no_turnstile(self) -> None:
+        engine = self._engine(key="")
+        self.assertIsNone(engine._solve_turnstile())
+
+    def test_direct_success_no_turnstile_called(self) -> None:
+        engine = self._engine()
+        sess = mock.Mock()
+        resp = mock.Mock(status_code=200)
+        sess.post = mock.Mock(return_value=resp)
+        with mock.patch.object(engine, "_solve_turnstile", side_effect=AssertionError("不该解 Turnstile")):
+            out = engine._signup_with_turnstile(sess, "a@b.com", "pw", "name", {})
+        self.assertIs(out, resp)
+        # 只发了一次直连
+        self.assertEqual(sess.post.call_count, 1)
+
+    def test_turnstile_rejected_solves_and_retries(self) -> None:
+        engine = self._engine()
+        sess = mock.Mock()
+        blocked = mock.Mock(status_code=403, text='{"code":"TURNSTILE_VERIFICATION_FAILED"}')
+        ok = mock.Mock(status_code=200)
+        sess.post = mock.Mock(side_effect=[blocked, ok])
+        with mock.patch.object(engine, "_solve_turnstile", return_value="REAL_TOKEN"):
+            out = engine._signup_with_turnstile(sess, "a@b.com", "pw", "name", {})
+        self.assertIs(out, ok)
+        self.assertEqual(sess.post.call_count, 2)
+        # 重试 body 带 turnstileToken
+        _, kwargs = sess.post.call_args
+        self.assertEqual(kwargs["json"]["turnstileToken"], "REAL_TOKEN")
+
+    def test_turnstile_rejected_solve_fails_returns_original(self) -> None:
+        engine = self._engine()
+        sess = mock.Mock()
+        blocked = mock.Mock(status_code=403, text='{"code":"TURNSTILE_VERIFICATION_FAILED"}')
+        sess.post = mock.Mock(return_value=blocked)
+        with mock.patch.object(engine, "_solve_turnstile", return_value=None):
+            out = engine._signup_with_turnstile(sess, "a@b.com", "pw", "name", {})
+        self.assertIs(out, blocked)
+        self.assertEqual(sess.post.call_count, 1)
+
 
 class Do22SourceTests(unittest.TestCase):
     """22.do 源：create(create+login+applyToken) / poll_code（JWT Bearer 收码）。"""
