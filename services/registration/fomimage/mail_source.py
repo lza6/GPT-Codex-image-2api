@@ -114,6 +114,119 @@ class TempMailSource:
             pass
 
 
+class Do22MailSource:
+    """22.do 免费临时邮箱（v2.36.0，REST 全链路实测可用）。
+
+    实测契约（2026-08-14）：
+        POST /action/mailbox/create  {type:'random'} -> {data:{email,account,domain,type}}
+        POST /action/mailbox/login   {email,language:'en-US'} -> set-cookie email/expireTime
+        POST /action/mailbox/applyToken {email,uuid:<随机uuid>} -> {data:{token:JWT}}
+        POST /action/mailbox/message {email,lastime:0} + Authorization:Bearer <JWT> -> {data:[...]}
+    验证码在 message 返回的邮件正文/主题里，用 extract_fromimage_code 提取。
+    邮箱格式随机（fft.edu.do / tnbeta.com / colabeta.com / linshiyou.com / outlook.com 等）。
+    """
+
+    source_name = "22.do"
+    BASE = "https://22.do"
+
+    def __init__(self, proxy: str = "", fingerprint: dict | None = None) -> None:
+        self.proxy = proxy
+        self.email = ""
+        self._token = ""
+        self._lastime = 0
+        fp = fingerprint or {}
+        from services.fomimage_fingerprint import fingerprint_headers
+
+        self.session = cffi_requests.Session(impersonate=str(fp.get("impersonate") or "chrome131"))
+        if proxy:
+            self.session.proxies.update({"http": proxy, "https": proxy})
+        self.session.headers.update({**fingerprint_headers(fp), "Origin": "https://22.do", "Referer": "https://22.do/"})
+
+    def create(self) -> str:
+        resp = self.session.post(
+            self.BASE + "/action/mailbox/create",
+            json={"type": "random"},
+            headers={"Content-Type": "application/json", "Accept": "*/*"},
+            timeout=12,
+        )
+        if resp.status_code != 200:
+            raise RuntimeError(f"22.do 创建邮箱失败: {resp.status_code}")
+        data = (resp.json() or {}).get("data") or {}
+        self.email = str(data.get("email") or "")
+        if "@" not in self.email:
+            raise RuntimeError(f"22.do 创建返回异常: {resp.text[:200]}")
+        # login 拿 email cookie
+        self.session.post(
+            self.BASE + "/action/mailbox/login",
+            json={"email": self.email, "language": "en-US"},
+            headers={"Content-Type": "application/json", "Accept": "*/*"},
+            timeout=12,
+        )
+        # applyToken 拿 JWT（message 接口鉴权）
+        import uuid
+
+        token_resp = self.session.post(
+            self.BASE + "/action/mailbox/applyToken",
+            json={"email": self.email, "uuid": str(uuid.uuid4()).replace("-", "")},
+            headers={"Content-Type": "application/json", "Accept": "*/*"},
+            timeout=12,
+        )
+        token_data = (token_resp.json() or {}).get("data") or {}
+        self._token = str(token_data.get("token") or "")
+        return self.email
+
+    def poll_code(self, timeout: float = 60.0) -> str | None:
+        if not self._token:
+            return None
+        deadline = time.time() + timeout
+        seen: set[str] = set()
+        while time.time() < deadline:
+            try:
+                resp = self.session.post(
+                    self.BASE + "/action/mailbox/message",
+                    json={"email": self.email, "lastime": self._lastime},
+                    headers={
+                        "Content-Type": "application/json",
+                        "Accept": "*/*",
+                        "Authorization": "Bearer " + self._token,
+                    },
+                    timeout=15,
+                )
+                if resp.status_code == 200:
+                    data = (resp.json() or {}).get("data")
+                    msgs = data if isinstance(data, list) else []
+                    for m in msgs:
+                        if not isinstance(m, dict):
+                            continue
+                        mid = str(m.get("id") or m.get("_id") or "")
+                        if mid in seen:
+                            continue
+                        seen.add(mid)
+                        text = f"{m.get('subject', '')} {m.get('text', '')} {m.get('html', '')} {m.get('content', '')}"
+                        code = extract_fromimage_code(text)
+                        if code:
+                            return code
+                    # lastime 推进（增量拉取）
+                    if msgs:
+                        last = msgs[0]
+                        t = last.get("time") or last.get("timestamp") or last.get("date")
+                        if t:
+                            try:
+                                self._lastime = max(self._lastime, int(t))
+                            except (TypeError, ValueError):
+                                pass
+            except Exception:
+                pass
+            time.sleep(4)
+        return None
+
+    def close(self) -> None:
+        try:
+            self.session.close()
+        except Exception:
+            pass
+
+
 class LuckMailSource:
     """luckmail 付费购买邮箱（服务器可达，唯一能规模化供给的邮箱源）。"""
 
@@ -283,6 +396,8 @@ def create_mailbox_source(
         try:
             if name == "temp-mail":
                 src: MailboxSource = TempMailSource(proxy=proxy, fingerprint=fingerprint)
+            elif name == "22.do":
+                src = Do22MailSource(proxy=proxy, fingerprint=fingerprint)
             elif name == "luckmail":
                 if not (cfg.luckmail_api_key):
                     continue

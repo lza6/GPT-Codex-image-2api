@@ -98,7 +98,7 @@ class FomimageRegistrationConfig:
             _src_items: list[Any] = [str(s).strip() for s in raw_sources if str(s).strip()]
         else:
             _src_items = [s.strip() for s in str(raw_sources).split(",") if s.strip()]
-        self.email_sources = [s.lower() for s in _src_items if s.lower() in {"temp-mail", "luckmail", "gptmail"}] or ["temp-mail"]
+        self.email_sources = [s.lower() for s in _src_items if s.lower() in {"temp-mail", "22.do", "luckmail", "gptmail"}] or ["temp-mail"]
         # luckmail 购买参数（email_sources 含 luckmail 时使用，复用 grok luckmail 契约）
         lm = raw.get("luckmail") if isinstance(raw.get("luckmail"), dict) else {}
         self.luckmail_base_url = str(lm.get("base_url") or "https://mails.luckyous.com").strip().rstrip("/")
