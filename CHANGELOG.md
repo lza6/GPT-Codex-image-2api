@@ -44,8 +44,11 @@
 **部署期修复（服务器实测暴露，随 v2.36.0 一并合入）：**
 + [修复] `fetch_remote_info` 对 provider=fomimage 账号跳过 OpenAI get_user_info：fomimage 账号入库后不再被 account-watcher/refresh 误删（此前被 InvalidAccessTokenError 移除导致号池静默清空）
 + [修复] fomimage 会话 cookie 随账号入库（`fomimage_cookies` 字段）：fromimage 业务接口凭 cookie 认证，此前入池只存 access_token 导致生成期 Unauthorized；engine 注册后提取 `__Secure-better-auth.session_token`，FomimageBackendAPI 构造恢复认证态
-+ [部署] 服务器（腾讯云东京 23456）已部署 v2.36.0：容器 healthy、`/version` 2.36.0、`/v1/models` 12 个 fomimage 模型、fomimage 号池 3 账号带 cookies、真实出图验证通过（wan-2.7-text 扣 10 积分 50→40）
++ [增强] 注册代理探测：免费代理死代理多，resolve 后先探测 temp-mail 连通（status<500）才用，不可用换下一个（最多 4 次）；服务器批量注册成功率 10% → 42-65%
++ [新增] `scripts/fomimage_replenish.py`：持续灌号脚本（公网 API 批量注册循环直到号池达标，可配目标/批次/间隔）
++ [部署] 服务器（腾讯云东京 23456）已部署 v2.36.0：容器 healthy、`/version` 2.36.0、`/v1/models` 12 个 fomimage 模型、fomimage 号池 55 个账号带 cookies/指纹、真实出图验证通过（wan-2.7-text 扣 10 积分 50→40）
 + [边界] 服务器自动注册受限于邮箱源：temp-mail 对数据中心 IP 返回 CF 403（本机家庭 IP 可注册）、gptmail 428、luckmail 未配 key——需配 luckmail key 或可访问 temp-mail 的出站代理后自动补号生效
++ [边界] **免费资源规模化上限（诚实）**：temp-mail 免费域名有限（beiwoh/neplis/hutdot/novelv/joystill 等）+ 免费代理池可用代理快速枯竭（可用率 50%→10%），免费方案号池稳定在几十~几百；**几万号必须 luckmail（付费邮箱）+ kookeey（付费住宅 IP）**——这是唯一能撑"百万次不重复 IP 调用"的路径
 
 ## 2.35.0 - 2026-08-12 (GZip 修复 + 救号流程化 + 日志/审计过滤 + 可观测指标 + 多 worker 评估 + 文档保鲜)
 

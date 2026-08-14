@@ -29,6 +29,8 @@ def api(path: str, method: str = "GET", body: dict | None = None):
 
 
 def main() -> None:
+    # wait_after_trigger：每批触发后休息秒数（免费源易被限流，拉长间隔保成功率）
+    wait_after = int(sys.argv[3]) if len(sys.argv) > 3 else 180
     rounds = 0
     while rounds < MAX_ROUNDS:
         s = api("/api/registration/fomimage/status")
@@ -49,7 +51,7 @@ def main() -> None:
             r = api("/api/registration/fomimage/register", "POST", {"count": BATCH})
             print(f"[{time.strftime('%H:%M:%S')}] 触发 {BATCH} 个注册, resp_ok={bool(r)}", flush=True)
             rounds += 1
-            time.sleep(60)  # 触发后等 1 分钟再查（批跑约 5-6 分钟，期间会 busy）
+            time.sleep(wait_after)  # 批间隔（免费源限流保护）
         else:
             time.sleep(45)  # 上一批还在跑
     print(f"达最大轮次 {MAX_ROUNDS}，pool 未达标（当前见上）", flush=True)
