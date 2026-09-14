@@ -47,6 +47,8 @@ BACKUP_FAILURE = "backup.failure"
 BACKUP_CHECKSUM_MISMATCH = "backup.checksum_mismatch"
 # 配置事件
 CONFIG_CHANGED = "config.changed"
+# 救号工作流事件（v2.38.0 G2：大批救号结束通知/台账可见）
+REVIVE_FINISHED = "revive.finished"
 
 # 所有事件列表（用于初始化/校验）
 ALL_EVENTS = frozenset({
@@ -58,6 +60,7 @@ ALL_EVENTS = frozenset({
     IMAGE_TASK_COMPLETED,
     SESSION_DEGRADED,
     SESSION_POOL_LEAK,
+    REVIVE_FINISHED,
 })
 
 # ---------------------------------------------------------------------------

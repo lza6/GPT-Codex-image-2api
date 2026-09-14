@@ -12,6 +12,7 @@ import {
 import { toast } from "sonner";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import { eventHref } from "@/lib/event-notifications";
 import {
   markAsRead,
   markAllAsRead,
@@ -272,6 +273,12 @@ export function NotificationCenter() {
                         onClick={() => {
                           if (!notification.read) {
                             markAsRead(notification.id);
+                          }
+                          // v2.40.0 G4：系统告警通知点击跳转对应页面（事件链路，metadata.href）
+                          const meta = notification.metadata as { href?: string } | undefined;
+                          const href = meta?.href;
+                          if (href && typeof window !== "undefined") {
+                            window.location.href = href;
                           }
                         }}
                       >

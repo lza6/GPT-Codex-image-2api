@@ -74,6 +74,12 @@ DYNAMIC_KEY_ENDPOINTS = {
     "/api/dashboard/events",
     "/api/auth/keys",
     "/api/auth/keys/usage",
+    # v2.37.0 G1：告警测试端点（无鉴权时 200 无通道分支，不走 SNAPSHOT）
+    "/api/system/alerts/test",
+    # v2.38.0 G2：救号工作流异步端点（运行返回动态 task_id/结果，动态键）
+    "/api/accounts/revive/run",
+    "/api/accounts/revive/status/{param}",
+    "/api/accounts/revive/ledger",
 }
 
 

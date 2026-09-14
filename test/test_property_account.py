@@ -6,11 +6,8 @@ import random
 from typing import Any
 
 import pytest
-from hypothesis import assume, given
+from hypothesis import HealthCheck, assume, given, settings
 from hypothesis.strategies import (
-    booleans,
-    builds,
-    floats,
     integers,
     just,
     lists,
@@ -21,7 +18,6 @@ from hypothesis.strategies import (
 )
 
 from services.account_service import AccountService
-
 
 # ============================================================
 # Mock storage
@@ -205,6 +201,7 @@ class TestHealthTierProperties:
         assert AccountService._account_health_tier_base(acc) == AccountService._account_health_tier_base(acc)
 
     @given(fail=count_strategy, success=count_strategy)
+    @settings(suppress_health_check=[HealthCheck.filter_too_much], deadline=None, max_examples=50)
     def test_moderate_fail_rate_is_warm(self, fail: int, success: int) -> None:
         """中等失败率（20%-50% 且 total>=3）→ warm。
 

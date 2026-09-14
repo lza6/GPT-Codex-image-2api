@@ -50,6 +50,11 @@ class ImageDeleteRequest(BaseModel):
 class ImageDownloadRequest(BaseModel):
     paths: list[str]
 
+class AlertTestRequest(BaseModel):
+    """测试告警请求体。channel 留空=测全部启用通道。"""
+    channel: str = ""
+    message: str = ""
+
 class ImageTagsRequest(BaseModel):
     path: str
     tags: list[str]
@@ -124,10 +129,14 @@ def create_router(app_version: str) -> APIRouter:
 
     @router.post("/api/settings")
     async def save_settings(body: SettingsUpdateRequest, authorization: str | None = Header(default=None)):
-        require_admin(authorization)
+        identity = require_admin(authorization)
         try:
+            from services.audit_service import record_admin_access
+
+            record_admin_access(action="/api/settings", result="success", identity=identity)
             return {"config": config.update(body.model_dump(mode="python"))}
         except ValueError as exc:
+            record_admin_access(action="/api/settings", result="error", identity=identity)
             raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
 
     @router.get("/api/images")
@@ -280,7 +289,8 @@ def create_router(app_version: str) -> APIRouter:
             result=result.strip(), operator=operator.strip(),
             action=action.strip(), start_date=start_date.strip(), end_date=end_date.strip(),
         )
-        import csv, io
+        import csv
+        import io
         output = io.StringIO()
         writer = csv.writer(output)
         writer.writerow(["时间", "方法", "操作", "结果", "操作者", "IP", "请求ID", "资源"])
@@ -352,6 +362,30 @@ def create_router(app_version: str) -> APIRouter:
         else:
             result = await run_in_threadpool(image_storage_service.test_webdav)
         return {"result": result}
+
+    @router.post("/api/system/alerts/test")
+    async def test_alerts_endpoint(
+        body: AlertTestRequest,
+        authorization: str | None = Header(default=None),
+    ):
+        """G1 告警接线引导：发送测试告警到已启用通道。
+
+        channel 留空 → 测试全部启用通道（外加通用 webhook_url）；
+        无任何可用通道 → 200 + {"ok": False, "reason": "no_channel"}（前端据此展示空态引导）。
+        """
+        require_admin(authorization)
+        try:
+            from services.alert_service import test_alert
+
+            result = await run_in_threadpool(test_alert, body.message, body.channel)
+            results = list(result.get("results") or [])
+            if not results:
+                return {"ok": False, "reason": "no_channel", "results": []}
+            return {"ok": True, "results": results}
+        except HTTPException:
+            raise
+        except Exception as exc:  # noqa: BLE001 - 端点失败给可读错误，不泄露密钥
+            raise HTTPException(status_code=500, detail={"error": f"测试告警发送失败: {type(exc).__name__}"}) from exc
 
     @router.post("/api/image-storage/sync")
     async def sync_image_storage_endpoint(authorization: str | None = Header(default=None)):
@@ -460,8 +494,8 @@ def create_router(app_version: str) -> APIRouter:
     @router.post("/api/system/diagnose")
     async def run_diagnose(authorization: str | None = Header(default=None)):
         require_admin(authorization)
-        from services.diagnostic_engine import diagnostic_engine
         from services.audit_service import record_admin_access
+        from services.diagnostic_engine import diagnostic_engine
         try:
             report = await diagnostic_engine.diagnose()
             result = report.to_dict()
@@ -490,9 +524,9 @@ def create_router(app_version: str) -> APIRouter:
     @router.post("/api/system/healing/run")
     async def run_healing(authorization: str | None = Header(default=None)):
         require_admin(authorization)
-        from services.diagnostic_engine import diagnostic_engine
-        from services.auto_healer import auto_healer
         from services.audit_service import record_admin_access
+        from services.auto_healer import auto_healer
+        from services.diagnostic_engine import diagnostic_engine
         try:
             report = await diagnostic_engine.diagnose()
             results = await auto_healer.heal_all(report)

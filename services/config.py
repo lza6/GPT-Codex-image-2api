@@ -9,6 +9,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)  # type: ignore[misc]
 
@@ -517,6 +518,31 @@ def _warn_if_weak_auth_key(auth_key: str, env: str) -> None:
     print(f"⚠️  WARNING: {msg}", file=sys.stderr)
 
 
+_WEAK_SMTP_PASSWORDS = {"admin", "password", "secret", "123456", "test", "changeme", "smtp_password", "your_password"}
+
+
+def _validate_weak_channel_credentials(channels: dict[str, dict[str, object]], env: str) -> None:
+    """G6-S3：告警通道弱口令检测——启用的 email 通道 smtp_password 为常见占位符时告警/拒绝。
+
+    与 auth-key 弱口令同策略：production 拒绝启动，development 仅 WARNING（不阻断）。
+    """
+    for name, cfg in channels.items():
+        if not _normalize_bool(cfg.get("enabled"), True):
+            continue
+        channel_type = str(cfg.get("type") or name).strip().lower()
+        if channel_type != "email":
+            continue
+        smtp_password = str(cfg.get("smtp_password") or "").strip().lower()
+        if not smtp_password or smtp_password in _WEAK_SMTP_PASSWORDS:
+            msg = (
+                f"❌ 告警通道 {name}（email）smtp_password 为空白或常见占位符，存在泄露风险！\n"
+                "   请设置真实的 SMTP 密码（或用 CHATGPT2API_ALERT_EMAIL_SMTP_PASSWORD 环境变量注入）。"
+            )
+            if env == "production":
+                raise ValueError(f"❌ 生产环境拒绝使用弱 SMTP 密码启动！\n{msg}")
+            print(f"⚠️  WARNING: {msg}", file=sys.stderr)
+
+
 def _read_json_object(path: Path, *, name: str) -> dict[str, object]:
     if not path.exists():
         return {}
@@ -571,7 +597,8 @@ class ConfigStore:
         self._config_mtime: float = 0.0
         self.data = self._load()
         self._config_mtime = self._get_file_mtime()
-        self._storage_backend: StorageBackend | None = None
+        # 延迟求值类型注解（防 storage 层循环 import）
+        self._storage_backend: object | None = None  # 惰性初始化，见 get_storage_backend（避免循环 import）
         if _is_invalid_auth_key(self.auth_key):
             raise ValueError(
                 "❌ auth-key 未设置！\n"
@@ -581,6 +608,13 @@ class ConfigStore:
                 "2. 或者在 config.json 中填写：\n"
                 '   "auth-key": "your_real_auth_key"'
             )
+        # G6-S3：告警通道弱口令检测（production 拒绝 / development WARNING）
+        try:
+            _validate_weak_channel_credentials(self.alert_channels, self.env)
+        except ValueError:
+            raise
+        except Exception:  # noqa: BLE001 - 弱口令检测自身失败不阻断启动
+            pass
 
     def _get_file_mtime(self) -> float:
         try:
@@ -957,6 +991,14 @@ class ConfigStore:
     def redis_url(self) -> str:
         """Redis 共享状态连接串（默认空 = Local 进程内，多 worker 状态分裂可接受时）。"""
         return str(os.getenv("CHATGPT2API_REDIS_URL") or self.data.get("redis_url") or "").strip()
+
+    @property
+    def metrics_token(self) -> str:
+        """Prometheus 指标独立抓取 token（G6-S1，默认空 = 回退 auth-key 鉴权）。
+
+        配置后 /metrics 只认该 token，auth-key 不再放行——防 auth-key 泄漏后指标裸奔。
+        """
+        return str(os.getenv("CHATGPT2API_METRICS_TOKEN") or "").strip()
 
     @property
     def alert_webhook_url(self) -> str:
@@ -1664,10 +1706,9 @@ class ConfigStore:
             "overage_action": str(raw.get("overage_action") or "reject"),
         }
 
-    def get_storage_backend(self) -> "StorageBackend":
+    def get_storage_backend(self) -> Any:  # 返回 StorageBackend（惰性 import 防循环）
         """获取存储后端实例（单例）"""
         if self._storage_backend is None:
-            from services.storage.base import StorageBackend
             from services.storage.factory import create_storage_backend
             self._storage_backend = create_storage_backend(DATA_DIR)
         return self._storage_backend

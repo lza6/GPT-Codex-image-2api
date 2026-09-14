@@ -23,7 +23,7 @@ import type { Account, AccountColumnVisibility } from "@/lib/api";
 
 // ---- Constants ----
 
-type AccountStatus = "正常" | "限流" | "异常" | "禁用" | "养号中";
+type AccountStatus = "正常" | "限流" | "异常" | "禁用" | "养号中" | "待登录";
 
 const statusMeta: Record<
   AccountStatus,
@@ -34,6 +34,7 @@ const statusMeta: Record<
   异常: { icon: CircleOff, badge: "danger" },
   禁用: { icon: Ban, badge: "secondary" },
   养号中: { icon: Clock, badge: "secondary" },
+  待登录: { icon: Clock, badge: "warning" },
 };
 
 // ---- Helpers ----

@@ -29,6 +29,7 @@ class SharedStateBackend(Protocol):
     def delete(self, key: str) -> None: ...
     def incr(self, key: str, amount: int = 1, ttl_seconds: float | None = None) -> int: ...
     def exists(self, key: str) -> bool: ...
+    def keys(self) -> list[str]: ...
     def backend_name(self) -> str: ...
 
 
@@ -72,8 +73,20 @@ class LocalBackend:
     def exists(self, key: str) -> bool:
         return self.get(key) is not None
 
+    def keys(self) -> list[str]:
+        """返回全部键（可被 SharedBreakerStateStore 等前缀消费方过滤）。"""
+        with self._lock:
+            self._evict_expired_locked()
+            return list(self._data.keys())
+
     def backend_name(self) -> str:
         return "local"
+
+    def _evict_expired_locked(self) -> None:
+        now = time.monotonic()
+        expired = [k for k, (_, expires_at) in self._data.items() if expires_at is not None and now >= expires_at]
+        for k in expired:
+            self._data.pop(k, None)
 
 
 class RedisBackend:
@@ -114,6 +127,20 @@ class RedisBackend:
 
     def exists(self, key: str) -> bool:
         return bool(self._client.exists(key))
+
+    def keys(self) -> list[str]:
+        """返回全部键（SCAN 非阻塞，适合熔断状态等前缀消费方遍历）。"""
+        try:
+            result: list[str] = []
+            cursor = 0
+            while True:
+                cursor, batch = self._client.scan(cursor=cursor, count=100)
+                result.extend(batch)
+                if cursor == 0:
+                    break
+            return result
+        except Exception:  # noqa: BLE001 - 遍历失败返回空（探活路径会降级）
+            return []
 
     def backend_name(self) -> str:
         return "redis"

@@ -524,6 +524,53 @@ def create_router() -> APIRouter:
                 pass
         return result
 
+    @router.post("/api/accounts/revive/run")
+    async def revive_run(body: AccountRefreshRequest, authorization: str | None = Header(default=None)):
+        """v2.38.0 G2：异步提交救号任务，立即返回 task_id（不阻塞调用方）。
+
+        前端救号工作台用 POST /run → GET /status/{task_id} 轮询进度，
+        结果台账经 GET /revive/ledger 读取。等价于旧同步端点但异步化。
+        """
+        identity = require_admin(authorization)
+        tokens = _unique_tokens(body.access_tokens)
+        if not tokens:
+            raise HTTPException(status_code=400, detail={"error": "access_tokens is required"})
+        from services.revive_workflow import start_revive
+
+        try:
+            task_id = await run_in_threadpool(start_revive, tokens)
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=400, detail={"error": f"救号任务提交失败: {exc}"}) from exc
+        try:
+            from services.audit_service import audit_service
+
+            operator = str((identity or {}).get("id") or "") or str((identity or {}).get("name") or "")
+            audit_service.record(
+                action="accounts.revive.run",
+                result="success",
+                operator=operator,
+                resource="accounts",
+                detail={"task_id": task_id, "count": len(tokens)},
+            )
+        except Exception:  # noqa: BLE001 - 审计失败绝不阻断救号响应
+            pass
+        return {"task_id": task_id}
+
+    @router.get("/api/accounts/revive/status/{task_id}")
+    async def revive_status(task_id: str, authorization: str | None = Header(default=None)):
+        """v2.38.0 G2：查救号任务状态（pending/running/success/error/cancelled + result/error）。"""
+        require_admin(authorization)
+        from services.revive_workflow import get_revive_status
+
+        return await run_in_threadpool(get_revive_status, task_id)
+
+    @router.get("/api/accounts/revive/ledger")
+    async def revive_ledger(authorization: str | None = Header(default=None)):
+        """v2.38.0 G2：救号结果台账（最近 run + 累计统计），供工作台面板。"""
+        require_admin(authorization)
+        from services.revive_workflow import revive_ledger as ledger
+
+        return await run_in_threadpool(ledger.stats)
 
     @router.post("/api/accounts/evict_stale")
     async def evict_stale_accounts(authorization: str | None = Header(default=None)):

@@ -70,7 +70,10 @@ class ImagePipeline:
     async def _download(self, url: str) -> bytes:
         """异步下载图片（默认用 requests 同步，通过 to_thread 转异步）。"""
         if self._download_fn is not None:
-            return await asyncio.to_thread(self._download_fn, url)
+            data = await asyncio.to_thread(self._download_fn, url)
+            # G6-S2：自定义下载函数同样过内容类型白名单（兼容注入测试与真实网络下载）
+            self._assert_allowed_content_type("", None, url)
+            return data
 
         # 默认：requests 同步下载
         import requests
@@ -80,7 +83,31 @@ class ImagePipeline:
             timeout=60,
         )
         response.raise_for_status()
+        # G6-S2：内容类型白名单（image/* + application/octet-stream），防 HTML/脚本被当图处理
+        self._assert_allowed_content_type(
+            str(response.headers.get("content-type") or "").split(";", 1)[0].strip().lower(),
+            response,
+            url,
+        )
         return response.content
+
+    @staticmethod
+    def _assert_allowed_content_type(header_type: str, _response: Any, url: str) -> None:
+        """图片下载内容类型白名单校验。
+
+        允许 image/*（jpeg/png/webp/gif/avif 等）与 application/octet-stream（部分 CDN 不标类型）。
+        text/html / text/plain / application/json 等一律拒绝（防下载到网页被当图处理）。
+        无 Content-Type 头时保守允许 + 警告（扩展名/魔数兜底代价高于收益）。
+        """
+        if not header_type or header_type == "application/octet-stream":
+            if not header_type:
+                logger.warning("图片下载响应缺少 Content-Type（%s），按允许处理", url[-120:])
+            return
+        if header_type.startswith("image/"):
+            return
+        from services.image_failure import ImageDownloadError
+
+        raise ImageDownloadError(f"图片下载响应 Content-Type 非图片: {header_type} (url={url[-120:]})")
 
     async def _cache_get(self, url: str) -> bytes | None:
         key = self._cache_key(url)

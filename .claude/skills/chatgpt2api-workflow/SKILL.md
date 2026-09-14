@@ -16,7 +16,7 @@ description: ChatGPT2API 项目的完整开发工作流。用于新功能开发�
 - 修改启动脚本/部署配置
 - 新增后端模块或修改架构层（事件总线/任务队列/Provider 路由/ORM 存储/共享状态）
 
-## 项目架构（当前真实状态，v2.36.0）
+## 项目架构（当前真实状态，v2.37.0）
 
 ```
 chatgpt2api/
@@ -165,7 +165,7 @@ chatgpt2api/
 ├── main.py                   # 启动入口 (多 worker, JSON 存储自动回退 workers=1)
 ├── 启动chatgpt2api.bat        # Windows 一键启动 (GBK+CRLF 无 BOM)
 ├── 停止chatgpt2api.bat        # Windows 停止服务
-├── VERSION                   # 当前版本号 (v2.36.0)
+├── VERSION                   # 当前版本号 (v2.37.0)
 ├── CHANGELOG.md              # 变更日志
 └── workflow_status.md        # 工作流状态（当前轮次完成清单+防线状态）
 ```
@@ -491,6 +491,9 @@ chatgpt2api/
 
 | 需求 | 文件 |
 |------|------|
+| 告警测试/接线（v2.37.0） | `api/system.py` POST /api/system/alerts/test + `services/alert_service.py` test_alert()；磁盘守护 `services/disk_alert_guard.py`（system.disk_high 事件 + check_alert_unwired 启动 WARNING） |
+| 救号工作流（v2.37.0） | `services/revive_workflow.py`（start_revive 异步 + ReviveLedger 台账 data/revive_ledger.jsonl + revive.finished 事件）；`api/accounts.py` revive/run + status/{task_id} + ledger；`event_bus.py` REVIVE_FINISHED |
+| 熔断共享状态（v2.37.0） | `services/circuit_breaker.py` SharedBreakerStateStore（包装 shared_state.get_shared_state()，键 c2api:cb:{token}，Local/Redis 自动+降级）；`shared_state.py` keys()；/api/dashboard/circuit_breakers 返回 store 字段 |
 | 调度 | services/account_service.py（Provider 过滤见 _account_matches_provider） |
 | 熔断 | services/circuit_breaker.py（判定见 image_failure.py） |
 | 连接池 | services/session_pool.py（自适应扩容/缩容，key 含账号标识+指纹） |

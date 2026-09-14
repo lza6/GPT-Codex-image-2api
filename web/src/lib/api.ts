@@ -1,7 +1,7 @@
 import { httpRequest, request } from "@/lib/request";
 
 export type AccountType = string;
-export type AccountStatus = "正常" | "限流" | "异常" | "禁用" | "养号中";
+export type AccountStatus = "正常" | "限流" | "异常" | "禁用" | "养号中" | "待登录";
 export type ImageModel = string;
 export type AuthRole = "admin" | "user";
 export type ImageStorageMode = "local" | "webdav" | "both" | "r2" | "r2_local";
@@ -605,6 +605,8 @@ export async function batchAccounts(action: AccountBatchAction, ids: string[], l
 export type CircuitBreakerStatus = {
   breakers: Record<string, { state: string; recover_in_seconds: number }>;
   total_open: number;
+  /** 熔断状态存储：local=单进程内 / redis=跨进程共享 / degraded=降级本地（后端 v2.39.0+ 提供）。 */
+  store?: string;
 };
 
 export async function fetchCircuitBreakers() {
@@ -669,6 +671,52 @@ export async function reviveAccounts(accessTokens: string[]) {
     method: "POST",
     body: { access_tokens: accessTokens },
   });
+}
+
+// v2.38.0 G2：救号异步工作流（任务队列 + 结果台账）
+export type ReviveRunResponse = {
+  task_id: string;
+};
+
+export type ReviveTaskResult = {
+  revived: number;
+  failed: AccountReviveFailed[];
+  skipped: AccountReviveSkipped[];
+};
+
+export type ReviveTaskStatus = {
+  task_id: string;
+  status: "pending" | "running" | "done" | "error" | "canceled";
+  result?: ReviveTaskResult;
+  error?: string;
+};
+
+export type ReviveLedgerRun = {
+  run_id: string;
+  ts: number;
+  revived: number;
+  failed: number;
+  skipped: number;
+  failed_details?: AccountReviveFailed[];
+};
+
+export type ReviveLedgerResponse = {
+  runs: ReviveLedgerRun[];
+};
+
+export async function startReviveRun(accessTokens: string[]) {
+  return httpRequest<ReviveRunResponse>("/api/accounts/revive/run", {
+    method: "POST",
+    body: { access_tokens: accessTokens },
+  });
+}
+
+export async function fetchReviveStatus(taskId: string) {
+  return httpRequest<ReviveTaskStatus>(`/api/accounts/revive/status/${taskId}`);
+}
+
+export async function fetchReviveLedger() {
+  return httpRequest<ReviveLedgerResponse>("/api/accounts/revive/ledger");
 }
 
 export async function updateAccount(
@@ -824,6 +872,26 @@ export async function testBackupConnection() {
   return httpRequest<{ result: { ok: boolean; status: number } }>("/api/backup/test", {
     method: "POST",
     body: {},
+  });
+}
+
+export type AlertTestResult = {
+  channel: string;
+  ok: boolean;
+  error: string;
+};
+
+export type AlertTestResponse = {
+  ok: boolean;
+  reason?: string;
+  results: AlertTestResult[];
+};
+
+/** 发送测试告警：验证告警通道接线是否可用（G1，POST /api/system/alerts/test）。 */
+export async function sendTestAlert(channel = "", message = "") {
+  return httpRequest<AlertTestResponse>("/api/system/alerts/test", {
+    method: "POST",
+    body: { channel, message },
   });
 }
 

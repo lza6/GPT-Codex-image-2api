@@ -76,6 +76,9 @@ import {
   recoverAbnormalAccounts,
   refreshAccounts,
   reviveAccounts,
+  startReviveRun,
+  fetchReviveStatus,
+  fetchReviveLedger,
   testProxy,
   updateAccount,
   type Account,
@@ -88,6 +91,8 @@ import {
   type Model,
   type ProviderInfo,
   type RefreshProgressResponse,
+  type ReviveLedgerRun,
+  type ReviveTaskStatus,
   type SystemLog,
 } from "@/lib/api";
 import { useAuthGuard } from "@/lib/use-auth-guard";
@@ -167,6 +172,7 @@ const statusMeta: Record<
   异常: { icon: CircleOff, badge: "danger" },
   禁用: { icon: Ban, badge: "secondary" },
   养号中: { icon: Clock, badge: "secondary" },
+  待登录: { icon: Clock, badge: "warning" },
 };
 
 const metricCards = [
@@ -330,7 +336,15 @@ function AccountsPageContent() {
       return [];
     }
   });
-  const [query, setQuery] = useState("");
+  // v2.40.0 G4：全局搜索跳转预填关键词（/accounts?q=...），首次加载生效
+  const [query, setQuery] = useState(() => {
+    if (typeof window === "undefined") return "";
+    try {
+      return new URLSearchParams(window.location.search).get("q") ?? "";
+    } catch {
+      return "";
+    }
+  });
   const [typeFilter, setTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<AccountStatus | "all">("all");
   const [tierFilter, setTierFilter] = useState("all");
@@ -365,6 +379,12 @@ function AccountsPageContent() {
   const [isEvicting, setIsEvicting] = useState(false);
   // 4.2：批量救活（/api/accounts/revive）
   const [isReviving, setIsReviving] = useState(false);
+  // v2.38.0 G2：救号工作台（异步任务 + 台账）
+  const [revivePanelOpen, setRevivePanelOpen] = useState(false);
+  const [reviveTaskId, setReviveTaskId] = useState<string | null>(null);
+  const [reviveStatus, setReviveStatus] = useState<ReviveTaskStatus | null>(null);
+  const [reviveLedger, setReviveLedger] = useState<ReviveLedgerRun[]>([]);
+  const [revivePolling, setRevivePolling] = useState(false);
   // 3.1.2：批量操作（按选中 ids 分发到 /api/accounts/batch）
   const [isBatchAction, setIsBatchAction] = useState(false);
   const [labelDialogOpen, setLabelDialogOpen] = useState(false);
@@ -380,6 +400,8 @@ function AccountsPageContent() {
   } | null>(null);
   // 熔断状态：token 末 8 位 -> {state, recover_in_seconds}（仅含非 closed 账号）
   const [circuitBreakers, setCircuitBreakers] = useState<Record<string, { state: string; recover_in_seconds: number }>>({});
+  // 熔断状态存储后端（跨进程一致性提示，v2.39.0）：local / redis / degraded
+  const [breakerStore, setBreakerStore] = useState<string | undefined>(undefined);
   const [progress, setProgress] = useState<{
     visible: boolean;
     current: number;
@@ -450,6 +472,10 @@ function AccountsPageContent() {
       // 熔断状态合并到账号列表响应
       if (data.breakers) {
         setCircuitBreakers(data.breakers);
+      }
+      // v2.39.0：熔断状态存储后端（local/redis/degraded），驱动跨进程一致性徽章
+      if (typeof (data as { store?: string }).store === "string") {
+        setBreakerStore(String((data as { store?: string }).store));
       }
     } catch (error) {
       // 网络错误时尝试读缓存
@@ -780,6 +806,7 @@ function AccountsPageContent() {
   };
 
   // 4.2：批量救活选中账号（/api/accounts/revive）——消耗上游配额/触发风控，需二次确认
+  // v2.38.0 G2：改为提交异步任务 + 打开救号工作台轮询进度/结果
   const handleBatchRevive = () => {
     if (selectedTokens.length === 0) {
       toast.error("请先勾选账号");
@@ -792,29 +819,124 @@ function AccountsPageContent() {
         setIsReviving(true);
         const tokens = selectedTokens;
         try {
-          const data = await reviveAccounts(tokens);
-          const failedCount = data.failed.length + data.skipped.length;
-          addOperationResult(
-            "批量救活完成",
-            `救活 ${data.revived} 个，失败 ${data.failed.length} 个，跳过 ${data.skipped.length} 个`,
-            data.revived,
-            failedCount,
-          );
-          if (data.failed.length > 0) {
-            const first = data.failed[0];
-            toast.error(`救活失败 ${data.failed.length} 个${first ? `，首个：${first.email} ${first.error}` : ""}`);
-          } else {
-            toast.success(`批量救活完成：救活 ${data.revived} 个${data.skipped.length > 0 ? `，跳过 ${data.skipped.length} 个` : ""}`);
-          }
+          const { task_id } = await startReviveRun(tokens);
+          setReviveTaskId(task_id);
+          setReviveStatus(null);
+          setRevivePanelOpen(true);
+          setRevivePolling(true);
+          toast.success("救号任务已提交，正在后台执行");
+          addOperationResult("批量救活任务已提交", `已提交 ${tokens.length} 个账号的救号任务`, 0, 0);
           await loadAccounts(true);
         } catch (error) {
-          addOperationResult("批量救活失败", extractErrorMessage(error), 0, tokens.length);
-          toastError(error, "批量救活失败");
+          addOperationResult("批量救活提交失败", extractErrorMessage(error), 0, tokens.length);
+          toastError(error, "提交批量救活失败");
         } finally {
           setIsReviving(false);
         }
       },
     });
+  };
+
+  // v2.38.0 G2：救号工作台轮询（每 2s 拉状态；卸载/关闭清理定时器）
+  // 注意：闭包内拉最新 state 用 ref 镜像，避免 useEffect 因 loadAccounts 引用变化反复重建
+  const loadReviveLedger = useCallback(async () => {
+    try {
+      const data = await fetchReviveLedger();
+      setReviveLedger(data.runs || []);
+    } catch (error) {
+      // 台账加载失败不阻断面板，静默降级（面板主体是任务状态）
+      console.warn("加载救号台账失败", error);
+    }
+  }, []);
+  const revivePollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const reviveTaskIdRef = useRef<string | null>(null);
+  const revivePollingRef = useRef(false);
+  const loadAccountsRef = useRef(loadAccounts);
+  loadAccountsRef.current = loadAccounts;
+  useEffect(() => {
+    reviveTaskIdRef.current = reviveTaskId;
+  }, [reviveTaskId]);
+  useEffect(() => {
+    revivePollingRef.current = revivePolling;
+  }, [revivePolling]);
+
+  useEffect(() => {
+    const poll = async () => {
+      const taskId = reviveTaskIdRef.current;
+      if (!taskId) {
+        return;
+      }
+      try {
+        const status = await fetchReviveStatus(taskId);
+        setReviveStatus(status);
+        const done = status.status === "done" || status.status === "error" || status.status === "canceled";
+        if (done) {
+          setRevivePolling(false);
+          revivePollingRef.current = false;
+          if (status.status === "done") {
+            toast.success(`救号完成：救活 ${status.result?.revived ?? 0} 个`);
+            void loadAccountsRef.current(true);
+          }
+          if (status.status === "error") {
+            toastError(status.error || "救号任务执行失败", "救号任务失败");
+          }
+          await loadReviveLedger();
+          if (revivePollTimerRef.current) {
+            clearInterval(revivePollTimerRef.current);
+            revivePollTimerRef.current = null;
+          }
+        }
+      } catch (error) {
+        // 轮询报错：停止轮询，避免无限重试
+        setRevivePolling(false);
+        revivePollingRef.current = false;
+        if (revivePollTimerRef.current) {
+          clearInterval(revivePollTimerRef.current);
+          revivePollTimerRef.current = null;
+        }
+        toastError(error, "查询救号进度失败");
+      }
+    };
+
+    if (revivePollingRef.current && reviveTaskIdRef.current) {
+      if (!revivePollTimerRef.current) {
+        revivePollTimerRef.current = setInterval(poll, 2000);
+        void poll();
+      }
+    }
+    return () => {
+      if (revivePollTimerRef.current) {
+        clearInterval(revivePollTimerRef.current);
+        revivePollTimerRef.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revivePolling, reviveTaskId, loadReviveLedger]);
+
+  // 打开救号台账：不提交新任务，只拉取最近记录
+  const openReviveLedger = () => {
+    setReviveTaskId(null);
+    setReviveStatus(null);
+    setRevivePanelOpen(true);
+    void loadReviveLedger();
+  };
+
+  // 导出当前任务失败名单（email 列表 CSV）
+  const exportReviveFailed = (failed: Array<{ email: string; error: string }>) => {
+    const emails = failed.map((item) => item.email || "").filter(Boolean);
+    const content = emails.join("\n");
+    const blob = new Blob([content], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `revive-failed-${Date.now()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    if (emails.length > 0) {
+      toastSuccess(`已导出 ${emails.length} 个失败账号`);
+    } else {
+      toast.error("当前任务无失败账号可导出");
+    }
   };
 
   // 3.1.2：批量打标签（Dialog 输入标签 → label action）
@@ -2037,6 +2159,30 @@ function AccountsPageContent() {
         >
           <CardContent className="space-y-0 p-0">
             <div className="flex flex-col gap-3 border-b border-stone-100 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+              {/* v2.39.0：熔断状态跨进程一致性徽章（store 由后端 circuit_breakers/accounts 响应提供） */}
+              {breakerStore && (
+                <div
+                  title={
+                    breakerStore === "redis"
+                      ? "多 Worker 下熔断状态一致，已配 Redis 共享状态"
+                      : breakerStore === "degraded"
+                        ? "Redis 不可用，已自动降级本地共享状态"
+                        : "多 Worker 下各进程各算各的；如需一致请配置 redis_url（docker compose -f docker-compose.local.yml up -d 后设置）"
+                  }
+                  className="flex w-fit items-center gap-1.5 rounded-full border border-stone-200 bg-white px-2.5 py-1 text-xs text-stone-600"
+                >
+                  <span
+                    className={`inline-block h-1.5 w-1.5 rounded-full ${
+                      breakerStore === "redis" ? "bg-green-500" : breakerStore === "degraded" ? "bg-red-500" : "bg-amber-500"
+                    }`}
+                  />
+                  {breakerStore === "redis"
+                    ? "熔断状态跨进程共享"
+                    : breakerStore === "degraded"
+                      ? "熔断状态已降级本地"
+                      : "熔断状态单进程内"}
+                </div>
+              )}
               <div className="flex flex-wrap items-center gap-2 text-sm text-stone-500">
                 <Button
                   variant="ghost"
@@ -2095,6 +2241,15 @@ function AccountsPageContent() {
                 >
                   {isReviving ? <LoaderCircle className="size-4 animate-spin" /> : <HeartPulse className="size-4" />}
                   批量救活
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="h-8 rounded-lg px-3 text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+                  onClick={openReviveLedger}
+                  title="查看救号工作台：最近救号任务进度与台账"
+                >
+                  <History className="size-4" />
+                  救号台账
                 </Button>
                 <Button
                   variant="ghost"
@@ -2519,6 +2674,156 @@ function AccountsPageContent() {
             >
               {(isDeleting || isEvicting || isReviving) ? <LoaderCircle className="size-4 animate-spin" /> : null}
               确认执行
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* v2.38.0 G2：救号工作台（异步任务进度 + 结果台账） */}
+      <Dialog
+        open={revivePanelOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            // R3 修复：关闭面板即停轮询（否则后台每 2s 空转请求）
+            setRevivePolling(false);
+            revivePollingRef.current = false;
+            if (revivePollTimerRef.current) {
+              clearInterval(revivePollTimerRef.current);
+              revivePollTimerRef.current = null;
+            }
+            setRevivePanelOpen(false);
+          }
+        }}
+      >
+        <DialogContent className="max-h-[80vh] overflow-y-auto rounded-2xl">
+          <DialogHeader>
+            <DialogTitle>救号工作台</DialogTitle>
+            <DialogDescription>
+              {reviveStatus ? `任务 ${reviveStatus.task_id} · ${reviveStatus.status}` : "最近救号任务与结果台账"}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            {/* 当前任务状态 */}
+            {reviveStatus ? (
+              <div className="flex flex-wrap items-center gap-2 rounded-xl border border-stone-200 bg-white px-4 py-3">
+                <Badge
+                  className={
+                    reviveStatus.status === "done"
+                      ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+                      : reviveStatus.status === "error"
+                        ? "bg-rose-50 text-rose-700 ring-1 ring-rose-200"
+                        : reviveStatus.status === "canceled"
+                          ? "bg-amber-50 text-amber-700 ring-1 ring-amber-200"
+                          : reviveStatus.status === "running"
+                            ? "bg-sky-50 text-sky-700 ring-1 ring-sky-200"
+                            : "bg-stone-100 text-stone-600 ring-1 ring-stone-200"
+                    }
+                  >
+                    {reviveStatus.status}
+                  </Badge>
+                {reviveStatus.status === "done" && reviveStatus.result ? (
+                  <span className="text-sm text-stone-700">
+                    救活 <b className="text-emerald-600">{reviveStatus.result.revived}</b> 个
+                    {reviveStatus.result.failed.length > 0 && (
+                      <> · 失败 <b className="text-rose-600">{reviveStatus.result.failed.length}</b> 个</>
+                    )}
+                    {reviveStatus.result.skipped.length > 0 && (
+                      <> · 跳过 <b className="text-stone-500">{reviveStatus.result.skipped.length}</b> 个</>
+                    )}
+                  </span>
+                ) : reviveStatus.status === "error" ? (
+                  <span className="text-sm text-rose-600">{reviveStatus.error || "任务执行失败"}</span>
+                ) : revivePolling ? (
+                  <span className="text-sm text-stone-500">
+                    <LoaderCircle className="mr-1 inline size-3.5 animate-spin" /> 正在执行，每 2s 刷新进度…
+                  </span>
+                ) : (
+                  <span className="text-sm text-stone-500">任务已结束，详见下方台账</span>
+                )}
+              </div>
+            ) : null}
+
+            {/* 当前任务逐账号结果 */}
+            {reviveStatus?.result && (reviveStatus.result.failed.length > 0 || reviveStatus.result.skipped.length > 0) ? (
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-stone-500">逐账号结果（前 30 条）</span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 rounded-lg px-2 text-xs"
+                    onClick={() => exportReviveFailed(reviveStatus.result?.failed ?? [])}
+                  >
+                    <Download className="mr-1 size-3" />
+                    导出失败名单
+                  </Button>
+                </div>
+                <ul className="max-h-56 space-y-1 overflow-y-auto rounded-xl border border-stone-100 bg-stone-50 p-2">
+                  {[...reviveStatus.result.failed, ...reviveStatus.result.skipped].slice(0, 30).map((item, idx) => {
+                    const err = "error" in item ? item.error : "";
+                    const reason = "reason" in item ? item.reason : "";
+                    return (
+                      <li key={idx} className="flex items-start justify-between gap-2 text-xs">
+                        <span className="truncate text-stone-700">{item.email || "-"}</span>
+                        <span className={err ? "text-rose-600" : "text-stone-400"}>
+                          {err || reason || ""}
+                        </span>
+                      </li>
+                    );
+                  })}
+                  {reviveStatus.result.failed.length + reviveStatus.result.skipped.length > 30 && (
+                    <li className="text-center text-xs text-stone-400">仅展示前 30 条，更多见下方台账明细</li>
+                  )}
+                </ul>
+              </div>
+            ) : null}
+
+            {/* 最近救号台账 */}
+            <div className="space-y-1">
+              <span className="text-xs font-medium text-stone-500">救号台账（最近 {reviveLedger.length} 次）</span>
+              {reviveLedger.length === 0 ? (
+                <p className="rounded-xl border border-dashed border-stone-200 p-3 text-center text-xs text-stone-400">
+                  暂无救号记录
+                </p>
+              ) : (
+                <ul className="max-h-64 space-y-2 overflow-y-auto">
+                  {reviveLedger.map((run) => (
+                    <li key={run.run_id} className="rounded-xl border border-stone-100 bg-white p-3">
+                      <div className="flex items-center justify-between text-xs text-stone-600">
+                        <span className="font-medium">
+                          {new Date(run.ts * 1000).toLocaleString()}
+                        </span>
+                        <span>
+                          救活 <b className="text-emerald-600">{run.revived}</b>
+                          {run.failed > 0 && <> · 失败 <b className="text-rose-600">{run.failed}</b></>}
+                          {run.skipped > 0 && <> · 跳过 <b className="text-stone-500">{run.skipped}</b></>}
+                        </span>
+                      </div>
+                      {run.failed_details && run.failed_details.length > 0 && (
+                        <details className="mt-2">
+                          <summary className="cursor-pointer text-xs text-stone-400">失败明细（{run.failed_details.length}）</summary>
+                          <ul className="mt-1 max-h-40 space-y-1 overflow-y-auto">
+                            {run.failed_details.map((fd, idx) => (
+                              <li key={idx} className="flex justify-between gap-2 text-xs text-stone-500">
+                                <span className="truncate">{fd.email}</span>
+                                <span className="text-rose-500">{fd.error}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </details>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            {revivePolling ? (
+              <span className="mr-auto text-xs text-stone-400">关闭后可在「救号台账」入口重新查看历史</span>
+            ) : null}
+            <Button variant="outline" className="rounded-xl" onClick={() => setRevivePanelOpen(false)}>
+              关闭
             </Button>
           </DialogFooter>
         </DialogContent>

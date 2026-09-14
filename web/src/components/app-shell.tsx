@@ -5,9 +5,11 @@ import { usePathname, useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
 
 import { ErrorBoundary } from "@/components/error-boundary";
+import { GlobalSearch } from "@/components/global-search";
 import { PageTransition } from "@/components/page-transition";
 import { ShortcutsDialog } from "@/components/shortcuts-dialog";
 import { useKeyboard } from "@/hooks/use-keyboard";
+import { syncEventsToNotifications } from "@/lib/event-notifications";
 import { getStoredAuthSession, type StoredAuthSession } from "@/store/auth";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -20,6 +22,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     if (didLoadRef.current) return;
     didLoadRef.current = true;
     getStoredAuthSession().then(setSession);
+    // v2.40.0 G4：应用加载时同步一次系统事件到通知中心（去重幂等，失败静默）
+    void syncEventsToNotifications(20);
   }, []);
 
   // 快捷键：导航
@@ -57,6 +61,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <ErrorBoundary>
       <ShortcutsDialog />
+      <GlobalSearch />
       <PageTransition pathname={pathname}>{children}</PageTransition>
     </ErrorBoundary>
   );

@@ -1,4 +1,37 @@
-# ChatGPT2API 工作流状态 — 第二十四轮（v2.36.0 fomimage 提供商接入 + 规模化增强）
+# ChatGPT2API 工作流状态 — 第二十五轮（v2.37.0 告警接线闭环 + 救号工作流 + 熔断多Worker一致化 + 覆盖率 + 安全纵深 + 前端体验统一)
+
+> 最后更新：2026-09-15
+> 模式：按 `计划书/下一步改进指南.md` G1~G6 六组全部落地，8 个子代理并行交付 + 主控集成/回归/防线/E2E/审查
+> 基线：v2.37.0
+
+> 上一轮（第二十四轮，v2.36.0）已闭环：fomimage 提供商接入，详见历史。
+
+## 本轮完成清单
+
+| 编号 | 事项 | 状态 | 证据 |
+|------|------|------|------|
+| G1 | 告警接线闭环：alerts/test 端点 + test_alert() + 磁盘守护 + 前端空态引导/测试按钮/状态点 | ✅ | test_alert_test_endpoint 9 + test_disk_alert_guard 6 + 告警回归 42 + E2E 设置页通过 |
+| G2 | 救号异步工作流：revive/run 异步 + status/ledger 端点 + ReviveLedger 台账 + revive.finished 事件 + 前端工作台 | ✅ | test_revive_workflow 11 + 回归 62 + 契约断链 0 |
+| G3 | 熔断多Worker一致化：SharedBreakerStateStore（Local/Redis/降级）+ shared_state.keys() + dashboard store 字段 + 前端徽章 | ✅ | test_breaker_shared_state 6 + 熔断 33 回归 + 契约 0 |
+| G4 | 前端体验统一：全局搜索聚合 + 通知中心事件流 + accounts q 预填 | ✅ | tsc 0 + build + E2E 16 passed |
+| G5 | 覆盖率攻坚：六大模块 89%~100%（49 新用例）+ 全量 62%→64% | ✅ | test_g5_coverage_core 49 + 覆盖率门禁 |
+| G6 | 安全纵深五项：metrics_token / 内容白名单 / SMTP 弱口令 / CI security-audit / 配置保存审计 | ✅ | test_metrics_token 4 + test_g6_security 13 + ruff 0 |
+| R1 | 回归修复：待登录状态白名单 + openapi 重生成 + image_task 时间戳 + property flaky | ✅ | 全量 pytest 1596 passed |
+
+## 本轮防线状态（六道全绿）
+
+| 批次 | 契约 | SQL | 慢查询 | 变异 | 施压 | 文档同步 |
+|------|------|-----|--------|------|------|----------|
+| 第二十五轮 | ✅ 断链=0 漂移=0 | ✅ P0=0 P1=0 | ✅ resolved=0 | ✅ caught=33 escaped=0 | ✅ 8/8 | ✅ VERSION 2.37.0 与 4 文档一致 |
+
+## 边界声明（诚实）
+
+- **真实告警通道未连**：测试告警端点已 mock 验证发送拼装/失败反馈；真实 webhook/SMTP 接收需运维配好通道后手动点「发送测试告警」验证（webshook.site 可低成本复验）。
+- **多 Worker Redis 熔断一致性未真机实测**：本地无 Redis，`get_shared_state()` 自动降级 Local；跨进程一致性的 Redis 路径由单测（假 backend）覆盖，真机需配 `redis_url` 后验证。
+- **E2E 需系统 Edge**：Playwright 用 msedge channel；若机器无 Edge 需先装（本项目已装，16 passed）。
+- **app.py 5 处 ruff F821/F841 为 HEAD 存量**（tracer/ip_probe_thread/fom_reg_thread/bearer_scheme），本轮未触碰，下一轮可清。
+
+---
 
 > 最后更新：2026-08-14
 > 模式：fomimage 提供商接入全链路（模型前缀映射 + 自动注册号池 + 积分用完即弃 + 一号一指纹 + 批量并发 + 多邮箱源 + 统计接线 + 前端管理）

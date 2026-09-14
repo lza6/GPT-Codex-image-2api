@@ -81,9 +81,9 @@ docker compose up -d             # 端口 23456:80
 2. **codegraph MCP**（`.codegraph/` 存在）：结构性问题用 `codegraph_context`/`codegraph_callers`
 3. Grep/Read 仅在上述未覆盖时使用；`graft/INDEX.md` 可浏览全部节点
 
-## 当前状态（2026-08-14，v2.36.0 已发版）
+## 当前状态（2026-09-15，v2.37.0 已发版）
 
-v2.36.0 已闭环：fomimage 提供商接入（12 模型 fomimage- 前缀映射 + 自动注册号池 temp-mail 收件/每号独立代理/密码不规则 + 积分成本映射/用完即弃 + 设置页注册管理卡片）。v2.35.0 完成矩阵（GZip 移除修复 + 4.2 救号流程化 + 4.3 日志与审计过滤 + 5.2 看板指标化 + 5.3 多 worker 压测评估 + 5.4 文档保鲜 + 图片 URL 回环修复）见 `workflow_status.md`，验证基线见 `docs/verification-registry.md`。日常维护遵循：
+v2.37.0 已闭环（`计划书/下一步改进指南.md` G1~G6 全落地）：告警接线闭环（alerts/test 测试端点 + 磁盘守护 + 前端空态引导）+ 救号异步工作流（revive/run + ReviveLedger 台账 + 前端工作台）+ 熔断多 Worker 一致化（SharedBreakerStateStore 走 shared_state）+ 覆盖率 62%→64% + 安全纵深五项（metrics_token/内容白名单/SMTP 弱口令/CI pip-audit 硬门/配置保存审计）+ 前端体验统一（全局搜索聚合 + 通知中心事件流）。v2.36.0 fomimage 提供商接入见 `workflow_status.md` 历史，验证基线见 `docs/verification-registry.md`。日常维护遵循：
 改动 → 契约探测 → 测试 → **六道防线**（`scripts/run_all_guards.py`：契约/SQL/慢查询/变异/压测/文档同步）→ `workflow_status.md` 更新。
 
 **会话启动协议**：动手前先读 `.claude/skills/chatgpt2api-workflow/SKILL.md` → 判过时（对照代码抽查）→ 过时先更新再编码；验收门禁见该技能"终局交付门禁"。

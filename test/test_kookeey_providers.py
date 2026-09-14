@@ -144,7 +144,8 @@ class TestProvidersRegistry:
         assert is_valid_provider("nope") is False
 
     def test_list_enabled_only_includes_grok(self) -> None:
-        assert [p.name for p in list_providers(enabled_only=True)] == ["chatgpt", "grok"]
+        # v2.36.0 起 fomimage 已启用，enabled_only 列表为 chatgpt/grok/fomimage
+        assert [p.name for p in list_providers(enabled_only=True)] == ["chatgpt", "grok", "fomimage"]
 
     def test_list_all_includes_grok(self) -> None:
         providers = {p.name: p for p in list_providers()}

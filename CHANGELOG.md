@@ -1,5 +1,54 @@
 # Changelog
 
+## 2.37.0 - 2026-09-15 (告警接线闭环 + 救号工作流 + 熔断多Worker一致化 + 核心链路覆盖率 + 安全纵深 + 前端体验统一)
+
+> 依据 `计划书/下一步改进指南.md` 的 G1~G6 六组改进全部落地：告警从"实现了但没人能收到"变为"配好即用 + 可测试"；救号从 CLI 一次性脚本升级为看板异步工作流；熔断器状态走共享状态层实现多 Worker 一致；核心模块覆盖率 62%→64%（retry_budget/ssrf_guard/image_failure/providers 100%、rate_limit 96%）；安全纵深五项补齐；全局搜索与通知中心统一接入。
+
+**G1 告警接线闭环：**
++ [新增] `POST /api/system/alerts/test` 测试告警端点（require_admin；无通道返回 200 + reason=no_channel；错误摘要截断且不含 SMTP 密码/bot_token）
++ [新增] `services/alert_service.py` `test_alert()`：绕过 events 白名单与去重，逐通道实测（复用 `_send_channel`）
++ [新增] `services/disk_alert_guard.py`：磁盘使用率超阈值（默认 90%）守护 → `system.disk_high` 事件；连续超阈值去重、回落再超重发；`check_alert_unwired` 启动未接线 WARNING
++ [改造] `api/app.py` lifespan 接线 `start_disk_alert_scheduler`（300s daemon）+ `check_alert_unwired`
++ [新增] 前端设置页告警区：空态引导 + Telegram 示例配置折叠 + 「发送测试告警」按钮 + 四通道就绪状态点
+
+**G2 救号流程化（异步工作流）：**
++ [新增] `services/revive_workflow.py`：`start_revive()` 任务队列异步（HIGH）+ `ReviveLedger` 台账（data/revive_ledger.jsonl，append+锁+原子写+200 条裁剪）+ `revive.finished` 事件（大批失败不静默）
++ [新增] `POST /api/accounts/revive/run`（异步返回 task_id）+ `GET /api/accounts/revive/status/{task_id}` + `GET /api/accounts/revive/ledger`（均 require_admin + 审计）；**旧同步 `/api/accounts/revive` 保留兼容**
++ [改造] `services/event_bus.py` 补 `REVIVE_FINISHED` 常量 + `ALL_EVENTS`；`api/app.py` 事件持久化订阅补 `revive.finished`
++ [新增] 前端救号工作台 Dialog：任务轮询（2s）/结果统计/逐账号列表（前 30 条）/失败名单 CSV 导出/最近 5 次台账 + 工具栏「救号台账」入口
+
+**G3 熔断多 Worker 一致化：**
++ [改造] `services/circuit_breaker.py`：熔断状态存储抽象 `SharedBreakerStateStore`（包装 `shared_state.get_shared_state()`，Local/Redis 自动 + 不可用降级），键 `c2api:cb:{token}`；阈值 5/冷却 30s/半开 3 语义不变，C7 竞态修复保留；`CircuitBreakerRegistry` 统一走共享 store
++ [改造] `services/shared_state.py` 补 `keys()` 协议 + Local（含过期清理）/Redis（SCAN 非阻塞）
++ [改造] `/api/dashboard/circuit_breakers` 返回 `store: local/redis` 字段
++ [新增] 前端 accounts 页熔断一致性徽章（redis=绿/本地=琥珀/降级=红，含 title 说明）
+
+**G4 前端体验统一：**
++ [改造] `web/src/components/global-search.tsx`：聚合账号/日志资源，点击跳转 `/accounts?q=`、`/logs?account_email=` 预填（accounts 页已读 q 参数）
++ [改造] `web/src/components/notification-center.tsx` + `app-shell.tsx` + `logs/page.tsx` + `lib/event-notifications.ts`：通知中心对接 `/api/dashboard/events` 事件流（未读红点/类型化文案/点击跳转）
+
+**G5 核心链路覆盖率攻坚：**
++ [测试] `test/test_g5_coverage_core.py`（49 用例）：retry_budget 100% / ssrf_guard 98% / image_failure 100% / providers 100% / rate_limit 96% / cost_service 89%
++ [修复] `test_kookeey_providers.py` 过时断言（v2.36 fomimage 已启用，enabled_only 列表含 fomimage）
++ [验收] 实测 services+api 行覆盖率 62% → **64%**（门禁 fail_under=55）
+
+**G6 安全纵深：**
++ [新增] S1 `/metrics` 独立 token（`CHATGPT2API_METRICS_TOKEN` 优先，未配回退 auth-key）
++ [新增] S2 图片下载内容类型白名单（image/* + application/octet-stream 放行，text/html 等拒绝；无 Content-Type 放行 + 警告）
++ [新增] S3 SMTP 弱口令检测（development WARNING / production 拒绝）
++ [新增] S4 CI 新增 `security-audit` job（pip-audit 硬门，无 continue-on-error）
++ [新增] S5 配置保存审计埋点（`POST /api/settings` 成功/失败均 `record_admin_access`）
+
+**回归修复（本轮顺带）：**
++ [修复] `account_service.py` 状态白名单补 `待登录`（v2.36 fe94b05 剔除致密码导入待登录号被兜底成"正常"，引发调度误用）；前端 `AccountStatus`/`statusMeta` 三处补条目
++ [修复] `test_image_task_service.py` 时间戳改相对未来（时间腐蚀：写死 2026-08-01 被 `_cleanup_locked` 按 30 天清理）
++ [修复] `test_property_account.py` hypothesis `filter_too_much` 抑制（已知 flaky）
++ [修复] `docs/openapi.json` 重新生成（132 路径，新端点已含）
+
+**测试与验收：**
++ [测试] 新增 test_alert_test_endpoint / test_disk_alert_guard / test_revive_workflow / test_breaker_shared_state / test_g5_coverage_core / test_g6_security / test_metrics_token 共 110+ 用例
++ [验收] 全量 pytest **1596 passed / 0 failed**（排除 live）+ ruff 本轮改动 0 错误 + 前端 tsc 0 + build 成功 + 契约守卫断链=0 漂移=0 + 六道防线全绿（SQL P0=0 / 慢查询 resolved=0 / 变异 caught=33 escaped=0 / 施压 8/8 / 文档同步 PASS）+ E2E **16 passed / 2 skipped / 0 failed** + 启动冒烟 OK
+
 ## 2.36.0 - 2026-08-14 (fomimage 提供商接入：模型前缀映射 + 自动注册号池 + 积分用完即弃)
 
 > 新增 fomimage（FromImage AI）图片生成/编辑提供商。模型按提供商前缀 `fomimage-` 区分，自动注册引擎用 temp-mail 一次性邮箱 + 每号独立代理 + 不规则密码，注册送 50 积分、按上游 costCredits 扣减、quota 归零自动剔除（用完即弃）。

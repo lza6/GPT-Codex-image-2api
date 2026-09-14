@@ -533,11 +533,15 @@ class AccountService:
             normalized["export_type"] = "codex"
             normalized.pop("type", None)
         normalized["type"] = normalized.get("type") or "free"
-        # status 归一化到前端状态枚举（正常/限流/异常/禁用/养号中），未知状态兜底 正常
-        # （历史遗留/外部导入可能带 待登录/回收/已删除/失效/replaced 等，前端 eR[status] 未覆盖会崩）
+        # status 归一化到前端状态枚举（正常/限流/异常/禁用/养号中/待登录），未知状态兜底 正常
+        # 注意：待登录 是 add_password_accounts（v2.8.1）写入的合法状态——凭据入库但登录失败，
+        # 保留作占位（pending:{email}）。若从白名单剔除会被兜底成"正常"，导致待登录号被当健康号调度。
+        # （2026-09-15 回归修正：fe94b05 剔除待登录 引发 test_account_password_import 间歇失败）
         _raw_status = str(normalized.get("status") or "").strip()
         normalized["status"] = (
-            _raw_status if _raw_status in {"正常", "限流", "异常", "禁用", "养号中"} else "正常"
+            _raw_status
+            if _raw_status in {"正常", "限流", "异常", "禁用", "养号中", "待登录"}
+            else "正常"
         )
         normalized["quota"] = normalized.get("quota")
         if normalized["quota"] is not None:

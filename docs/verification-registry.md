@@ -9,24 +9,32 @@
 
 ---
 
-## 一、当前验证基线（最新一轮：v2.36.0 fomimage 提供商接入）
+## 一、当前验证基线（最新一轮：v2.37.0 告警接线+救号工作流+熔断多Worker一致化+覆盖率+安全纵深+前端体验）
 
 | 项 | 结果 | 范围/说明 | 日期 | 证据 |
 |----|------|-----------|------|------|
-| 全量单测 | **通过（exit 0）** | 全量 pytest（排除 live/redis）；新增 fomimage 3 测试文件 36 用例 + 相关回归 88 通过 | 2026-08-14 | `pytest`（后台任务 exit 0） |
-| fomimage live E2E | **1 passed** | `test/test_fomimage_live.py`：temp-mail 建邮箱→注册→OTP→登录→余额 50→上传参考图→图生图 low\|1K=10 分→轮询 success→下载 PNG→余额 40 | 2026-08-14 | `pytest -m live test/test_fomimage_live.py`（67s） |
-| ruff | 0 错误 | 全部 fomimage 新增/改动文件 | 2026-08-14 | `ruff check` |
-| 前端 | tsc 0 错误 + build 成功 | settings 新增 fomimage 注册卡片 + 图片工作台全模型展示 | 2026-08-14 | `tsc --noEmit` + `npm run build` |
-| 契约守卫 | 断链=0 | 新增 2 端点已注册 | 2026-08-14 | `contract_guard.py` |
-| 八道防线 | 未全量重跑 | 本次改动无 SQL/存储/调度核心；慢查询/变异/施压沿用下表格基线 | 2026-08-14 | 沿用 |
+| 全量单测 | **1596 passed / 0 failed** | 全量 pytest（排除 live）；新增 G1~G6 相关测试 110+ 用例 | 2026-09-15 | `pytest test/ --ignore=test_fomimage_live.py`（295s） |
+| 六道防线 | **全绿** | 契约断链=0 漂移=0；SQL P0=0 P1=0；慢查询 resolved=0；变异 caught=33 escaped=0；施压 8/8；文档同步 PASS | 2026-09-15 | reports/*（各防线） |
+| 覆盖率 | **64%**（门禁 fail_under=55） | services+api 行覆盖 62%→64%；retry_budget/ssrf_guard/image_failure/providers 100%、rate_limit 96%、cost_service 89% | 2026-09-15 | `pytest --cov=services --cov=api` |
+| 性能基准 | **PASS** | 126.6 rps / p99 462ms / 错误率 0 / 慢存储 p99 358ms（预算 30rps/1500ms/1%） | 2026-09-15 | `benchmark_check.py` |
+| 前端 | tsc 0 错误 + build 成功 | 告警空态+测试按钮 / 救号工作台 / 熔断徽章 / 全局搜索聚合 / 通知中心事件流 / 待登录 statusMeta | 2026-09-15 | `tsc --noEmit` + `npm run build` |
+| 契约守卫 | 断链=0 漂移=0 | 新增 alerts/test、revive/run、revive/status、revive/ledger 已注册 DYNAMIC | 2026-09-15 | `contract_guard.py` |
+| E2E | **16 passed / 2 skipped / 0 failed** | Playwright 真实前后端（登录/看板/账号/设置）；清理残留服务后全绿 | 2026-09-15 | `npx playwright test` |
+| 启动冒烟 | OK | `from api.app import create_app` 无报错 | 2026-09-15 | 实跑 |
 
 ## 二、本轮新增/改动区域 → 对应验证
 
 | 区域 | 改动 | 验证 | 状态 |
 |------|------|------|------|
-| fomimage 提供商接入（v2.36.0） | `services/fomimage_pricing.py`（12 模型定价表）+ `fomimage_backend_api.py`（上游客户端）+ `protocol/fomimage_image.py`（协议适配）+ `registration/fomimage/`（temp_mail/engine/coordinator）+ `providers/registry.py` fomimage 元数据 + `utils/helper.py` fomimage- 前缀 + `conversation.py` 按 provider 分派 + `account_service.mark_image_credits_result`（按 costCredits 扣减/用完即弃）+ `api/registration.py` 2 端点 + `config.example.json` registration.fomimage 段 + web 前端（fomimage-registration-card + providers-card + image page 全模型） | 新增 36 单测 + live E2E 1 通过 + ruff 0 + tsc 0 + build + 契约断链 0 | ✅（本轮闭环） |
+| G1 告警接线闭环（v2.37.0） | `api/system.py`（alerts/test 端点）+ `services/alert_service.py`（test_alert）+ `services/disk_alert_guard.py`（磁盘守护）+ `api/app.py`（lifespan 接线）+ 前端 config-card（空态引导/测试按钮/状态点） | test_alert_test_endpoint 9 + test_disk_alert_guard 6 + 告警回归 42 + ruff 0 + 契约 0 | ✅（本轮闭环） |
+| G2 救号工作流（v2.37.0） | `services/revive_workflow.py`（异步工作流+ReviveLedger）+ `api/accounts.py`（revive/run + status + ledger）+ `event_bus.py`（REVIVE_FINISHED）+ `task_queue_init.py` + 前端救号工作台 | test_revive_workflow 11 + 回归 62 + 契约 0 | ✅（本轮闭环） |
+| G3 熔断多Worker一致化（v2.37.0） | `services/circuit_breaker.py`（SharedBreakerStateStore）+ `shared_state.py`（keys()）+ dashboard store 字段 + 前端徽章 | test_breaker_shared_state 6 + 熔断 33 回归 + 契约 0 | ✅（本轮闭环） |
+| G4 前端体验（v2.37.0） | `global-search.tsx` 聚合 + `notification-center.tsx` 事件流 + accounts q 预填 | tsc 0 + build + E2E 16 passed | ✅（本轮闭环） |
+| G5 覆盖率（v2.37.0） | `test/test_g5_coverage_core.py`（49 用例）+ test_kookeey_providers 修正 | 六大模块 89%~100%；全量覆盖率 64% | ✅（本轮闭环） |
+| G6 安全纵深（v2.37.0） | S1 metrics_token / S2 内容类型白名单 / S3 SMTP 弱口令 / S4 CI security-audit / S5 配置保存审计 | test_metrics_token 4 + test_g6_security 13 + 回归 101 + ruff 0 | ✅（本轮闭环） |
+| 回归修复（v2.37.0） | account_service 待登录白名单 + 前端 statusMeta + image_task 时间戳 + property hypothesis + openapi 重生成 | 全量 pytest 1596 passed（修复后） | ✅（本轮闭环） |
 
-### v2.35.0 历史基线（沿用，未重跑）
+### v2.36.0 历史基线（沿用，未重跑）
 
 | 项 | 结果 | 范围/说明 | 日期 | 证据 |
 |----|------|-----------|------|------|

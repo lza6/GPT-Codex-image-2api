@@ -11,7 +11,7 @@
       "name": "MIT",
       "url": "https://opensource.org/licenses/MIT"
     },
-    "version": "2.34.0"
+    "version": "2.37.0"
   },
   "servers": [
     {
@@ -1415,6 +1415,169 @@
             }
           }
         },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/accounts/revive/run": {
+      "post": {
+        "tags": [
+          "Accounts"
+        ],
+        "summary": "Revive Run",
+        "description": "v2.38.0 G2：异步提交救号任务，立即返回 task_id（不阻塞调用方）。\n\n前端救号工作台用 POST /run → GET /status/{task_id} 轮询进度，\n结果台账经 GET /revive/ledger 读取。等价于旧同步端点但异步化。",
+        "operationId": "revive_run_api_accounts_revive_run_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccountRefreshRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/accounts/revive/status/{task_id}": {
+      "get": {
+        "tags": [
+          "Accounts"
+        ],
+        "summary": "Revive Status",
+        "description": "v2.38.0 G2：查救号任务状态（pending/running/success/error/cancelled + result/error）。",
+        "operationId": "revive_status_api_accounts_revive_status__task_id__get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/accounts/revive/ledger": {
+      "get": {
+        "tags": [
+          "Accounts"
+        ],
+        "summary": "Revive Ledger",
+        "description": "v2.38.0 G2：救号结果台账（最近 run + 累计统计），供工作台面板。",
+        "operationId": "revive_ledger_api_accounts_revive_ledger_get",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -5075,6 +5238,64 @@
         }
       }
     },
+    "/api/system/alerts/test": {
+      "post": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Test Alerts Endpoint",
+        "description": "G1 告警接线引导：发送测试告警到已启用通道。\n\nchannel 留空 → 测试全部启用通道（外加通用 webhook_url）；\n无任何可用通道 → 200 + {\"ok\": False, \"reason\": \"no_channel\"}（前端据此展示空态引导）。",
+        "operationId": "test_alerts_endpoint_api_system_alerts_test_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AlertTestRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/image-storage/sync": {
       "post": {
         "tags": [
@@ -8184,6 +8405,234 @@
           }
         }
       }
+    },
+    "/api/registration/grok/register": {
+      "post": {
+        "tags": [
+          "Registration"
+        ],
+        "summary": "Grok Register",
+        "description": "手动触发 grok 号注册 N 个（同步执行，内部入池；FastAPI 自动跑在线程池，不阻塞事件循环）。",
+        "operationId": "grok_register_api_registration_grok_register_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GrokRegisterRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Grok Register Api Registration Grok Register Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/registration/fomimage/register": {
+      "post": {
+        "tags": [
+          "Registration"
+        ],
+        "summary": "Fomimage Register",
+        "description": "手动触发 fomimage 号注册 N 个（temp-mail 收件 + 每号独立 IP + 入池）。",
+        "operationId": "fomimage_register_api_registration_fomimage_register_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FomimageRegisterRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Fomimage Register Api Registration Fomimage Register Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/registration/fomimage/status": {
+      "get": {
+        "tags": [
+          "Registration"
+        ],
+        "summary": "Fomimage Registration Status",
+        "description": "fomimage 注册状态：配置、号池可用数、最近一次执行统计。",
+        "operationId": "fomimage_registration_status_api_registration_fomimage_status_get",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Fomimage Registration Status Api Registration Fomimage Status Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/registration/status": {
+      "get": {
+        "tags": [
+          "Registration"
+        ],
+        "summary": "Registration Status",
+        "description": "返回 grok 注册状态：配置、号池可用数、邮箱池、最近一次执行统计。",
+        "operationId": "registration_status_api_registration_status_get",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Registration Status Api Registration Status Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -8391,6 +8840,23 @@
         },
         "type": "object",
         "title": "AccountUpdateRequest"
+      },
+      "AlertTestRequest": {
+        "properties": {
+          "channel": {
+            "type": "string",
+            "title": "Channel",
+            "default": ""
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "AlertTestRequest",
+        "description": "测试告警请求体。channel 留空=测全部启用通道。"
       },
       "AnthropicMessageRequest": {
         "properties": {
@@ -8648,6 +9114,46 @@
         },
         "type": "object",
         "title": "EditableFileTaskRequest"
+      },
+      "FomimageRegisterRequest": {
+        "properties": {
+          "count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 500.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Count",
+            "description": "fomimage 注册数量（默认取配置 register_batch，上限 500）"
+          }
+        },
+        "type": "object",
+        "title": "FomimageRegisterRequest"
+      },
+      "GrokRegisterRequest": {
+        "properties": {
+          "count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 20.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Count",
+            "description": "注册数量（默认取配置 register_batch，上限 20）"
+          }
+        },
+        "type": "object",
+        "title": "GrokRegisterRequest"
       },
       "HTTPValidationError": {
         "properties": {

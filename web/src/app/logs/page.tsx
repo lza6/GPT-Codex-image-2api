@@ -336,7 +336,15 @@ function LogsContent() {
   const [type, setType] = useState<string>(LogType.Call);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
-  const [accountEmail, setAccountEmail] = useState("");
+  // v2.40.0 G4：全局搜索跳转预填账号邮箱（/logs?account_email=...），首次加载生效
+  const [accountEmail, setAccountEmail] = useState(() => {
+    if (typeof window === "undefined") return "";
+    try {
+      return new URLSearchParams(window.location.search).get("account_email") ?? "";
+    } catch {
+      return "";
+    }
+  });
   const [detailLog, setDetailLog] = useState<SystemLog | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);

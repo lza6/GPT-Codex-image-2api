@@ -25,6 +25,9 @@ def register_task_handlers() -> None:
     # 日志清理任务（LOW）
     task_queue.register_handler("log_cleanup", _handle_log_cleanup)
 
+    # 救号工作流（HIGH，v2.38.0 G2）
+    task_queue.register_handler("revive_workflow", _handle_revive_workflow)
+
     task_queue.start_consumer()
     logger.info("task queue handlers registered, consumer started")
 
@@ -90,3 +93,10 @@ def _handle_log_cleanup(task: Task) -> None:
     """日志清理处理器。"""
     from services.log_service import log_service
     log_service._auto_cleanup()
+
+
+def _handle_revive_workflow(task: Task) -> Any:
+    """救号工作流处理器（v2.38.0 G2）：委托 revive_workflow.task_handler。"""
+    from services.revive_workflow import task_handler as revive_task_handler
+
+    return revive_task_handler(task)

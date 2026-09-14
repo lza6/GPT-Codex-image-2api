@@ -104,7 +104,7 @@ def create_app() -> FastAPI:
             for evt in ["account.invalid", "account.recovered", "account.quota_exhausted",
                         "circuit.open", "circuit.half_open", "circuit.closed",
                         "backup.failure", "provider.health_changed",
-                        "session_pool.leak"]:
+                        "session_pool.leak", "revive.finished"]:
                 event_bus.subscribe(evt, sync_handler=_persist_event)
             _trim_events_file(_events_path, 2000)
         except Exception:
@@ -129,6 +129,15 @@ def create_app() -> FastAPI:
         thread = start_limited_account_watcher(stop_event)
         cleanup_thread = start_image_cleanup_scheduler(stop_event)
         probe_thread = start_proactive_probe(stop_event)
+        # G1：磁盘使用率阈值告警守护（盲区扫描：凌晨磁盘满）——统一由 stop_event 停止
+        disk_alert_thread = None
+        try:
+            from services.disk_alert_guard import check_alert_unwired, start_disk_alert_scheduler
+
+            check_alert_unwired(config)
+            disk_alert_thread = start_disk_alert_scheduler(stop_event)
+        except Exception:  # noqa: BLE001 - 磁盘告警守护初始化失败不阻断启动
+            pass
         # 4.1：启动即迁移旧 logs.jsonl 到天文件，确保 usage_agg watcher 读的是切分后日志
         from services.log_service import log_service
         log_service.migrate_legacy()
@@ -223,6 +232,8 @@ def create_app() -> FastAPI:
                 leak_thread.join(timeout=5)
             if reg_thread is not None:
                 reg_thread.join(timeout=5)
+            if disk_alert_thread is not None:
+                disk_alert_thread.join(timeout=5)
             backup_service.stop()
             # 停止任务队列消费者
             try:

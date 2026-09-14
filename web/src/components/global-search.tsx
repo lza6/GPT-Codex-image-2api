@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import { fetchAccounts, type Account } from "@/lib/api";
+import { fetchAccounts, fetchSystemLogs, type Account, type SystemLog } from "@/lib/api";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "运维看板", icon: LayoutDashboard },
@@ -55,12 +55,17 @@ const SETTINGS_ITEMS = [
   { id: "refresh_account_interval_minute", label: "账号刷新间隔" },
 ];
 
+// 最近日志预取数量（打开搜索时一次性拉取，客户端过滤）
+const LOG_PREFETCH_LIMIT = 100;
+
 export function GlobalSearch() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [logs, setLogs] = useState<SystemLog[]>([]);
   const [loadingAccounts, setLoadingAccounts] = useState(false);
+  const [loadingLogs, setLoadingLogs] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Cmd+K 快捷键
@@ -75,7 +80,7 @@ export function GlobalSearch() {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  // 打开时加载账号列表用于搜索
+  // 打开时加载账号列表 + 最近日志（各自缓存一次，避免重开重复拉取）
   useEffect(() => {
     if (!open) {
       setQuery("");
@@ -85,10 +90,21 @@ export function GlobalSearch() {
       setLoadingAccounts(true);
       fetchAccounts()
         .then((data) => setAccounts(data.items ?? []))
-        .catch(() => { /* 静默失败 */ })
+        .catch(() => {
+          /* 静默失败 */
+        })
         .finally(() => setLoadingAccounts(false));
     }
-  }, [open, accounts.length, loadingAccounts]);
+    if (logs.length === 0 && !loadingLogs) {
+      setLoadingLogs(true);
+      fetchSystemLogs({ days: 7, page_size: LOG_PREFETCH_LIMIT })
+        .then((data) => setLogs(data.items ?? []))
+        .catch(() => {
+          /* 静默失败 */
+        })
+        .finally(() => setLoadingLogs(false));
+    }
+  }, [open, accounts.length, loadingAccounts, logs.length, loadingLogs]);
 
   const handleSelect = useCallback(
     (value: string) => {
@@ -117,6 +133,30 @@ export function GlobalSearch() {
         item.id.toLowerCase().includes(q),
     );
   }, [query]);
+
+  // 日志命中：summary/detail 里含关键词（最多 5 条）
+  const filteredLogs = useMemo(() => {
+    if (!query.trim() || logs.length === 0) return [];
+    const q = query.toLowerCase();
+    return logs
+      .filter((log) => {
+        const summary = typeof log.summary === "string" ? log.summary : "";
+        const detailStr = JSON.stringify(log.detail ?? {});
+        return summary.toLowerCase().includes(q) || detailStr.toLowerCase().includes(q);
+      })
+      .slice(0, 5);
+  }, [query, logs]);
+
+  // 账号命中（最多 5 条；仍保留下拉内最多 10 条用于账号分组）
+  const accountMatches = useMemo(() => {
+    if (!query.trim()) return [];
+    const q = query.toLowerCase();
+    return accounts.filter(
+      (a) =>
+        (a.email && a.email.toLowerCase().includes(q)) ||
+        (a.access_token && a.access_token.toLowerCase().includes(q)),
+    ).slice(0, 5);
+  }, [query, accounts]);
 
   if (!open) return null;
 
@@ -200,8 +240,8 @@ export function GlobalSearch() {
                 {filteredAccounts.slice(0, 10).map((account) => (
                   <CommandItem
                     key={`account-${account.access_token}`}
-                    value={`/accounts`}
-                    onSelect={() => handleSelect("/accounts")}
+                    value={`/accounts?q=${encodeURIComponent(account.email || account.access_token.slice(0, 16))}`}
+                    onSelect={() => handleSelect(`/accounts?q=${encodeURIComponent(account.email || account.access_token.slice(0, 16))}`)}
                     className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-stone-700 transition-colors aria-selected:bg-stone-100 aria-selected:text-stone-900 dark:text-stone-300 dark:aria-selected:bg-stone-800 dark:aria-selected:text-white"
                   >
                     <UserRound className="size-4 text-stone-400 dark:text-stone-500" />
@@ -213,6 +253,32 @@ export function GlobalSearch() {
                         {account.status}
                       </span>
                     </div>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            )}
+
+            {/* 日志匹配（近 7 天预取内客户端过滤） */}
+            {filteredLogs.length > 0 && (
+              <CommandGroup heading="日志">
+                {filteredLogs.map((log) => (
+                  <CommandItem
+                    key={`log-${log.id}`}
+                    value={`/logs?account_email=${encodeURIComponent(query.trim())}`}
+                    onSelect={() => handleSelect(`/logs?account_email=${encodeURIComponent(query.trim())}`)}
+                    className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-stone-700 transition-colors aria-selected:bg-stone-100 aria-selected:text-stone-900 dark:text-stone-300 dark:aria-selected:bg-stone-800 dark:aria-selected:text-white"
+                  >
+                    <Logs className="size-4 text-stone-400 dark:text-stone-500" />
+                    <div className="flex min-w-0 flex-1 items-center gap-2">
+                      <span className="truncate">
+                        {typeof log.summary === "string" && log.summary
+                          ? log.summary.slice(0, 60)
+                          : (log.time || "").slice(0, 60)}
+                      </span>
+                    </div>
+                    <span className="shrink-0 text-[11px] text-stone-400 dark:text-stone-500">
+                      日志
+                    </span>
                   </CommandItem>
                 ))}
               </CommandGroup>

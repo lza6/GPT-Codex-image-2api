@@ -237,7 +237,10 @@ def _decode_data_url(url: str) -> ImageInput:
 
 
 def _response_mime_type(response: requests.Response, parsed_path: str) -> str:
-    """识别下载图片类型：优先响应头，必要时按 URL 后缀推断。"""
+    """识别下载图片类型：优先响应头，必要时按 URL 后缀推断。
+
+    G6-S2：非 image/* 与 octet-stream 的内容类型直接拒绝（防 HTML/脚本当图）。
+    """
     header_type = str(response.headers.get("content-type") or "").split(";", 1)[0].strip().lower()
     guessed_type = mimetypes.guess_type(parsed_path)[0] or ""
     if header_type.startswith("image/"):

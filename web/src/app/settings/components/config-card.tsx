@@ -12,13 +12,15 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import type { ImageStorageMode } from "@/lib/api";
-import { testProxy, type ProxyTestResult } from "@/lib/api";
+import { sendTestAlert, testProxy, type ProxyTestResult } from "@/lib/api";
 
 import { useSettingsStore } from "../store";
 
 export function ConfigCard() {
   const [isTestingProxy, setIsTestingProxy] = useState(false);
   const [proxyTestResult, setProxyTestResult] = useState<ProxyTestResult | null>(null);
+  const [isTestingAlert, setIsTestingAlert] = useState(false);
+  const [alertTestResults, setAlertTestResults] = useState<{ channel: string; ok: boolean; error: string }[]>([]);
   const logLevelOptions = ["debug", "info", "warning", "error"];
   const config = useSettingsStore((state) => state.config);
   const isLoadingConfig = useSettingsStore((state) => state.isLoadingConfig);
@@ -103,6 +105,61 @@ const setSchedulerAdaptiveIntervalSeconds = useSettingsStore((state) => state.se
       toastError(error, "测试代理失败");
     } finally {
       setIsTestingProxy(false);
+    }
+  };
+
+  // 告警通道状态判定（G1：接线引导）——通道启用且关键字段齐全视为"可发送"
+  const alertChannelReady = (name: string): boolean => {
+    const cfg = config?.alert_channels?.[name] || {};
+    const type = String(cfg.type || name);
+    if (!cfg.enabled) {
+      return false;
+    }
+    if (type === "telegram") {
+      return Boolean(String(cfg.bot_token || "").trim()) && Boolean(String(cfg.chat_id || "").trim());
+    }
+    if (type === "email") {
+      return (
+        Boolean(String(cfg.smtp_host || "").trim()) &&
+        Boolean(String(cfg.from_addr || "").trim()) &&
+        Array.isArray(cfg.to_addrs) &&
+        cfg.to_addrs.length > 0
+      );
+    }
+    return Boolean(String(cfg.webhook_url || "").trim());
+  };
+
+  const anyAlertChannelReady =
+    alertChannelReady("telegram_ops") ||
+    alertChannelReady("wecom_ops") ||
+    alertChannelReady("dingtalk_ops") ||
+    alertChannelReady("email_ops") ||
+    Boolean(String(config?.alert_webhook_url || "").trim());
+
+  const handleSendTestAlert = async () => {
+    if (!anyAlertChannelReady) {
+      toast.error("请先配置至少一个告警通道");
+      return;
+    }
+    setIsTestingAlert(true);
+    setAlertTestResults([]);
+    try {
+      const data = await sendTestAlert();
+      if (data.reason === "no_channel") {
+        toast.error("请先配置至少一个告警通道");
+        return;
+      }
+      setAlertTestResults(data.results || []);
+      const okCount = (data.results || []).filter((item) => item.ok).length;
+      if (okCount > 0) {
+        toast.success(`测试告警已发送：${okCount} 个通道成功`);
+      } else {
+        toast.error("测试告警发送失败：所有通道均未成功");
+      }
+    } catch (error) {
+      toastError(error, "发送测试告警失败");
+    } finally {
+      setIsTestingAlert(false);
     }
   };
 
@@ -447,12 +504,64 @@ const setSchedulerAdaptiveIntervalSeconds = useSettingsStore((state) => state.se
             </div>
           </div>
           <div className="space-y-4 rounded-xl border border-stone-200 bg-white px-4 py-3 md:col-span-2">
-            <div>
-              <label className="text-sm text-stone-700">告警多通道</label>
-              <p className="mt-1 text-xs text-stone-500">
-                可多通道并存，同一事件分发到所有启用通道；任一通道失败不影响其他通道。开关打开后需填写对应参数，参数不全的通道自动跳过。
-              </p>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <label className="text-sm text-stone-700">告警多通道</label>
+                <p className="mt-1 text-xs text-stone-500">
+                  可多通道并存，同一事件分发到所有启用通道；任一通道失败不影响其他通道。开关打开后需填写对应参数，参数不全的通道自动跳过。
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void handleSendTestAlert()}
+                disabled={isTestingAlert}
+                className="shrink-0"
+              >
+                {isTestingAlert ? <LoaderCircle className="size-4 animate-spin" /> : <PlugZap className="size-4" />}
+                {isTestingAlert ? "发送中…" : "发送测试告警"}
+              </Button>
             </div>
+            {!anyAlertChannelReady && (
+              <div className="space-y-2 rounded-lg border border-dashed border-stone-300 bg-stone-50 px-4 py-3">
+                <p className="text-sm font-medium text-stone-700">尚未配置任何告警通道</p>
+                <p className="text-xs text-stone-500">
+                  账号封禁 / 配额耗尽 / 熔断时将无法通知你。最低配置：
+                  <span className="font-mono">在「告警 Webhook」区块填任意普通机器人 webhook（企微 / 钉钉 / Slack 兼容），或启用下方任一通道并保存。</span>
+                </p>
+                <details className="text-xs text-stone-500">
+                  <summary className="cursor-pointer text-stone-600">查看示例配置（Telegram）</summary>
+                  <pre className="mt-2 overflow-x-auto rounded-lg bg-stone-100 p-3 font-mono text-[11px] leading-relaxed text-stone-700">{`{
+  "alert_channels": {
+    "telegram_ops": {
+      "type": "telegram",
+      "enabled": true,
+      "bot_token": "123456:ABC-DEF...",
+      "chat_id": "-1001234567890"
+    }
+  }
+}`}</pre>
+                  <p className="mt-2">
+                    或用环境变量覆盖（重启生效）：<span className="font-mono">CHATGPT2API_ALERT_TELEGRAM_BOT_TOKEN</span> /{" "}
+                    <span className="font-mono">CHATGPT2API_ALERT_TELEGRAM_CHAT_ID</span>
+                  </p>
+                </details>
+              </div>
+            )}
+            {alertTestResults.length > 0 && (
+              <div className="space-y-1 rounded-lg border border-stone-100 bg-stone-50 p-3">
+                <p className="text-xs font-medium text-stone-600">测试结果（最近一次）</p>
+                {alertTestResults.map((item) => (
+                  <div key={item.channel} className="flex items-center gap-2 text-xs text-stone-600">
+                    <span className={item.ok ? "size-2 rounded-full bg-emerald-500" : "size-2 rounded-full bg-red-400"} />
+                    <span className="font-mono">{item.channel}</span>
+                    <span className={item.ok ? "text-emerald-600" : "text-red-500"}>
+                      {item.ok ? "发送成功" : `失败：${item.error ? String(item.error).slice(0, 80) : "未知错误"}`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="space-y-2 rounded-lg border border-stone-100 bg-stone-50 p-3">
               <label className="flex items-center gap-3 text-sm text-stone-700">
                 <Checkbox
@@ -460,6 +569,10 @@ const setSchedulerAdaptiveIntervalSeconds = useSettingsStore((state) => state.se
                   onCheckedChange={(checked) => setAlertChannelField("telegram_ops", "enabled", Boolean(checked))}
                 />
                 Telegram Bot
+                <span
+                  className={`ml-auto inline-block h-2 w-2 rounded-full ${alertChannelReady("telegram_ops") ? "bg-emerald-500" : "bg-stone-300"}`}
+                  title={alertChannelReady("telegram_ops") ? "已启用且参数齐全" : "未启用或参数不全"}
+                />
               </label>
               <div className="grid gap-3 md:grid-cols-2">
                 <div className="space-y-1">

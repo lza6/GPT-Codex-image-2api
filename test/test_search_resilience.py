@@ -73,7 +73,8 @@ def test_search_records_failure_on_upstream_5xx(monkeypatch):
     with pytest.raises(UpstreamHTTPError):
         openai_search.handle({"prompt": "test"})
     # 熔断器应记录 1 次失败（未达阈值仍 closed）
-    assert registry.get(token)._failure_count == 1
+    # v2.39.0 G3：熔断状态移入共享 store，to_dict() 仍暴露 failure_count（对外契约）
+    assert registry.get(token).to_dict()["failure_count"] == 1
 
 
 def test_web_search_tool_closes_backend(monkeypatch):

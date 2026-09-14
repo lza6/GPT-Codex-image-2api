@@ -318,6 +318,63 @@ def _build_from_config() -> AlertService:
     )
 
 
+def test_alert(message: str = "", channel: str = "") -> dict[str, object]:
+    """发送测试告警（G1 接线引导）。
+
+    仅用于运维确认通道可用性，**不走 events 白名单、不走去重**（test.alert 不属于
+    常规告警事件）。返回每个通道的发送结果：
+      {"results": [{"channel": str, "ok": bool, "error": str}]}
+    - channel 为空 → 测试全部启用通道（外加通用 webhook_url 若配置）
+    - 错误信息只含失败状态摘要，不透出 SMTP 密码 / bot_token / webhook query 等敏感配置
+    """
+    try:
+        svc = _build_from_config()
+    except Exception as exc:  # noqa: BLE001 - 配置构建失败按无通道处理
+        return {"results": [{"channel": channel or "*", "ok": False, "error": f"配置构建失败: {type(exc).__name__}"}]}
+
+    body: dict[str, Any] = {
+        "event": "test.alert",
+        "message": str(message or "").strip() or "ChatGPT2API 测试告警",
+        "ts": int(time.time()),
+    }
+
+    if not svc.enabled:
+        return {"results": []}
+
+    results: list[dict[str, str]] = []
+
+    def _collect(channel_name: str, ok: bool, error: str = "") -> None:
+        # 截断错误摘要，防把外部 URL/异常细节整段带进 UI
+        summary = error[:120] if error else ""
+        results.append({"channel": str(channel_name), "ok": bool(ok), "error": summary})
+
+    if channel and str(channel).strip():
+        target = str(channel).strip()
+        if target == "webhook" and svc.webhook_url:
+            _collect(target, svc._send_webhook(body))
+            return {"results": results}
+        cfg = svc.channels.get(target)
+        if cfg is None:
+            _collect(target, False, "通道不存在或未启用")
+            return {"results": results}
+        if not _bool_value(cfg.get("enabled"), True):
+            _collect(target, False, "通道不存在或未启用")
+            return {"results": results}
+        _collect(target, svc._send_channel(target, cfg, body))
+        return {"results": results}
+
+    # 全部启用通道
+    for channel_name, channel_cfg in svc.channels.items():
+        if not _bool_value(channel_cfg.get("enabled"), True):
+            continue
+        ok = svc._send_channel(channel_name, channel_cfg, body)
+        _collect(channel_name, ok, "" if ok else "通道发送失败")
+    if svc.webhook_url:
+        _collect("webhook", svc._send_webhook(body))
+
+    return {"results": results}
+
+
 def send_alert(event: str, payload: dict) -> bool:
     """全局入口：从 config 动态构建（配置热更新生效）。"""
     try:

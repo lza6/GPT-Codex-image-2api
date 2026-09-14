@@ -146,8 +146,13 @@ class ImageTaskServiceTests(unittest.TestCase):
     def test_load_preserves_conversation_id_and_account_email(self):
         """审查 P2-5：_load_locked 必须保留 conversation_id/account_email（resume_poll 依赖），
         此前白名单丢弃这两个字段会打穿 C9 原账号优先修复。"""
+        from datetime import datetime, timedelta
+
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = Path(tmp_dir) / "image_tasks.json"
+            # 2026-09-15：原写死 2026-08-01 早于 _cleanup_locked 的 retention 30 天 cutoff
+            # → 启动即删 → list_tasks 空（时间腐蚀）。改相对未来时间避免随日期推进再次腐坏。
+            future_ts = (datetime.now() + timedelta(days=5)).strftime("%Y-%m-%d %H:%M:%S")
             path.write_text(
                 json.dumps(
                     {
@@ -161,8 +166,8 @@ class ImageTaskServiceTests(unittest.TestCase):
                                 "conversation_id": "conv-abc-123",
                                 "account_email": "plus@example.com",
                                 "error": "ChatGPT 生图超时",
-                                "created_at": "2026-08-01 00:00:00",
-                                "updated_at": "2026-08-01 00:00:00",
+                                "created_at": future_ts,
+                                "updated_at": future_ts,
                             }
                         ]
                     }

@@ -12,12 +12,12 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from fastapi import APIRouter, Header, Response
+from fastapi import APIRouter, Header, HTTPException, Response
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import PlainTextResponse, StreamingResponse
 
 from api.response_cache import apply_cache_headers, response_cache
-from api.support import require_admin
+from api.support import extract_bearer_token, require_admin
 from services.account_service import AccountService, account_service
 from services.circuit_breaker import circuit_breaker_registry
 from services.config import DATA_DIR, config
@@ -161,7 +161,8 @@ def _collect_circuit_breaker_status() -> dict[str, object]:
     """按 token 末 8 位聚合熔断器状态（不泄露完整 token）。
 
     返回 {token_suffix: {state, recover_in_seconds}}，仅含非 closed 的账号
-    （closed 为正常态无需上报，减少负载）。
+    （closed 为正常态无需上报，减少负载）。附带 store 标识（local/redis/degraded），
+    供前端展示多 worker 下熔断状态是否跨进程一致。
     """
     status = circuit_breaker_registry.all_status()
     result: dict[str, dict[str, object]] = {}
@@ -173,7 +174,14 @@ def _collect_circuit_breaker_status() -> dict[str, object]:
             "state": info.get("state"),
             "recover_in_seconds": info.get("recover_in_seconds", 0),
         }
-    return {"breakers": result, "total_open": sum(1 for i in status.values() if i.get("state") == "open")}
+    store_name = "degraded"
+    try:
+        from services.shared_state import get_shared_state
+
+        store_name = get_shared_state().backend_name()  # local / redis
+    except Exception:  # noqa: BLE001 - store 标识取不到不阻断
+        store_name = "degraded"
+    return {"breakers": result, "total_open": sum(1 for i in status.values() if i.get("state") == "open"), "store": store_name}
 
 
 _PROCESS_START_TIME = time.time()
@@ -505,12 +513,22 @@ def create_router() -> APIRouter:
     async def prometheus_metrics(authorization: str | None = Header(default=None), token: str = ""):
         """Prometheus 指标端点（prometheus-client 库，供监控系统抓取）。
 
-        指标含账号规模等敏感信息，需鉴权（Authorization header 或 ?token= 查询参数，
-        与 /api/* 一致），防止公网暴露内部状态。Prometheus 抓取方配置 Bearer <auth-key>。
+        指标含账号规模等敏感信息，需鉴权（Authorization header 或 ?token= 查询参数）。
+        G6-S1：若配置了独立 CHATGPT2API_METRICS_TOKEN，则 /metrics 只认该 token
+        （auth-key 不再放行，防 auth-key 泄漏后指标裸奔）；未配置时回退 auth-key。
         """
-        if not authorization and token:
-            authorization = f"Bearer {token}"
-        require_admin(authorization)
+        from services.config import config as _cfg
+
+        metrics_token = _cfg.metrics_token
+        if metrics_token:
+            raw = extract_bearer_token(authorization) if authorization else ""
+            candidate = raw or token
+            if not candidate or candidate != metrics_token:
+                raise HTTPException(status_code=401, detail={"error": "无效或缺失 metrics token"})
+        else:
+            if not authorization and token:
+                authorization = f"Bearer {token}"
+            require_admin(authorization)
         from services.prometheus_metrics import generate_metrics
 
         content, content_type = generate_metrics()

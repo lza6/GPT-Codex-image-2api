@@ -18,6 +18,14 @@ from typing import Any
 from utils.helper import UpstreamHTTPError
 
 
+class ImageDownloadError(Exception):
+    """图片下载被拒绝（G6-S2 内容类型白名单拦截，非图片响应/异常类型）。
+
+    画图链路把它当「请求/输入拒绝」处理：不换号、不记上游熔断，
+    直接把错误转译给调用方（invalid_image_input 同语义）。
+    """
+
+
 class FailureScope(StrEnum):
     """失败归因域：换号/熔断策略按域区分。"""
 
